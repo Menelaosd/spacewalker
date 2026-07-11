@@ -36,6 +36,10 @@ func _ready() -> void:
 			int(GameState.sector_richness() * 100.0)])
 
 
+func _process(_delta: float) -> void:
+	queue_redraw()   # parallax stars follow the camera
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.physical_keycode == KEY_E and player != null and player.in_dock:
@@ -45,14 +49,18 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _make_stars() -> void:
+	## Three parallax depth layers: [pos, size, alpha, depth]
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 1337
-	for i in 400:
-		_stars.append([
-			Vector2(rng.randf_range(-2200, 2200), rng.randf_range(-2200, 2200)),
-			rng.randf_range(0.6, 2.2),
-			rng.randf_range(0.25, 0.9),
-		])
+	for layer in [[0.25, 220, 0.4, 1.0, 0.4], [0.55, 140, 0.8, 1.7, 0.65],
+			[1.0, 90, 1.2, 2.6, 1.0]]:
+		for i in int(layer[1]):
+			_stars.append([
+				Vector2(rng.randf_range(-2600, 2600), rng.randf_range(-2600, 2600)),
+				rng.randf_range(layer[2], layer[3]),
+				rng.randf_range(0.25, 0.9) * float(layer[4]),
+				layer[0],
+			])
 
 
 func _spawn_asteroids() -> void:
@@ -101,8 +109,10 @@ func _draw() -> void:
 			var off := Vector2(rng.randf_range(-900, 900), rng.randf_range(-600, 600))
 			draw_circle(off, rng.randf_range(500.0, 1100.0),
 				Color(col.r, col.g, col.b, rng.randf_range(0.03, 0.055)))
+	# parallax: far stars track the camera, near stars sweep past
+	var cam := player.global_position if player != null else Vector2.ZERO
 	for s in _stars:
-		draw_circle(s[0], s[1], Color(1, 1, 1, s[2]))
+		draw_circle(s[0] + cam * (1.0 - s[3]), s[1], Color(1, 1, 1, s[2]))
 	# faint ring showing max tether reach
 	draw_arc(Vector2(0, 48), GameState.tether_length, 0.0, TAU, 96,
 		Color(1.0, 0.85, 0.3, 0.08), 2.0)

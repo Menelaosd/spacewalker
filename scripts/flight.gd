@@ -15,8 +15,17 @@ const STAR_CHUNK := 640.0
 const FIELD_CHUNK := 1600.0
 const PARK_REACH := 140.0        # extra reach beyond a field's radius
 const HOME_DOCK_RADIUS := 300.0
-const SCOOP_RATE := 0.4          # gas units per second inside a nebula
 const INVENTORY_SCREEN := preload("res://scripts/inventory_screen.gd")
+const FLOAT_TEXT := preload("res://scripts/float_text.gd")
+
+# Derelict debris — old wrecks and lost cargo. Human-made, so its metal
+# mix is scrap composition, not solar: mostly Al/Fe hulls, Ti struts,
+# Ni/Cu wiring, the rare silver contact or gold connector.
+const SCRAP_METALS := [
+	["Al", 30], ["Fe", 30], ["Ti", 15], ["Ni", 10],
+	["Cu", 10], ["Ag", 4], ["Au", 1],
+]
+const TRASH_COLLECT_RADIUS := 70.0
 
 @onready var cam: Camera2D = $Camera
 
@@ -27,9 +36,11 @@ var _thr := 0.0     # -1..1  W forward / S reverse
 var _turn := 0.0    # -1..1  A / D
 
 var _field_cache := {}
+var _trash_cache := {}
 var _near_field: Dictionary = {}
 var _near_home := false
 var _scooping := false
+var _t := 0.0
 var _font: Font = ThemeDB.fallback_font
 
 var _pos_label: Label
@@ -65,11 +76,13 @@ func _process(delta: float) -> void:
 	_near_home = ship_pos.length() < HOME_DOCK_RADIUS
 	_near_field = _find_near_field()
 
+	_t += delta
 	# nebula flying scoops gas into the tanks — the only source of H/He & co
 	_scooping = bool(GameState.region_at(ship_pos)["nebula"])
 	if _scooping:
-		GameState.scoop_gas(SCOOP_RATE * delta)
+		GameState.scoop_gas(delta)
 
+	_collect_trash()
 	_update_hud()
 	queue_redraw()
 
@@ -132,6 +145,65 @@ func _field_in_chunk(cx: int, cy: int) -> Dictionary:
 			"rocks": rocks, "tint": region["tint"]}
 	_field_cache[key] = field
 	return field
+
+
+func _trash_in_chunk(cx: int, cy: int) -> Array:
+	var key := Vector2i(cx, cy)
+	if _trash_cache.has(key):
+		return _trash_cache[key]
+	if _trash_cache.size() > 512:
+		_trash_cache.clear()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = _chunk_seed(cx, cy, 3)
+	var pieces: Array = []
+	# no junk in the home chunk; sparse everywhere else
+	if not (cx == 0 and cy == 0) and rng.randf() < 0.3:
+		var origin := Vector2(cx, cy) * FIELD_CHUNK
+		for i in rng.randi_range(1, 3):
+			# weighted scrap-metal roll
+			var total := 0
+			for m in SCRAP_METALS:
+				total += m[1]
+			var roll := rng.randi_range(1, total)
+			var metal := "Fe"
+			for m in SCRAP_METALS:
+				roll -= m[1]
+				if roll <= 0:
+					metal = m[0]
+					break
+			pieces.append({
+				"pos": origin + Vector2(rng.randf_range(60, FIELD_CHUNK - 60),
+					rng.randf_range(60, FIELD_CHUNK - 60)),
+				"kind": rng.randi_range(0, 3),
+				"metal": metal,
+				"units": rng.randi_range(1, 3),
+				"spin": rng.randf_range(-0.6, 0.6),
+				"taken": false,
+			})
+	_trash_cache[key] = pieces
+	return pieces
+
+
+func _collect_trash() -> void:
+	var cc := Vector2i((ship_pos / FIELD_CHUNK).floor())
+	for dy in range(-1, 2):
+		for dx in range(-1, 2):
+			for piece in _trash_in_chunk(cc.x + dx, cc.y + dy):
+				if piece["taken"]:
+					continue
+				if ship_pos.distance_to(piece["pos"]) < TRASH_COLLECT_RADIUS:
+					piece["taken"] = true
+					var sym: String = piece["metal"]
+					GameState.elements[sym] = mini(
+						int(GameState.elements.get(sym, 0)) + piece["units"],
+						GameState.ELEMENT_CAP)
+					GameState.discovered[sym] = true
+					GameState.inventory_changed.emit()
+					var ft := FLOAT_TEXT.new()
+					ft.text = "+%d %s  (salvage)" % [piece["units"], Elements.name_of(sym)]
+					ft.color = Elements.hue_of(sym)
+					ft.position = piece["pos"] + Vector2(0, -20)
+					add_child(ft)
 
 
 func _find_near_field() -> Dictionary:
@@ -208,9 +280,9 @@ func _update_hud() -> void:
 			_near_field["rich"] * 100.0)
 		_prompt_label.modulate.a = 0.95
 	elif _scooping:
-		_prompt_label.text = "◌  Scooping nebula gas — H %s · He %s" % [
-			Elements.fmt(GameState.elements.get("H", 0.0)),
-			Elements.fmt(GameState.elements.get("He", 0.0))]
+		_prompt_label.text = "◌  Scooping nebula gas — H ×%d · He ×%d" % [
+			int(GameState.elements.get("H", 0)),
+			int(GameState.elements.get("He", 0))]
 		_prompt_label.modulate.a = 0.75
 	else:
 		_prompt_label.modulate.a = 0.0
@@ -235,37 +307,126 @@ func _draw() -> void:
 	_draw_nebulae(center, half)
 	_draw_stars(center, half)
 	_draw_fields(center, half)
+	_draw_trash(center, half)
 	_draw_home()
 	_draw_home_compass()
 	_draw_ship()
 
 
+func _draw_trash(center: Vector2, half: Vector2) -> void:
+	for cy in range(floori((center.y - half.y) / FIELD_CHUNK), floori((center.y + half.y) / FIELD_CHUNK) + 1):
+		for cx in range(floori((center.x - half.x) / FIELD_CHUNK), floori((center.x + half.x) / FIELD_CHUNK) + 1):
+			for piece in _trash_in_chunk(cx, cy):
+				if piece["taken"]:
+					continue
+				var p: Vector2 = piece["pos"]
+				var mcol: Color = Elements.hue_of(piece["metal"])
+				var ang: float = _t * piece["spin"]
+				draw_set_transform(p, ang, Vector2.ONE)
+				match int(piece["kind"]):
+					0:   # hull shard
+						draw_colored_polygon(PackedVector2Array([
+							Vector2(-9, -4), Vector2(10, -7), Vector2(4, 8), Vector2(-6, 6)]),
+							Color(0.5, 0.54, 0.62))
+						draw_polyline(PackedVector2Array([
+							Vector2(-9, -4), Vector2(10, -7), Vector2(4, 8), Vector2(-6, 6), Vector2(-9, -4)]),
+							Color(0.2, 0.22, 0.28), 1.5)
+					1:   # dead solar panel
+						draw_rect(Rect2(-12, -7, 24, 14), Color(0.16, 0.24, 0.42))
+						draw_rect(Rect2(-12, -7, 24, 14), Color(0.45, 0.5, 0.6), false, 1.5)
+						draw_line(Vector2(0, -7), Vector2(0, 7), Color(0.45, 0.5, 0.6), 1.0)
+						draw_line(Vector2(-12, 0), Vector2(12, 0), Color(0.45, 0.5, 0.6), 1.0)
+					2:   # cargo ring
+						draw_arc(Vector2.ZERO, 8.0, 0.0, TAU, 20, Color(0.55, 0.58, 0.66), 3.5)
+					3:   # bent strut
+						draw_line(Vector2(-10, -6), Vector2(2, 2), Color(0.5, 0.54, 0.62), 3.0)
+						draw_line(Vector2(2, 2), Vector2(10, -2), Color(0.5, 0.54, 0.62), 3.0)
+				draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+				# faint glint in its metal's color
+				draw_circle(p, 14.0, Color(mcol.r, mcol.g, mcol.b, 0.10))
+				draw_circle(p + Vector2(3, -4), 1.5, Color(1, 1, 1, 0.7))
+
+
 func _draw_nebulae(center: Vector2, half: Vector2) -> void:
-	## Soft dust clouds behind everything — visible from far off, so they
-	## work as landmarks you can steer by.
+	## Painterly dust clouds — elongated hue-shifted wisps, dark dust
+	## lanes, a glowing heart and tinted stars. Landmarks you steer by.
 	for i in GameState.NEBULAE.size():
 		var nc: Vector2 = GameState.nebula_center(i)
-		if (nc - center).length() > half.length() + GameState.NEBULA_RADIUS + 900.0:
+		if (nc - center).length() > half.length() + GameState.NEBULA_RADIUS + 1200.0:
 			continue
 		var col: Color = GameState.NEBULAE[i]["color"]
 		var rng := RandomNumberGenerator.new()
 		rng.seed = 7000 + i
-		draw_circle(nc, GameState.NEBULA_RADIUS * 0.95, Color(col.r, col.g, col.b, 0.035))
-		for b in 8:
-			var off := Vector2.from_angle(rng.randf() * TAU) * rng.randf_range(0.0, GameState.NEBULA_RADIUS * 0.65)
-			draw_circle(nc + off, rng.randf_range(450.0, 1200.0),
-				Color(col.r, col.g, col.b, rng.randf_range(0.03, 0.06)))
+		# broad outer wash
+		draw_circle(nc, GameState.NEBULA_RADIUS * 1.05, Color(col.r, col.g, col.b, 0.025))
+		# elongated wisps with drifting hue
+		for b in 16:
+			var off := Vector2.from_angle(rng.randf() * TAU) \
+				* rng.randf_range(0.0, GameState.NEBULA_RADIUS * 0.75)
+			var wisp_col := col
+			wisp_col.h = fmod(col.h + rng.randf_range(-0.05, 0.05) + 1.0, 1.0)
+			var squash := rng.randf_range(0.35, 0.7)
+			draw_set_transform(nc + off, rng.randf() * TAU, Vector2(1.0, squash))
+			draw_circle(Vector2.ZERO, rng.randf_range(380.0, 1100.0),
+				Color(wisp_col.r, wisp_col.g, wisp_col.b, rng.randf_range(0.025, 0.05)))
+			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		# dark dust lanes threading through
+		for b in 5:
+			var off := Vector2.from_angle(rng.randf() * TAU) \
+				* rng.randf_range(GameState.NEBULA_RADIUS * 0.15, GameState.NEBULA_RADIUS * 0.6)
+			draw_set_transform(nc + off, rng.randf() * TAU, Vector2(1.0, rng.randf_range(0.2, 0.4)))
+			draw_circle(Vector2.ZERO, rng.randf_range(300.0, 700.0),
+				Color(0.01, 0.015, 0.03, rng.randf_range(0.06, 0.11)))
+			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		# glowing heart
+		var heart := nc + Vector2.from_angle(rng.randf() * TAU) * GameState.NEBULA_RADIUS * 0.2
+		draw_circle(heart, 340.0, Color(col.lightened(0.3).r, col.lightened(0.3).g,
+			col.lightened(0.3).b, 0.05))
+		draw_circle(heart, 130.0, Color(col.lightened(0.55).r, col.lightened(0.55).g,
+			col.lightened(0.55).b, 0.07))
+		# stars tinted by the cloud they sit in
+		for b in 14:
+			var sp := nc + Vector2.from_angle(rng.randf() * TAU) \
+				* rng.randf_range(0.0, GameState.NEBULA_RADIUS * 0.85)
+			draw_circle(sp, rng.randf_range(0.8, 2.2),
+				Color(col.lightened(0.6).r, col.lightened(0.6).g,
+					col.lightened(0.6).b, rng.randf_range(0.35, 0.7)))
+
+
+## Parallax starfield: three depth layers scrolling at different rates.
+## A star's world position = its pattern position + camera * (1 - depth),
+## so far layers crawl and near layers sweep past — cheap, convincing 3D.
+const STAR_LAYERS := [
+	# [depth, count/chunk, size lo, size hi, alpha, tint]
+	[0.25, 18, 0.4, 1.0, 0.4, Color(0.75, 0.85, 1.0)],
+	[0.55, 12, 0.8, 1.7, 0.65, Color(0.9, 0.95, 1.0)],
+	[1.0, 8, 1.2, 2.6, 1.0, Color(1.0, 1.0, 1.0)],
+]
 
 
 func _draw_stars(center: Vector2, half: Vector2) -> void:
-	for cy in range(floori((center.y - half.y) / STAR_CHUNK), floori((center.y + half.y) / STAR_CHUNK) + 1):
-		for cx in range(floori((center.x - half.x) / STAR_CHUNK), floori((center.x + half.x) / STAR_CHUNK) + 1):
-			var rng := RandomNumberGenerator.new()
-			rng.seed = _chunk_seed(cx, cy, 2)
-			for i in 13:
-				var p := Vector2(cx, cy) * STAR_CHUNK + Vector2(rng.randf(), rng.randf()) * STAR_CHUNK
-				draw_circle(p, rng.randf_range(0.6, 2.0),
-					Color(1, 1, 1, rng.randf_range(0.25, 0.85)))
+	for li in STAR_LAYERS.size():
+		var layer: Array = STAR_LAYERS[li]
+		var depth: float = layer[0]
+		var shift := center * (1.0 - depth)          # parallax offset
+		var vc := center - shift                     # pattern-space view center
+		for cy in range(floori((vc.y - half.y) / STAR_CHUNK), floori((vc.y + half.y) / STAR_CHUNK) + 1):
+			for cx in range(floori((vc.x - half.x) / STAR_CHUNK), floori((vc.x + half.x) / STAR_CHUNK) + 1):
+				var rng := RandomNumberGenerator.new()
+				rng.seed = _chunk_seed(cx, cy, 20 + li)
+				for i in int(layer[1]):
+					var p := Vector2(cx, cy) * STAR_CHUNK \
+						+ Vector2(rng.randf(), rng.randf()) * STAR_CHUNK + shift
+					var size := rng.randf_range(layer[2], layer[3])
+					var tint: Color = layer[5]
+					draw_circle(p, size, Color(tint.r, tint.g, tint.b,
+						rng.randf_range(0.3, 0.9) * float(layer[4])))
+					# the near layer gets occasional bright glint stars
+					if li == 2 and rng.randf() < 0.08:
+						draw_line(p + Vector2(-4, 0), p + Vector2(4, 0),
+							Color(1, 1, 1, 0.35), 1.0)
+						draw_line(p + Vector2(0, -4), p + Vector2(0, 4),
+							Color(1, 1, 1, 0.35), 1.0)
 
 
 func _draw_fields(center: Vector2, half: Vector2) -> void:
@@ -349,12 +510,24 @@ func _draw_ship() -> void:
 					Vector2(80.0 + randf() * 5.0, ey)]),
 				Color(0.4, 0.85, 1.0, 0.7))
 	if absf(_turn) > 0.05:
-		# the wingtip turbine on the pushing side fires during a yaw —
-		# the wings sit aft of midship on this hull
-		var wy := -66.0 if _turn > 0.0 else 66.0
-		draw_circle(Vector2(-26, wy), 4.5 + randf() * 2.5,
-			Color(0.4, 0.85, 1.0, 0.7))
-		draw_circle(Vector2(-26, wy), 8.0, Color(0.4, 0.85, 1.0, 0.2))
+		# RCS turbine at the trailing edge of the wing — fires OUTWARD on
+		# the pushing side, torquing the ship into the turn
+		var wy := -64.0 if _turn > 0.0 else 64.0
+		var base := Vector2(-40, wy)
+		var out := Vector2(0, signf(wy))
+		# nozzle stub
+		draw_line(base - out * 2.0, base + out * 3.0, Color(0.55, 0.6, 0.68), 4.0)
+		# flame cone with flicker, swept slightly aft
+		var flick := randf() * 6.0
+		var tip := base + out * (16.0 + flick) + Vector2(-5, 0)
+		draw_colored_polygon(PackedVector2Array([
+			base + Vector2(4, 0), base + Vector2(-4, 0), tip]),
+			Color(0.4, 0.85, 1.0, 0.8))
+		draw_colored_polygon(PackedVector2Array([
+			base + Vector2(2, 0), base + Vector2(-2, 0),
+			base + out * (9.0 + flick * 0.5) + Vector2(-2.5, 0)]),
+			Color(0.92, 0.98, 1.0, 0.9))
+		draw_circle(base + out * 6.0, 7.0, Color(0.4, 0.85, 1.0, 0.18))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	# painted hull, rotated toward the heading
 	draw_set_transform(ship_pos, heading, Vector2(SHIP_SCALE, SHIP_SCALE))

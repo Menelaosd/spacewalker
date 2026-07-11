@@ -9,7 +9,9 @@ signal gear_changed()
 signal notify(text: String)
 
 const SAVE_DIR := "user://saves"
-const SAVE_VERSION := 2
+const SAVE_VERSION := 3
+const ELEMENT_CAP := 9999      # per-element storage limit
+const SCOOP_INTERVAL := 2.2    # seconds per +1 gas while nebula-flying
 
 ## Chunk types dropped by asteroids. "value" is ore-value (the currency);
 ## "units" is how much raw material one chunk refines into — its element
@@ -36,13 +38,46 @@ const UPGRADES := {
 	"laser":  {"base": 12, "step": 25.0},
 }
 
+# --- Ship rooms: a 4x2 cell grid; some prefixed, the rest built with ore ---
+const ROOM_TYPES := {
+	"quarters":     {"name": "Quarters",      "floor": Color(0.15, 0.17, 0.23), "buildable": false},
+	"upgrade":      {"name": "Upgrade Bay",   "floor": Color(0.14, 0.20, 0.25), "buildable": false},
+	"bridge":       {"name": "Bridge",        "floor": Color(0.13, 0.18, 0.26), "buildable": false},
+	"engine":       {"name": "Engine Room",   "floor": Color(0.22, 0.15, 0.13), "buildable": false},
+	"cargo":        {"name": "Cargo Hold",    "floor": Color(0.16, 0.17, 0.21), "buildable": false},
+	"airlock":      {"name": "Airlock",       "floor": Color(0.15, 0.18, 0.22), "buildable": false},
+	# the one buildable for now: plain room space. Specialized rooms
+	# (greenhouse etc.) exist below but are deferred — not offered in-game.
+	"room":         {"name": "Room",          "floor": Color(0.16, 0.18, 0.24), "buildable": true,
+		"cost": 20, "desc": "empty room space"},
+	"greenhouse":   {"name": "Greenhouse",    "floor": Color(0.12, 0.20, 0.14), "buildable": true,
+		"cost": 30, "desc": "+25 max O2"},
+	"refinery":     {"name": "Refinery",      "floor": Color(0.22, 0.17, 0.12), "buildable": true,
+		"cost": 35, "desc": "+50% refined elements"},
+	"gascollector": {"name": "Gas Collector", "floor": Color(0.12, 0.18, 0.24), "buildable": true,
+		"cost": 30, "desc": "2x nebula scooping"},
+	"workshop":     {"name": "Workshop",      "floor": Color(0.19, 0.16, 0.22), "buildable": true,
+		"cost": 35, "desc": "+15 laser power"},
+}
+const BUILD_ORDER := ["greenhouse", "refinery", "gascollector", "workshop"]
+# 4x2 grid: six prefixed rooms + two empty construction bays (cells 2, 6).
+const DEFAULT_ROOMS := {
+	0: "quarters", 1: "upgrade", 2: "", 3: "bridge",
+	4: "engine", 5: "cargo", 6: "", 7: "airlock",
+}
+
 # --- Runtime state ---
 var oxygen: float = 100.0
 var carried: int = 0                              # ore-value on the suit
 var carried_items := {"iron": 0, "crystal": 0}    # per-type, this walk
 var banked: int = 0                               # ore-value currency
 var inventory := {"iron": 0, "crystal": 0}        # chunk counts ever banked
-var elements := {}                                # symbol -> units refined
+var elements := {}                                # symbol -> INTEGER units (cap 9999)
+var carried_veins := {}                           # symbol -> units held on the suit
+var discovered := {}                              # symbol -> true once a VEIN of it
+                                                  # was banked (or gas scooped)
+var rooms := {}                                   # cell (0-7) -> room type ("" = empty)
+var _scoop_accum := 0.0
 
 # Where the ship is parked in open space. ZERO = home station.
 var sector := Vector2.ZERO
@@ -106,6 +141,10 @@ func sector_richness() -> float:
 	return richness_at(sector)
 
 
+func _ready() -> void:
+	rooms = DEFAULT_ROOMS.duplicate()
+
+
 func drain_oxygen(amount: float) -> bool:
 	## Returns true when the tank hits zero.
 	if oxygen <= 0.0:
@@ -122,10 +161,15 @@ func refill_oxygen(amount: float) -> void:
 	oxygen_changed.emit(oxygen, max_oxygen)
 
 
-func add_carried(kind: String, value: int) -> void:
+func add_carried(kind: String, value: int, vein := "") -> void:
+	## vein = the chunk's dominant element (rolled at real abundance by
+	## the asteroid it came from) — over half its material is that element.
 	carried += value
 	if carried_items.has(kind):
 		carried_items[kind] += 1
+	if vein != "":
+		# a chunk yields its ore-value in element units (crystal = 2)
+		carried_veins[vein] = carried_veins.get(vein, 0) + value
 	cargo_changed.emit(carried, banked)
 	inventory_changed.emit()
 
@@ -138,10 +182,17 @@ func bank_cargo() -> int:
 	if moved > 0:
 		banked += moved
 		carried = 0
-		Elements.add_units(elements, Elements.rock_fractions(),
-			carried_items["iron"] * float(RESOURCE_TYPES["iron"]["units"]))
-		Elements.add_units(elements, Elements.crystal_fractions(),
-			carried_items["crystal"] * float(RESOURCE_TYPES["crystal"]["units"]))
+		# chunks refine into whole units of their vein element — clean
+		# inventory numbers; the real solar abundances live in the vein
+		# ROLL, so what you find still follows the table exactly
+		var refinery := has_room("refinery")
+		for sym in carried_veins:
+			var units: int = carried_veins[sym]
+			if refinery:
+				units += int(ceilf(units * 0.5))
+			elements[sym] = mini(int(elements.get(sym, 0)) + units, ELEMENT_CAP)
+			discovered[sym] = true
+		carried_veins = {}
 		for k in carried_items:
 			inventory[k] += carried_items[k]
 			carried_items[k] = 0
@@ -150,16 +201,24 @@ func bank_cargo() -> int:
 	return moved
 
 
-func scoop_gas(units: float) -> void:
-	## Nebula flying collects gases (mostly H and He) straight into the
-	## ship's tanks — the only source of the elements rock can't hold.
-	Elements.add_units(elements, Elements.gas_fractions(), units)
-	inventory_changed.emit()
+func scoop_gas(delta: float) -> void:
+	## Nebula flying: every few seconds the scoop condenses +1 unit of a
+	## gas, sampled at real solar ratios (mostly H, often He, rarely the
+	## noble traces) — the only source of the elements rock can't hold.
+	_scoop_accum += delta
+	var interval := SCOOP_INTERVAL * (0.5 if has_room("gascollector") else 1.0)
+	while _scoop_accum >= interval:
+		_scoop_accum -= interval
+		var sym := Elements.sample_gas_element()
+		elements[sym] = mini(int(elements.get(sym, 0)) + 1, ELEMENT_CAP)
+		discovered[sym] = true
+		inventory_changed.emit()
 
 
 func lose_carried() -> int:
 	var lost := carried
 	carried = 0
+	carried_veins = {}
 	for k in carried_items:
 		carried_items[k] = 0
 	cargo_changed.emit(carried, banked)
@@ -237,6 +296,8 @@ func save_game() -> void:
 		"banked": banked,
 		"inventory": inventory,
 		"elements": elements,
+		"discovered": discovered.keys(),
+		"rooms": _rooms_to_json(),
 		"sector": [sector.x, sector.y],
 		"saved_at": Time.get_date_string_from_system(),
 	}
@@ -267,10 +328,27 @@ func load_game(s: int) -> bool:
 	elements = {}
 	var el: Dictionary = data.get("elements", {})
 	for sym in el:
-		elements[sym] = float(el[sym])
+		# integer inventory; legacy fractional traces floor away to zero
+		var v := mini(int(float(el[sym])), ELEMENT_CAP)
+		if v > 0:
+			elements[sym] = v
+	discovered = {}
+	if data.has("discovered"):
+		for sym in data["discovered"]:
+			discovered[sym] = true
+	else:
+		for sym in elements:
+			discovered[sym] = true
+	rooms = DEFAULT_ROOMS.duplicate()
+	var rj: Dictionary = data.get("rooms", {})
+	for k in rj:
+		var cell := int(k)
+		if rooms.has(cell) and ROOM_TYPES.has(rj[k]):
+			rooms[cell] = rj[k]
 	var sec: Array = data.get("sector", [0.0, 0.0])
 	sector = Vector2(sec[0], sec[1])
 	carried = 0
+	carried_veins = {}
 	for k in carried_items:
 		carried_items[k] = 0
 	in_game = true
@@ -297,6 +375,9 @@ func new_game(s: int) -> void:
 	for k in carried_items:
 		carried_items[k] = 0
 	elements = {}
+	carried_veins = {}
+	discovered = {}
+	rooms = DEFAULT_ROOMS.duplicate()
 	sector = Vector2.ZERO
 	wake_on_bunk = false
 	in_game = true
@@ -305,6 +386,41 @@ func new_game(s: int) -> void:
 	inventory_changed.emit()
 	gear_changed.emit()
 	save_game()
+
+
+func _rooms_to_json() -> Dictionary:
+	var out := {}
+	for k in rooms:
+		out[str(k)] = rooms[k]
+	return out
+
+
+func has_room(type: String) -> bool:
+	for cell in rooms:
+		if rooms[cell] == type:
+			return true
+	return false
+
+
+func build_room(cell: int, type: String) -> bool:
+	## Spends banked ore to construct a room in an empty cell.
+	if rooms.get(cell, "x") != "" or not ROOM_TYPES.get(type, {}).get("buildable", false):
+		return false
+	var cost: int = ROOM_TYPES[type]["cost"]
+	if banked < cost:
+		return false
+	banked -= cost
+	rooms[cell] = type
+	match type:
+		"greenhouse":
+			max_oxygen += 25.0
+			refill_oxygen(25.0)
+		"workshop":
+			laser_dps += 15.0
+	cargo_changed.emit(carried, banked)
+	gear_changed.emit()
+	save_game()
+	return true
 
 
 func delete_save(s: int) -> void:

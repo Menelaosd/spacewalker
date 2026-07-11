@@ -4,13 +4,13 @@ class_name UITheme
 ## glossy buttons, segmented meters, glowing ring gauges.
 ## Every scene draws through these helpers; restyle here, nowhere else.
 
-const ACCENT := Color(0.55, 0.9, 1.0)          # cyan — info, borders
-const ACCENT_WARM := Color(1.0, 0.62, 0.25)    # orange — action, highlights
-const DANGER := Color(1.0, 0.32, 0.28)
-const BG := Color(0.04, 0.07, 0.12, 0.86)
-const BG_LIGHT := Color(0.10, 0.15, 0.22, 0.9)
-const TEXT := Color(0.92, 0.95, 0.98)
-const TEXT_DIM := Color(0.92, 0.95, 0.98, 0.55)
+const ACCENT := Color(0.72, 0.95, 1.0)         # ice cyan — info, borders
+const ACCENT_WARM := Color(1.0, 0.74, 0.38)    # bright amber — action
+const DANGER := Color(1.0, 0.38, 0.34)
+const BG := Color(0.11, 0.16, 0.25, 0.9)
+const BG_LIGHT := Color(0.19, 0.26, 0.37, 0.93)
+const TEXT := Color.WHITE
+const TEXT_DIM := Color(1.0, 1.0, 1.0, 0.65)
 const CUT := 12.0
 
 const TEX_FRAME := preload("res://assets/ui/panel_frame.png")
@@ -36,19 +36,19 @@ static func _tex_sb(tex: Texture2D, margin: float, content := 0.0) -> StyleBoxTe
 
 static func frame_sb() -> StyleBoxTexture:
 	if _frame_sb == null:
-		_frame_sb = _tex_sb(TEX_FRAME, 26.0, 24.0)
+		_frame_sb = _tex_sb(TEX_FRAME, 12.0, 16.0)
 	return _frame_sb
 
 
 static func small_sb() -> StyleBoxTexture:
 	if _small_sb == null:
-		_small_sb = _tex_sb(TEX_SMALL, 12.0, 12.0)
+		_small_sb = _tex_sb(TEX_SMALL, 6.0, 10.0)
 	return _small_sb
 
 
 static func meter_sb() -> StyleBoxTexture:
 	if _meter_sb == null:
-		_meter_sb = _tex_sb(TEX_METER, 6.0)
+		_meter_sb = _tex_sb(TEX_METER, 4.0)
 	return _meter_sb
 
 
@@ -82,9 +82,9 @@ static func draw_header(ci: CanvasItem, pos: Vector2, text: String,
 	ci.draw_string(font, pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, TEXT)
 	var y := pos.y + 10.0
 	ci.draw_line(Vector2(pos.x, y), Vector2(pos.x + width, y),
-		Color(accent.r, accent.g, accent.b, 0.12), 5.0)
+		Color(accent.r, accent.g, accent.b, 0.22), 5.0)
 	ci.draw_line(Vector2(pos.x, y), Vector2(pos.x + width * 0.55, y),
-		Color(accent.r, accent.g, accent.b, 0.8), 1.5)
+		Color(1, 1, 1, 0.95), 1.5)
 
 
 static func draw_headline(ci: CanvasItem, rect: Rect2, text: String,
@@ -124,7 +124,7 @@ static func draw_meter(ci: CanvasItem, rect: Rect2, frac: float,
 	frac = clampf(frac, 0.0, 1.0)
 	var col := DANGER if danger else color
 	meter_sb().draw(ci.get_canvas_item(), rect)
-	var inner := rect.grow(-4.0)
+	var inner := rect.grow(-3.0)
 	var cw := 7.0
 	var gap := 2.0
 	var n := int((inner.size.x + gap) / (cw + gap))
@@ -133,11 +133,11 @@ static func draw_meter(ci: CanvasItem, rect: Rect2, frac: float,
 		var cell := Rect2(inner.position + Vector2(float(i) * (cw + gap), 0),
 			Vector2(cw, inner.size.y))
 		if i < lit:
-			ci.draw_rect(cell, col.darkened(0.15))
+			ci.draw_rect(cell, col.darkened(0.1))
 			ci.draw_rect(Rect2(cell.position, Vector2(cw, inner.size.y * 0.45)),
-				col.lightened(0.3))
+				col.lightened(0.45))
 			if i == lit - 1:
-				ci.draw_rect(cell.grow(1.0), Color(col.r, col.g, col.b, 0.3), false, 1.5)
+				ci.draw_rect(cell.grow(1.5), Color(1, 1, 1, 0.4), false, 1.5)
 		else:
 			ci.draw_rect(cell, Color(1, 1, 1, 0.04))
 
@@ -146,19 +146,19 @@ static func draw_ring_gauge(ci: CanvasItem, center: Vector2, radius: float,
 		frac: float, color: Color, font: Font, show_pct := true) -> void:
 	## Glowing circular gauge, like the reference 97% rings.
 	frac = clampf(frac, 0.0, 1.0)
-	ci.draw_arc(center, radius, 0, TAU, 64, Color(0, 0, 0, 0.55), 9.0)
-	ci.draw_arc(center, radius + 4.0, 0, TAU, 64, Color(1, 1, 1, 0.08), 1.0)
-	ci.draw_arc(center, radius - 4.0, 0, TAU, 64, Color(1, 1, 1, 0.08), 1.0)
+	ci.draw_arc(center, radius, 0, TAU, 64, Color(0, 0, 0, 0.5), 6.0)
+	ci.draw_arc(center, radius + 3.0, 0, TAU, 64, Color(1, 1, 1, 0.07), 1.0)
+	ci.draw_arc(center, radius - 3.0, 0, TAU, 64, Color(1, 1, 1, 0.07), 1.0)
 	if frac > 0.005:
 		var a0 := -PI / 2.0
 		var a1 := a0 + TAU * frac
 		ci.draw_arc(center, radius, a0, a1, 64,
-			Color(color.r, color.g, color.b, 0.22), 15.0)   # outer glow
-		ci.draw_arc(center, radius, a0, a1, 64, color, 6.0)
-		ci.draw_arc(center, radius, a0, a1, 64, color.lightened(0.45), 2.0)
+			Color(color.r, color.g, color.b, 0.32), 11.0)   # outer glow
+		ci.draw_arc(center, radius, a0, a1, 64, color, 4.0)
+		ci.draw_arc(center, radius, a0, a1, 64, Color(1, 1, 1, 0.9), 1.5)
 		var head := center + Vector2.from_angle(a1) * radius
-		ci.draw_circle(head, 3.5, Color(1, 1, 1, 0.95))
-		ci.draw_circle(head, 6.5, Color(color.r, color.g, color.b, 0.35))
+		ci.draw_circle(head, 3.0, Color(1, 1, 1, 0.95))
+		ci.draw_circle(head, 5.5, Color(color.r, color.g, color.b, 0.35))
 	if show_pct:
 		ci.draw_string(font, center + Vector2(-radius, 5.0),
 			"%d%%" % int(frac * 100.0), HORIZONTAL_ALIGNMENT_CENTER,
@@ -179,9 +179,9 @@ static func draw_key_chip(ci: CanvasItem, center: Vector2, key: String,
 # ------------------------------------------------------------------
 static func make_theme() -> Theme:
 	var t := Theme.new()
-	var bn := _tex_sb(TEX_BTN_N, 14.0)
-	var bh := _tex_sb(TEX_BTN_H, 14.0)
-	var bp := _tex_sb(TEX_BTN_P, 14.0)
+	var bn := _tex_sb(TEX_BTN_N, 8.0)
+	var bh := _tex_sb(TEX_BTN_H, 8.0)
+	var bp := _tex_sb(TEX_BTN_P, 8.0)
 	for sb: StyleBoxTexture in [bn, bh, bp]:
 		sb.content_margin_left = 20.0
 		sb.content_margin_right = 20.0
@@ -195,6 +195,6 @@ static func make_theme() -> Theme:
 	t.set_color("font_hover_color", "Button", Color(0.8, 0.95, 1.0))
 	t.set_color("font_pressed_color", "Button", ACCENT)
 
-	t.set_stylebox("panel", "PanelContainer", _tex_sb(TEX_SMALL, 12.0, 14.0))
+	t.set_stylebox("panel", "PanelContainer", _tex_sb(TEX_SMALL, 6.0, 12.0))
 	t.set_color("font_color", "Label", TEXT)
 	return t

@@ -5,6 +5,145 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 11/07/2026 — v0.9: RCS wing turbines, painterly nebulas, salvage debris, parallax
+
+- **Wing turbines, realistic**: yaw thrusters now sit at the wings'
+  trailing edges and fire OUTWARD on the physically-correct side (left
+  wing fires to yaw right) — nozzle stub, flickering cyan cone, white
+  core, soft glow.
+- **Nebulas, painterly**: 16 elongated hue-drifting wisps per cloud at
+  random angles, dark dust lanes threading through, a glowing heart,
+  and stars tinted by the cloud around them. Landmarks worth flying to.
+- **Space trash / salvage**: derelict debris (hull shards, dead solar
+  panels, cargo rings, bent struts) spawns deterministically (~30% per
+  chunk, none at home), slowly tumbling, glinting in its metal's color.
+  Fly over it to salvage: scrap-composition metals (Al/Fe/Ti/Ni/Cu, rare
+  Ag, 1% Au) — human-made junk, so NOT solar ratios, deliberately.
+  Float-text feedback; counts toward discovery. Session-persistent
+  (respawns on scene reload — cheap finds, fine for now).
+- **Parallax starfield**: three depth layers in flight AND spacewalk
+  scenes — far stars crawl, near stars sweep, near layer gets glint
+  crosses. Cheap, convincing 3D depth (star pos + cam * (1 - depth)).
+
+---
+
+## 11/07/2026 — Room building: EMPTY rooms only (clarified design)
+
+What the user actually wanted: build **plain empty rooms** (20 ore) —
+ship expansion without purpose yet. Stand at a bay's holo pedestal, a
+hologram preview of the room glows over the cell (red-tinted if you
+can't afford it), **E constructs**. Built rooms render as fresh space:
+unopened crates and a work lamp. Persisted in saves.
+The specialized-room engine (greenhouse/refinery/gascollector/workshop
+with effects, ROOM_TYPES data, build_room) stays fully prepared but
+UNOFFERED — "just prepare the engine for later."
+
+---
+
+## 11/07/2026 — UI kit v4: white-silver "holo-glass" (more white, more energy)
+
+Palette pushed bright: **white-silver rims** (near-white steel gradients),
+brighter holo-glass interiors, vivid glossy blues, ice-cyan hairlines at
+higher alpha, pure-white text. Energy pass: header underlines and ring-
+gauge cores now **white-hot**, meter cells brighter with a white glow on
+the head cell, title wordmark glow intensified, white accent rules.
+All tuning lives in gen_ui_kit palette consts + UITheme consts.
+
+---
+
+## 11/07/2026 — Buildable rooms deferred + UI kit v3 (rounded, lighter, glossy)
+
+- **Buildable rooms shelved** (user call: "we'll come to that later").
+  Interior is a 3x2 grid of the six prefixed rooms; no empty bays.
+  The whole build system (`build_room`, ROOM_TYPES buildables, effects,
+  hologram menu code) stays dormant and tested — one DEFAULT_ROOMS edit
+  re-enables it. Saves ignore stored rooms until then.
+- **UI kit v3**: textures re-rendered with **true rounded corners**
+  (signed-distance-function rendering with anti-aliased edges) — no more
+  hard rectangles anywhere. **Lighter palette** (brighter navy interiors,
+  lighter steel rims, punchier blues), stronger gloss bands on buttons,
+  brighter hairlines. Theme constants lifted to match; scanlines and
+  vignette softened for the lighter look.
+
+---
+
+## 11/07/2026 — v0.8: modular ship (buildable rooms) + big-card inventory
+
+**The ship is a base now.**
+- Interior rebuilt as a **4x2 room grid** (`GameState.rooms`, saved).
+  Six prefixed rooms + **two EMPTY BAYS** (hazard-taped, holo pedestal).
+  Stand at a bay → hologram build menu → press **1-4** to construct:
+  - **Greenhouse** (30 ore) — +25 max O2
+  - **Refinery** (35 ore) — +50% refined element units on banking
+  - **Gas Collector** (30 ore) — 2x nebula scoop rate
+  - **Workshop** (35 ore) — +15 laser power
+  Each has its own animated furniture (swaying plants, glowing smelter,
+  filling gas tanks, sparking bench). Effects verified by test; rooms
+  persist in saves. Stations/furniture are all data-driven per cell —
+  future room types are one dict entry + one furniture func.
+- **Inventory v3**: one big framed screen with a winged INVENTORY
+  headline. Elements as **large cards** — symbol + full name + count +
+  capacity bar + category strip + on-suit badge — 6 columns,
+  **mouse-wheel scrollable** with a scrollbar, hover detail footer.
+  EXOSUIT column: character, gear rows, discovery ring gauge.
+
+---
+
+## 11/07/2026 — Integer inventory (0/9999) — goodbye scientific notation
+
+Playtest feedback: fractional amounts ("133m units") were too abstract.
+Element amounts are now **plain integers with a 9999 cap**:
+- Banking a chunk gives its ore-value in units of its vein element
+  (rock +1, crystal +2). No more fractional general-composition traces.
+- Nebula scooping ticks **+1 gas every 2.2 s**, the gas sampled at real
+  solar ratios (92% of ticks are H — the table lives in the roll).
+- The realism guarantee is unchanged: what you FIND follows the solar
+  abundances exactly; what you HOLD is now readable ("stored 42 / 9999").
+- Save v3; legacy fractional saves floor to integers (traces vanish).
+
+---
+
+## 11/07/2026 — Discovery vs. trace (player-confusion fixes)
+
+Playtest feedback: "why 83/83 collected?" and "I pick Oxygen but don't see
+it in elements." Two causes, two fixes:
+- Banking adds a microscopic trace of ALL rock elements (real chemistry) —
+  which made "collected" hit 83/83 instantly. Now the counter tracks
+  **DISCOVERED**: an element counts only when you bank a **vein** of it
+  (or scoop it as nebula gas). Traces still accumulate but show dim; the
+  hover footer says "DISCOVERED" / "trace only — find its vein" / "not
+  yet found". Saves store the discovered list (legacy saves derive it).
+- Carried chunks only refine on banking, which was invisible. Element
+  slots now show a warm **"+n" badge** for vein chunks on the suit, and
+  the header says "DOCK TO REFINE".
+
+---
+
+## 11/07/2026 — v0.7: element veins, thin-modern UI, suit controls settled
+
+- **Element veins — the mind-blower.** Every asteroid rolls a **dominant
+  element at real solar abundance** (crystal rocks roll from the
+  heavy-enriched table): its ore flecks glow in that element's unique
+  color (golden-angle hue by atomic number), the **vein name appears
+  while your laser bites** ("Fe — Iron"), laser sparks match the color,
+  dropped chunks are tinted, and collecting pops floating **"+1 Silicon"**
+  text. Banked chunks refine 55% into the vein + 45% general composition —
+  veins are rolled at real abundance, so expected element totals still
+  follow the solar table. Finding a **gold vein** is a real cosmic
+  lottery win. (No rare loop — rarity is the roll itself.)
+- **Suit controls settled (v4, final)**: direct WASD thrust + mouse-facing
+  + **SPACE = stabilizer brake** (kills drift — the drift was the "weird").
+  Stabilizer puff jets fire all around the suit while braking.
+- **UI de-fattened**: kit textures regenerated slim (2px steel edges,
+  hairline cyan, translucent interiors, corner accent tabs instead of
+  riveted plates); thinner meters and ring gauges.
+- **Inventory upgrades**: element symbols in their own hue colors; **hover
+  any slot** for a detail footer (name, Z, category, stored units, real
+  solar abundance in scientific notation); **Esc closes the inventory**
+  without opening the pause menu.
+
+---
+
 ## 11/07/2026 — v0.6: "Nemesis" UI kit (metallic frames, ring gauges, glossy buttons)
 
 Full UI kit in the style of the user's reference (Space War Nemesis):

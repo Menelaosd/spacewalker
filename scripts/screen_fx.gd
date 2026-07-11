@@ -13,10 +13,10 @@ func _draw() -> void:
 	# scanlines
 	var y := 0.0
 	while y < vp.y:
-		draw_line(Vector2(0, y), Vector2(vp.x, y), Color(0, 0, 0, 0.05), 1.0)
+		draw_line(Vector2(0, y), Vector2(vp.x, y), Color(0, 0, 0, 0.035), 1.0)
 		y += 4.0
 	# corner vignette
-	var col := Color(0, 0.01, 0.03, 0.4)
+	var col := Color(0, 0.01, 0.03, 0.3)
 	for c in [
 		[Vector2.ZERO, Vector2(1, 0), Vector2(0, 1)],
 		[Vector2(vp.x, 0), Vector2(-1, 0), Vector2(0, 1)],

@@ -21,6 +21,7 @@ var tether_anchor := Vector2.ZERO
 var in_dock := true
 var laser_on := false
 var laser_hit := Vector2.ZERO
+var _hit_color := Color(1.0, 0.7, 0.4)
 var aim_dir := Vector2.RIGHT   # body and pistol face the mouse
 var thrust_input := Vector2.ZERO
 
@@ -29,15 +30,20 @@ func _ready() -> void:
 	add_to_group("player")
 
 
+const BRAKE := 4.5           # SPACE — stabilizer thrusters kill drift
+
+var braking := false
+
+
 func _physics_process(delta: float) -> void:
-	# EVA mouse-flight: the cursor is the joystick. W burns TOWARD it,
-	# S retro-burns away, A/D strafe sideways relative to your facing —
-	# point at a rock, W to approach, S to brake, A/D to orbit it.
+	# EVA controls, settled: WASD thrusts in screen directions (up is up),
+	# the suit faces the mouse, and SPACE fires stabilizers to stop drift.
 	_update_aim()
-	var fwd := Input.get_axis("move_down", "move_up")
-	var strafe := Input.get_axis("move_left", "move_right")
-	thrust_input = (aim_dir * fwd - aim_dir.orthogonal() * strafe).limit_length(1.0)
+	thrust_input = Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	velocity += thrust_input * THRUST * delta
+	braking = Input.is_physical_key_pressed(KEY_SPACE)
+	if braking:
+		velocity = velocity.lerp(Vector2.ZERO, 1.0 - exp(-BRAKE * delta))
 	velocity = velocity.limit_length(MAX_SPEED)
 	velocity = velocity.lerp(Vector2.ZERO, 1.0 - exp(-DAMP * delta))
 	move_and_slide()
@@ -86,11 +92,15 @@ func _update_laser(delta: float) -> void:
 	var hit := get_world_2d().direct_space_state.intersect_ray(query)
 	if hit.is_empty():
 		laser_hit = to
+		_hit_color = Color(1.0, 0.7, 0.4)
 	else:
 		laser_hit = hit["position"]
 		var collider: Object = hit["collider"]
 		if collider != null and collider.has_method("take_damage"):
 			collider.take_damage(GameState.laser_dps * delta, laser_hit)
+			# sparks glow in the vein's element color
+			if "vein" in collider and collider.vein != "":
+				_hit_color = Elements.hue_of(collider.vein)
 
 
 func _update_oxygen(delta: float) -> void:
@@ -153,6 +163,12 @@ func _draw_suit() -> void:
 			PackedVector2Array([base + side * 0.5, base - side * 0.5,
 				base + flame_dir * 7.0]),
 			Color(1.0, 0.9, 0.6, 0.9))
+	# stabilizer puffs — little jets all around while braking
+	if braking and velocity.length() > 12.0:
+		for i in 4:
+			var a := TAU * float(i) / 4.0 + PI / 4.0
+			draw_circle(Vector2.from_angle(a) * 15.0, 1.8 + randf() * 1.4,
+				Color(0.7, 0.9, 1.0, 0.55))
 	# pixel astronaut, body faces the mouse (zero-g twist)
 	draw_set_transform(Vector2.ZERO, aim_dir.angle(), Vector2(2.0, 2.0))
 	draw_texture(SUIT_TEX, Vector2(-8.0, -8.0))
@@ -167,4 +183,7 @@ func _draw_pistol() -> void:
 		var hit_local := to_local(laser_hit)
 		draw_line(tip, hit_local, Color(1.0, 0.25, 0.2, 0.35), 6.0)
 		draw_line(tip, hit_local, Color(1.0, 0.4, 0.3, 0.95), 2.0)
-		draw_circle(hit_local, 4.0 + randf() * 2.0, Color(1.0, 0.7, 0.4, 0.8))
+		draw_circle(hit_local, 4.0 + randf() * 2.0,
+			Color(_hit_color.r, _hit_color.g, _hit_color.b, 0.85))
+		draw_circle(hit_local, 8.0 + randf() * 3.0,
+			Color(_hit_color.r, _hit_color.g, _hit_color.b, 0.25))

@@ -149,6 +149,36 @@ static func color_of(sym: String) -> Color:
 	return CATEGORY_COLORS[category(sym)]
 
 
+static func hue_of(sym: String) -> Color:
+	## Every element gets its own distinct color — golden-angle hue by
+	## atomic number, so neighbours never look alike.
+	var z := z_of(sym)
+	return Color.from_hsv(fmod(float(z) * 0.618034, 1.0), 0.62, 0.95)
+
+
+static func _sample(fractions: Dictionary) -> String:
+	## Weighted random element — real abundance IS the drop table.
+	var roll := randf()
+	var acc := 0.0
+	for sym in fractions:
+		acc += fractions[sym]
+		if roll <= acc:
+			return sym
+	return "Fe"
+
+
+static func sample_rock_element() -> String:
+	return _sample(rock_fractions())
+
+
+static func sample_crystal_element() -> String:
+	return _sample(crystal_fractions())
+
+
+static func sample_gas_element() -> String:
+	return _sample(gas_fractions())
+
+
 static func _normalized(weight_fn: Callable) -> Dictionary:
 	var out := {}
 	var total := 0.0

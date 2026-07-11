@@ -146,7 +146,7 @@ func _draw() -> void:
 
 	# title with layered glow
 	var ty := 208.0
-	for glow in [[5, 0.05], [3, 0.09], [1, 0.2]]:
+	for glow in [[6, 0.09], [3, 0.16], [1, 0.3]]:
 		draw_string(_font, Vector2(float(glow[0]), ty + float(glow[0])),
 			"SPACEWALKER", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 58,
 			Color(UITheme.ACCENT.r, UITheme.ACCENT.g, UITheme.ACCENT.b,
@@ -157,9 +157,9 @@ func _draw() -> void:
 	var mid := vp.x * 0.5
 	var sub_a := 0.6 + 0.15 * sin(_t * 1.6)
 	draw_line(Vector2(mid - 240, 236), Vector2(mid - 118, 236),
-		Color(UITheme.ACCENT.r, UITheme.ACCENT.g, UITheme.ACCENT.b, 0.5), 1.0)
+		Color(1, 1, 1, 0.75), 1.2)
 	draw_line(Vector2(mid + 118, 236), Vector2(mid + 240, 236),
-		Color(UITheme.ACCENT.r, UITheme.ACCENT.g, UITheme.ACCENT.b, 0.5), 1.0)
+		Color(1, 1, 1, 0.75), 1.2)
 	draw_string(_font, Vector2(0, 241), "MINE THE VOID · MIND THE LINE",
 		HORIZONTAL_ALIGNMENT_CENTER, vp.x, 14,
 		Color(UITheme.ACCENT.r, UITheme.ACCENT.g, UITheme.ACCENT.b, sub_a))
