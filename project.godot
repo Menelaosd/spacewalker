@@ -19,12 +19,15 @@ config/icon="res://icon.svg"
 
 GameState="*res://scripts/game_state.gd"
 GameMenu="*res://scripts/menu.gd"
+Sfx="*res://scripts/sfx.gd"
 
 [display]
 
 window/size/viewport_width=1280
 window/size/viewport_height=720
+window/size/mode=3
 window/stretch/mode="canvas_items"
+window/stretch/aspect="keep"
 
 [input]
 

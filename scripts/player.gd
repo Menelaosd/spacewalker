@@ -54,7 +54,12 @@ func _physics_process(delta: float) -> void:
 	_apply_tether(delta)
 	_update_laser(delta)
 	_update_oxygen(delta)
+	Sfx.thrust_on(thrust_input.length() > 0.1 and not _dying)
 	queue_redraw()
+
+
+func _exit_tree() -> void:
+	Sfx.stop_loops()
 
 
 func _apply_tether(delta: float) -> void:
@@ -88,13 +93,26 @@ func _update_aim() -> void:
 		aim_dir = dir.normalized()
 
 
+func _muzzle_world() -> Vector2:
+	## The aim frame's actual gun tip, in world space — the beam and the
+	## raycast both start HERE, so fire always leaves the barrel.
+	var tex: Texture2D = ASTRO[4]
+	# gun-tip pixel in a5.png, pixel-detected relative to the texture centre:
+	# the barrel muzzle sits at the sprite's right edge, up near the shoulder
+	var m := Vector2(tex.get_size().x * 0.48, -tex.get_size().y * 0.305)
+	if aim_dir.x < 0.0:
+		m.y = -m.y   # the aim pose mirrors vertically when firing left
+	return global_position + (m * ASTRO_SCALE).rotated(aim_dir.angle())
+
+
 func _update_laser(delta: float) -> void:
-	laser_on = Input.is_action_pressed("fire") \
-		or OS.get_environment("SW_LASER") != ""   # debug: force the beam
+	laser_on = (Input.is_action_pressed("fire") \
+		or OS.get_environment("SW_LASER") != "") and not _dying
+	Sfx.laser_on(laser_on and not _dying)
 	if not laser_on:
 		return
-	var from := global_position + aim_dir * 16.0
-	var to := global_position + aim_dir * LASER_RANGE
+	var from := _muzzle_world()
+	var to := from + aim_dir * LASER_RANGE
 	var query := PhysicsRayQueryParameters2D.create(from, to)
 	query.exclude = [get_rid()]
 	var hit := get_world_2d().direct_space_state.intersect_ray(query)
@@ -112,6 +130,8 @@ func _update_laser(delta: float) -> void:
 
 
 func _update_oxygen(delta: float) -> void:
+	if _dying:
+		return   # already fainting — don't waste canisters on a dead tank
 	if in_dock:
 		GameState.refill_oxygen(REFILL_RATE * delta)
 		return
@@ -120,9 +140,13 @@ func _update_oxygen(delta: float) -> void:
 			and GameState.oxygen < GameState.max_oxygen * 0.15:
 		GameState.canisters -= 1
 		GameState.refill_oxygen(40.0)
+		Sfx.play("hiss", -6.0)
 		GameState.say("Emergency O2 canister discharged. (%d left)" % GameState.canisters)
+	var frac_before := GameState.oxygen / GameState.max_oxygen
 	if GameState.drain_oxygen(OXYGEN_DRAIN * delta):
 		_black_out()
+	elif frac_before >= 0.25 and GameState.oxygen / GameState.max_oxygen < 0.25:
+		Sfx.play("o2low", -4.0)   # crossing into the red
 
 
 func _black_out() -> void:
@@ -131,6 +155,8 @@ func _black_out() -> void:
 		return
 	_dying = true
 	_anim_t = 0.0
+	Sfx.stop_loops()
+	Sfx.play("thud", -4.0, 0.7)
 	GameState.last_lost = GameState.lose_carried()
 	GameState.wake_on_bunk = true
 	GameState.pending_shift = true   # fainting costs the shift
@@ -218,8 +244,8 @@ func _draw() -> void:
 func _draw_tether(st: Dictionary) -> void:
 	if not attached:
 		return
-	# the line clips to the belt, and the belt moves with the pose
-	var hip: Vector2 = (st["xf"] as Transform2D) * Vector2(0, 14)
+	# the line clips to the BACKPACK, and follows the pose
+	var hip: Vector2 = (st["xf"] as Transform2D) * Vector2(-13, -6)
 	var a := to_local(tether_anchor)
 	var dist := a.length()
 	var slack := clampf(1.0 - dist / GameState.tether_length, 0.0, 1.0)
@@ -241,11 +267,11 @@ func _draw_suit(st: Dictionary) -> void:
 	var frame: int = st["frame"]
 	var xf: Transform2D = st["xf"]
 	var tex: Texture2D = ASTRO[frame]
-	# thruster flame fires FROM THE BACKPACK, opposite to the burn
+	# thruster flame fires from the BOTTOM of the backpack, opposite the burn
 	if thrust_input.length() > 0.1 and not _dying:
-		var pack: Vector2 = xf * Vector2(-14, -14)   # backpack, pose-aware
+		var pack: Vector2 = xf * Vector2(-13, 2)   # backpack nozzle, pose-aware
 		var flame_dir := -thrust_input.normalized()
-		var base := pack + flame_dir * 5.0
+		var base := pack + flame_dir * 3.0
 		var tip := base + flame_dir * (9.0 + randf() * 5.0)
 		var side := flame_dir.orthogonal() * 3.5
 		draw_colored_polygon(
@@ -268,19 +294,16 @@ func _draw_suit(st: Dictionary) -> void:
 
 func _draw_pistol(st: Dictionary) -> void:
 	# the pistol lives in the aim frame's art — code draws only the beam,
-	# and the beam leaves from the art's actual muzzle
+	# which starts at the SAME muzzle point the raycast fires from
 	if not laser_on:
 		return
-	var muzzle: Vector2
-	if int(st["frame"]) == 4:
-		var tex: Texture2D = ASTRO[4]
-		muzzle = (st["xf"] as Transform2D) \
-			* Vector2(tex.get_size().x * 0.46, -tex.get_size().y * 0.20)
-	else:
-		muzzle = aim_dir * 14.0
+	var muzzle := to_local(_muzzle_world())
 	var hit_local := to_local(laser_hit)
 	draw_line(muzzle, hit_local, Color(1.0, 0.25, 0.2, 0.35), 6.0)
 	draw_line(muzzle, hit_local, Color(1.0, 0.4, 0.3, 0.95), 2.0)
+	# muzzle flash anchors the emission at the barrel
+	draw_circle(muzzle, 3.0 + randf() * 1.5, Color(1.0, 0.9, 0.7, 0.9))
+	draw_circle(muzzle, 6.5 + randf() * 2.0, Color(1.0, 0.5, 0.3, 0.3))
 	draw_circle(hit_local, 4.0 + randf() * 2.0,
 		Color(_hit_color.r, _hit_color.g, _hit_color.b, 0.85))
 	draw_circle(hit_local, 8.0 + randf() * 3.0,

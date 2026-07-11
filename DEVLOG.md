@@ -5,6 +5,132 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 12/07/2026 — v1.8: concept title screen, ship2, laser & turbine fixes
+
+**New title screen — the concept.** Rebuilt scripts/title.gd around the
+user's mockup: the painted intro2 scene as the backdrop
+(assets/sprites/title_bg.png, astronaut tethered to the ship over a
+burning Earth), the SPACEWALKER banner up top, a bracketed sci-fi
+border frame with hazard ticks, and VERSION bottom-left. The menu is
+now **fully data-driven** — a menu is an Array of
+`{label, icon, action:Callable, enabled, danger}` dicts, rendered as
+notched command buttons with procedural vector icons (play / continue
+/ settings / quit / plus / back / slot). Menus nest via a stack:
+NEW GAME and CONTINUE open a slot sub-menu (new-mode arms an overwrite
+confirm; load-mode lists only real saves), SETTINGS opens a placeholder
+sub-menu to grow into, Esc walks back. Keyboard (↑/↓ + Enter/Esc) and
+mouse both drive it. To add a command later, append one dict — that's
+the whole change.
+
+**ship2** (game-assets/spacewalker/new/ship2.png) replaces the hull,
+340×240. Turbines re-mapped to its pixel-detected nozzles: twin mains
+astern at flame-space y −8/+11, forward wing-tip pods at (32, ±51) for
+reverse, outer wing-tip puffs for yaw. Dock-ship anchor/beacon and the
+collision capsule (62r × 120h) refit to the new silhouette.
+
+**Astronaut laser muzzle fixed** (again, properly). Pixel-detected the
+gun tip in a5.png — the barrel sits at the sprite's right edge up near
+the shoulder (x 0.48·w, y −0.305·h), not the −0.185·h the old code
+guessed. The beam and raycast now leave the barrel instead of firing
+from below the hand.
+
+**Title polish + fullscreen.** Removed the tagline under the banner.
+Game now launches fullscreen (project.godot display/window/size/mode=3,
+stretch canvas_items + aspect keep — scales the 1280×720 canvas to the
+monitor, no distortion). Version moved further into the frame. The
+left-side darkening is now a single vertex-colour gradient (draw_polygon)
+instead of 60 stacked alpha rects — the old stack left faint vertical
+seam lines across the backdrop.
+
+## 11/07/2026 — v1.7: full logic audit, sound design v2, new hull + logo
+
+**Full-game logic audit.** Read every gameplay script end to end and
+fixed what fell out:
+- **SOLA element dupe** — her "keep half your ore" blackout perk kept
+  the FULL element-vein tally while halving the ore value, so banking
+  after a blackout refined more element units than the ore you held.
+  Veins and chunk counts now shed the same half.
+- **Wasted canisters** — the emergency O2 auto-discharge kept firing
+  during the blackout animation (tank pinned at zero), burning crafted
+  canisters on a walk that was already over. Oxygen logic now stops
+  the moment you faint; the laser also can't keep mining while limp.
+- **Session-flag leaks** — `pending_shift`, `wake_on_bunk`, `adrift`,
+  `flare_phase` and `last_lost` survived across load/new-game: an
+  abandoned run could tick a shift, spawn you in the bunk, or re-play
+  the adrift opening on a completely different save. Both load paths
+  now reset all session flags.
+- Title footer version unstuck (was frozen at v1.1).
+
+**Sound design v2 — everything rebuilt.** The old set (square-wave
+klaxon/deny, raw noise, hard-gated envelopes) sounded harsh. New rules:
+no square waves anywhere; every one-shot opens with a 6-10ms attack
+(no clicks) and dies on an exponential bell tail; all noise runs
+through a heavy one-pole lowpass. Pickup is a glass plink, bank a
+two-note marimba, upgrade a four-note bell arpeggio, deny two polite
+low taps, the klaxon a mellow rise-and-fall whoop, thrust a dark
+55Hz rumble (crossfaded loop, no seam), laser a warm 110Hz power hum.
+Loop volumes dropped 4dB across the board.
+
+**New hull + new logo** (game-assets/spacewalker/new, processed by
+tools/process_new_art.gd). Ship keyed, bow-rotated, 340×211; engine
+effects remapped to her real hardware — twin big orange mains astern
+(±17), front wing turbines at (37, ±46) firing forward for reverse,
+and axial aft-facing wing pods at (-49, ±31) burning differentially
+to yaw. New armored SPACEWALKER banner logo flood-keyed off pure
+black (tight 0.09 threshold so its own dark plates survive).
+
+**Ship bigger + aft flames fixed.** Hull scale 0.5→0.72 everywhere
+(flight/dock/title/intro proportional). The twin main flames were
+spread ±17 but the real nozzles sit ~17px apart total (pixel-detected
+at y −8/+9 in flame-space, centred just below the spine) — fixed, so
+the burn lands on the nozzles. Flame block now drawn at SHIP_SCALE*2
+so every effect tracks the hull at any scale; dock ship anchor/beacon/
+tether and hull collision capsule scaled to match.
+
+**Verified:** 26/26 functional gauntlet (tools/test_audit_v17.gd —
+SOLA halving, flag resets, rescue gating, beacon regions, economy,
+all 13 sounds), all six scenes headless-clean, title + flight
+screenshot-verified with the new art.
+
+**Story rework — THE SCATTERED SIX.** The flare hit MID-JUMP: the
+transport shattered and six lifeboats spun into the dark. You're one.
+The other five — JUNO the Engineer, MIRA the Botanist, HALE the
+Prospector, SOLA the Medic, VEGA the Navigator — are alive, beacons
+singing across the sector. The campaign braids building with
+searching: each survivor's signal only resolves after the next drive
+part is installed (VEGA needs the whole drive), so the questline runs
+part 1 → JUNO (Belt) → part 2 → MIRA (Viridian) → ... → VEGA
+(Expanse) → jump. Each rescue: gold distress beacon in flight (drawn
+in-world + gold radar pointer + HUD bearing), park, spacewalk to the
+drifting tinted-suit survivor (guidance chevrons), reach them → radio
+line, perk, aboard. Rescued crew LIVE IN THE SHIP — tinted mini-
+astronauts bobbing in their rooms. Perks: +15 laser / +25 O2 / +40%
+pickup reach / blackouts keep half your ore / +25% ship speed. The
+ending is GATED on all five — "nobody gets left behind" — and the
+intro, radio hints, title slots (CREW n/6) and finale all tell it.
+
+**Sound.** scripts/sfx.gd autoload synthesizes all 13 effects at boot
+(sine/square/noise — zero audio assets): laser hum loop, thruster
+rumble loop, flare klaxon loop, ore pickup blip, bank chime, upgrade
+arpeggio, deny buzz, debris/blackout thud, tether clack, O2-low beeps,
+canister hiss, interior footsteps, radio blips. Wired everywhere:
+mining, thrust (suit + ship), docking, contracts, trader, crafting,
+upgrades, expansion, flares, debris, rescues, radio chatter, steps.
+
+**Ship3.** The captain's new hull (tools/process_ship3.gd: keyed,
+bow-rotated, 340px). Flames mapped to her real nozzles: twin orange
+mains astern, FRONT wing turbines fire forward when reversing,
+trailing-edge wing turbines fire outward when turning. Tether anchor
+and beacon repositioned.
+
+**Also:** spacewalk laser now raycasts AND draws from the pistol's
+actual muzzle (+muzzle flash); tether clips to the backpack; suit jets
+exit the backpack's bottom; interior side-margins tightened (no more
+slipping along prop flanks); top-wall margin deepened (no more heads
+on the window glass). 19/19 gauntlet on the questline + sfx.
+
+---
+
 ## 11/07/2026 — v1.5.2: REAL lights + depth-line fix
 
 - **Real 2D lighting**: a CanvasModulate dims the deck and every

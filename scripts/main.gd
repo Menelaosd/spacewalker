@@ -20,6 +20,16 @@ var _t := 0.0
 var ship: Node2D
 var player: Node2D
 
+# --- rescue encounter (THE SCATTERED SIX) ---
+const NPC_TEX := preload("res://assets/sprites/astro/a1.png")
+const NPC_TINTS := {
+	"JUNO": Color(1.15, 1.0, 0.72), "MIRA": Color(0.78, 1.12, 0.85),
+	"HALE": Color(0.8, 1.0, 1.15), "SOLA": Color(1.15, 0.85, 0.85),
+	"VEGA": Color(1.0, 0.88, 1.2),
+}
+var _rescue_active := false
+var _npc_pos := Vector2.ZERO
+
 # --- hazards ---
 var _flare_timer := 0.0
 var _flare_t := 0.0
@@ -59,6 +69,17 @@ func _ready() -> void:
 			GameState.region_at(GameState.sector)["name"],
 			int(GameState.sector_richness() * 100.0)])
 
+	# a lost friend drifts somewhere near the wreck
+	_rescue_active = GameState.at_rescue_site()
+	if _rescue_active:
+		var rrng := RandomNumberGenerator.new()
+		rrng.seed = GameState.rescued_count() * 991 + 55
+		_npc_pos = Vector2.from_angle(rrng.randf() * TAU) \
+			* rrng.randf_range(380.0, 520.0)
+		Sfx.play("radio", -6.0)
+		GameState.say("Short-range ping... %s is HERE. Find them, %s." % [
+			GameState.rescue_target()["name"], GameState.pilot_name()])
+
 	# hazard clocks — flares come sooner in Ember Reach and The Expanse
 	GameState.flare_phase = ""
 	var rname: String = GameState.region_at(GameState.sector)["name"]
@@ -73,10 +94,32 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	_t += delta
 	_update_adrift()
+	_update_rescue()
 	_update_flare(delta)
 	_update_debris(delta)
 	_update_streaks(delta)
 	queue_redraw()   # parallax stars + hazards follow the camera
+
+
+func _update_rescue() -> void:
+	## Reaching the drifting survivor brings them aboard — perk, radio
+	## line, and one more bunk filled.
+	if not _rescue_active or player == null:
+		return
+	if player.global_position.distance_to(_npc_pos) < 70.0:
+		_rescue_active = false
+		var r := GameState.do_rescue()
+		Sfx.play("radio", -6.0)
+		Sfx.play("upgrade", -3.0)
+		GameState.say(r["line"])
+		_rescue_followup(r)
+
+
+func _rescue_followup(r: Dictionary) -> void:
+	await get_tree().create_timer(3.2).timeout
+	if is_inside_tree():
+		GameState.say("%s the %s is aboard — %d/5 found. Perk: %s." % [
+			r["name"], r["role"], GameState.rescued_count(), r["perk"]])
 
 
 func _update_adrift() -> void:
@@ -87,6 +130,7 @@ func _update_adrift() -> void:
 	if player.global_position.distance_to(ship.anchor_point()) < 150.0:
 		GameState.adrift = false
 		player.attached = true
+		Sfx.play("clack", -2.0)
 		GameState.say("CLACK. Lifeline secured. Never let it go, %s." \
 			% GameState.pilot_name())
 
@@ -132,12 +176,14 @@ func _update_flare(delta: float) -> void:
 			if _flare_timer <= 0.0:
 				GameState.flare_phase = "warn"
 				_flare_t = FLARE_WARN
+				Sfx.klaxon_on(true)
 				GameState.say("⚠ SOLAR FLARE INBOUND — get behind rock or dock!")
 		"warn":
 			_flare_t -= delta
 			if _flare_t <= 0.0:
 				GameState.flare_phase = "burn"
 				_flare_t = FLARE_BURN
+				Sfx.klaxon_on(false)
 		"burn":
 			_flare_t -= delta
 			if player != null and not _sheltered():
@@ -172,6 +218,7 @@ func _update_debris(delta: float) -> void:
 			_debris_hit_cd = 1.5
 			player.velocity += d["vel"] * 0.7
 			player.hit_flash()
+			Sfx.play("thud", -3.0)
 			GameState.drain_oxygen(8.0)
 			GameState.say("Debris strike! Suit integrity holding — O2 vented.")
 		if player == null or d["pos"].distance_to(player.global_position) < 1800.0:
@@ -266,14 +313,36 @@ func _draw() -> void:
 	draw_arc(Vector2(0, 48), GameState.tether_length, 0.0, TAU, 96,
 		Color(1.0, 0.85, 0.3, 0.08), 2.0)
 
-	# adrift opening: pulsing chevrons walking from you toward the ship
+	# the drifting survivor at a rescue site — tinted suit, strobing ping
+	if _rescue_active:
+		var nname: String = GameState.rescue_target().get("name", "")
+		var tint: Color = NPC_TINTS.get(nname, Color.WHITE)
+		var bob := sin(_t * 1.3) * 5.0
+		var np := _npc_pos + Vector2(0, bob)
+		var pulse := 0.5 + 0.5 * sin(_t * 4.5)
+		draw_arc(np, 30.0 + pulse * 16.0, 0.0, TAU, 32,
+			Color(1.0, 0.85, 0.3, 0.55 - 0.35 * pulse), 2.0)
+		draw_set_transform(np, sin(_t * 0.5) * 0.18, Vector2(0.45, 0.45))
+		draw_texture(NPC_TEX, -NPC_TEX.get_size() * 0.5, tint)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		draw_string(ThemeDB.fallback_font, np + Vector2(-50, -34), nname,
+			HORIZONTAL_ALIGNMENT_CENTER, 100, 13,
+			Color(1.0, 0.85, 0.3, 0.5 + 0.4 * pulse))
+
+	# guidance chevrons: toward the ship while adrift, toward the
+	# survivor at a rescue site
+	var guide_to := Vector2.INF
 	if GameState.adrift and player != null:
-		var to_ship: Vector2 = ship.anchor_point() - player.global_position
-		var dir := to_ship.normalized()
+		guide_to = ship.anchor_point()
+	elif _rescue_active and player != null:
+		guide_to = _npc_pos
+	if guide_to != Vector2.INF:
+		var to_t: Vector2 = guide_to - player.global_position
+		var dir := to_t.normalized()
 		var side := dir.orthogonal() * 7.0
 		for i in 3:
 			var d := 60.0 + float(i) * 26.0 + fmod(_t * 40.0, 26.0)
-			if d > to_ship.length() - 120.0:
+			if d > to_t.length() - 100.0:
 				continue
 			var base: Vector2 = player.global_position + dir * d
 			var a := 0.7 - float(i) * 0.15

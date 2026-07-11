@@ -157,6 +157,80 @@ const QUEST_PARTS := [
 var quest_stage := 0          # part being built; QUEST_PARTS.size() = done
 var game_complete := false
 
+# ==================================================================
+# THE SCATTERED SIX — the convoy's mass-jump failed when the flare hit;
+# six lifeboats were flung across the sector. You're one. The other
+# five are out there, beacons still singing. Find them ALL — nobody
+# builds a home alone. Each survivor found joins the ship's crew and
+# brings their craft with them. The Navigator plots the final jump.
+# ==================================================================
+const RESCUES := [
+	{"name": "JUNO", "role": "Engineer", "region": "The Belt",
+		"line": "JUNO: You actually came. Give me a bench and a spanner and I'll make this ship sing.",
+		"perk": "+15 laser power"},
+	{"name": "MIRA", "role": "Botanist", "region": "Viridian Veil",
+		"line": "MIRA: I kept the seed vault alive this whole time. A colony needs green things... and so do you.",
+		"perk": "+25 max O2"},
+	{"name": "HALE", "role": "Prospector", "region": "Ember Reach",
+		"line": "HALE: Saw your laser flashes from half a region away. You mine like a rookie — lucky I'm here now.",
+		"perk": "+40% pickup reach"},
+	{"name": "SOLA", "role": "Medic", "region": "Cerulean Shallows",
+		"line": "SOLA: Pulse steady, tank half full — you'll live. My med bay opens the moment we're aboard.",
+		"perk": "blackouts keep half your ore"},
+	{"name": "VEGA", "role": "Navigator", "region": "The Expanse",
+		"line": "VEGA: I've known the way to Haven for months. I just couldn't bear to fly there alone.",
+		"perk": "+25% ship speed · plots the jump"},
+]
+var rescued := {}             # name -> true
+
+
+func rescued_count() -> int:
+	return rescued.size()
+
+
+func rescue_target() -> Dictionary:
+	return RESCUES[rescued.size()] if rescued.size() < RESCUES.size() else {}
+
+
+func rescue_available() -> bool:
+	## Pacing: each survivor's signal only resolves after the NEXT drive
+	## part is installed — the campaign braids building with searching,
+	## and the Navigator is only findable once the drive is whole.
+	return rescued.size() < RESCUES.size() and quest_stage >= rescued.size() + 1
+
+
+func rescue_beacon() -> Vector2:
+	## Deterministic distress-beacon position for the current target —
+	## planted in their region, in rescue order.
+	match rescued.size():
+		0: return Vector2.from_angle(TAU * 0.62) * 7400.0            # The Belt
+		1: return nebula_center(3) + Vector2(620.0, -340.0)          # Viridian Veil
+		2: return nebula_center(2) + Vector2(-520.0, 430.0)          # Ember Reach
+		3: return nebula_center(1) + Vector2(340.0, 520.0)           # Cerulean Shallows
+		4: return Vector2.from_angle(TAU * 0.87) * 11500.0           # The Expanse
+	return Vector2.ZERO
+
+
+func at_rescue_site() -> bool:
+	return rescue_available() and sector.distance_to(rescue_beacon()) < 340.0
+
+
+func do_rescue() -> Dictionary:
+	## Bring the current target aboard: flat perks apply once (they ride
+	## the saved stats); flag perks derive from `rescued` at use sites.
+	var r := rescue_target()
+	match rescued.size():
+		0:   # JUNO the Engineer
+			laser_dps += 15.0
+		1:   # MIRA the Botanist
+			max_oxygen += 25.0
+			refill_oxygen(25.0)
+	rescued[r["name"]] = true
+	gear_changed.emit()
+	quest_changed.emit()
+	save_game()
+	return r
+
 # --- Contracts: rotating element requests, delivered at the cargo board
 const CONTRACT_POOL := ["O", "C", "Mg", "Si", "Fe", "S", "Al", "Ca", "Na",
 	"Ni", "Ti", "Cu", "Zn", "Cr", "Mn"]
@@ -343,10 +417,23 @@ func scoop_gas(delta: float) -> void:
 
 func lose_carried() -> int:
 	var lost := carried
-	carried = 0
-	carried_veins = {}
-	for k in carried_items:
-		carried_items[k] = 0
+	if rescued.has("SOLA"):
+		# the Medic straps down half your haul before you hit the bunk —
+		# the vein/chunk tallies shed the same half, or banking later would
+		# refine more element units than the ore you actually kept
+		lost = int(ceilf(carried * 0.5))
+		carried -= lost
+		for sym in carried_veins.keys():
+			carried_veins[sym] = int(carried_veins[sym]) - int(ceilf(carried_veins[sym] * 0.5))
+			if int(carried_veins[sym]) <= 0:
+				carried_veins.erase(sym)
+		for k in carried_items:
+			carried_items[k] = int(carried_items[k]) - int(ceilf(carried_items[k] * 0.5))
+	else:
+		carried = 0
+		carried_veins = {}
+		for k in carried_items:
+			carried_items[k] = 0
 	cargo_changed.emit(carried, banked)
 	inventory_changed.emit()
 	return lost
@@ -439,6 +526,7 @@ func save_game() -> void:
 		"contracts": contracts,
 		"trader_stock": trader_stock,
 		"pilot": pilot,
+		"rescued": rescued.keys(),
 		"sector": [sector.x, sector.y],
 		"saved_at": Time.get_date_string_from_system(),
 	}
@@ -513,18 +601,33 @@ func load_game(s: int) -> bool:
 	var pl: Dictionary = data.get("pilot", {})
 	pilot = {"name": str(pl.get("name", "")), "gender": str(pl.get("gender", "")),
 		"age": int(pl.get("age", 27))}
+	rescued = {}
+	for n in data.get("rescued", []):
+		rescued[str(n)] = true
 	var sec: Array = data.get("sector", [0.0, 0.0])
 	sector = Vector2(sec[0], sec[1])
 	carried = 0
 	carried_veins = {}
 	for k in carried_items:
 		carried_items[k] = 0
+	_reset_session_flags()
 	in_game = true
 	oxygen_changed.emit(oxygen, max_oxygen)
 	cargo_changed.emit(carried, banked)
 	inventory_changed.emit()
 	gear_changed.emit()
 	return true
+
+
+func _reset_session_flags() -> void:
+	## Session-only state must never leak between saves — a stale
+	## pending_shift/adrift/wake_on_bunk from an abandoned run would tick a
+	## shift, respawn you adrift or drop you in the bunk on a LOADED game.
+	adrift = false
+	pending_shift = false
+	wake_on_bunk = false
+	last_lost = 0
+	flare_phase = ""
 
 
 func new_game(s: int) -> void:
@@ -557,8 +660,9 @@ func new_game(s: int) -> void:
 	contracts = []
 	trader_stock = []
 	pilot = {"name": "", "gender": "", "age": 27}
+	rescued = {}
 	sector = Vector2.ZERO
-	wake_on_bunk = false
+	_reset_session_flags()
 	in_game = true
 	oxygen_changed.emit(oxygen, max_oxygen)
 	cargo_changed.emit(carried, banked)
@@ -750,7 +854,10 @@ func tether_stretch() -> float:
 
 
 func pickup_reach() -> float:
-	return 130.0 * (1.6 if crafted.has("magnet") else 1.0)
+	var reach := 130.0 * (1.6 if crafted.has("magnet") else 1.0)
+	if rescued.has("HALE"):
+		reach *= 1.4   # the Prospector reads rock like print
+	return reach
 
 
 # ------------------------------------------------------------------
@@ -763,6 +870,13 @@ func begin_shift() -> String:
 	roll_trader()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = shift * 3571 + slot
+	# the search comes first: a beacon fix for the next missing survivor
+	if rescue_available() and rng.randf() < 0.5:
+		var t: Dictionary = rescue_target()
+		return "RADIO: ...faint suit beacon on the long band. It's %s, the %s — signal fixes to %s. Hold on out there." % [
+			t["name"], t["role"], t["region"]]
+	if rescued.size() < RESCUES.size() and not rescue_available() and rng.randf() < 0.3:
+		return "RADIO: The long band is quiet. A stronger drive core would push the receiver farther. Keep building."
 	if rng.randf() < 0.45:
 		var lines := [
 			"VESNA: Still breathing out there, %s? Good. Check my stock." % pilot_name(),

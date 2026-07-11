@@ -19,9 +19,10 @@ func _ready() -> void:
 	var age := int(GameState.pilot.get("age", 27))
 	_pages = [
 		"2211.\n\nThe evacuation of Earth took nine years.\nYou watched the last arks burn for Proxima\nfrom the maintenance deck of a mining rig.",
-		"%s. %d years old.\nBooked on the final transport out.\n\nThe flare came first.\nIt took the transport, the relay network,\nand every jump gate in the system." % [who, age],
-		"Behind you: nothing. Earth is a cinder.\nThere is no home to go back to.\n\nAhead, at Proxima, the arks are raising\na colony called HAVEN. A home you've\nnever seen — but it's yours, if you can reach it.",
-		"What's left: one small ship. One suit.\nOne lifeline. A jump drive burned to slag —\nand a galaxy of raw elements to rebuild it from.\n\nMine the void. Mind the line.\n\nFIND YOUR NEW HOME.",
+		"%s. %d years old.\nBooked on the final transport out.\n\nThe flare came first. Mid-jump.\nIt shattered the transport like glass —\nand six lifeboats spun away into the dark." % [who, age],
+		"Behind you: nothing. Earth is a cinder.\nAhead, at Proxima, the arks are raising\na colony called HAVEN.\n\nAnd scattered across this dead sector:\nFIVE OTHER SUITS. Alive. Their beacons\nstill singing on the long band.",
+		"An engineer. A botanist. A prospector.\nA medic. A navigator who knows the way.\n\nNobody builds a home alone.",
+		"What's left: one small ship. One suit.\nOne lifeline. A drive burned to slag —\nand a galaxy of elements to rebuild it from.\n\nMine the void. Mind the line. Find the five.\n\nBRING EVERYONE HOME.",
 	]
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7
@@ -73,7 +74,7 @@ func _draw() -> void:
 		draw_circle(s[0], s[1], Color(1, 1, 1, s[2] * (0.6 + 0.4 * sin(_t * 1.2 + s[3]))))
 	# the ship, adrift and dark
 	draw_set_transform(Vector2(vp.x * 0.78, vp.y * 0.3 + sin(_t * 0.3) * 8.0),
-		0.3 + sin(_t * 0.12) * 0.04, Vector2(0.5, 0.5))
+		0.3 + sin(_t * 0.12) * 0.04, Vector2(0.72, 0.72))
 	draw_texture(SHIP_TEX, -SHIP_TEX.get_size() * 0.5, Color(0.45, 0.5, 0.6, 0.9))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 

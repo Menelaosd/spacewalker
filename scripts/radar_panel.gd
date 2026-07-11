@@ -221,6 +221,23 @@ func _plot_flight(c: Vector2, sp: Vector2, k: float, sweep: float, flick: float)
 				draw_circle(c + rel, 1.6,
 					Color(col.r, col.g, col.b, 0.9 * _blip_alpha(rel.angle(), sweep) * flick))
 
+	# the current distress beacon — the mission pointer, in gold
+	if GameState.rescue_available():
+		var brel := (GameState.rescue_beacon() - sp) * k
+		var gold := Color(1.0, 0.85, 0.3)
+		var bpulse := 0.6 + 0.4 * sin(_t * 5.0)
+		if brel.length() < R - 6.0:
+			var bpt := c + brel
+			draw_circle(bpt, 3.0, Color(gold.r, gold.g, gold.b, bpulse * flick))
+			draw_arc(bpt, 6.5, 0.0, TAU, 12,
+				Color(gold.r, gold.g, gold.b, 0.5 * bpulse * flick), 1.2)
+		else:
+			var bdir := brel.normalized()
+			draw_colored_polygon(PackedVector2Array([
+				c + bdir * (R - 2.0),
+				c + bdir * (R - 10.0) + bdir.orthogonal() * 4.0,
+				c + bdir * (R - 10.0) - bdir.orthogonal() * 4.0]),
+				Color(gold.r, gold.g, gold.b, 0.9 * bpulse * flick))
 	# home station — clamped to the rim when far, always points the way back
 	_plot_home(c, -sp, k, flick)
 

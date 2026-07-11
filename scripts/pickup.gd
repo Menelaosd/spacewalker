@@ -41,9 +41,11 @@ func _on_body_entered(body: Node) -> void:
 		# suit's full — bank at the ship, then come back for the rest
 		if Time.get_ticks_msec() / 1000.0 > _full_warn_cd:
 			_full_warn_cd = Time.get_ticks_msec() / 1000.0 + 2.5
+			Sfx.play("deny", -14.0)
 			GameState.say("Cargo full (%d/%d) — bank at the ship." % [
 				GameState.carried, GameState.carry_max()])
 		return
+	Sfx.play("pickup", -12.0, randf_range(0.9, 1.15))
 	GameState.add_carried(kind, value, element)
 	if element != "":
 		var ft := FLOAT_TEXT.new()

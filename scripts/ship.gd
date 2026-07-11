@@ -8,7 +8,7 @@ var _beacon_phase := 0.0
 
 
 func anchor_point() -> Vector2:
-	return global_position + Vector2(0, 82)
+	return global_position + Vector2(0, 89)   # below the (bigger) hull
 
 
 func _ready() -> void:
@@ -29,9 +29,11 @@ func _on_dock_entered(body: Node) -> void:
 	body.in_dock = true
 	var banked := GameState.bank_cargo()
 	if banked > 0:
+		Sfx.play("bank", -6.0)
 		GameState.say("Docked — banked %d ore. O2 refilling." % banked)
 		GameState.save_game()
 	else:
+		Sfx.play("clack", -14.0)
 		GameState.say("Docked — O2 refilling.")
 
 
@@ -49,7 +51,7 @@ func _on_dock_exited(body: Node) -> void:
 ## The captain's ship (tools/ship_source.png -> process_ship_art.gd).
 ## Drawn at half scale: ~150x149 world px, bow facing right.
 const SHIP_TEX := preload("res://assets/sprites/ship_hd.png")
-const SHIP_SCALE := 0.5
+const SHIP_SCALE := 0.72
 
 
 func _draw() -> void:
@@ -65,8 +67,8 @@ func _draw() -> void:
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 	# tether anchor below the hull
-	draw_circle(Vector2(0, 82), 7.0, Color(0.25, 0.28, 0.34))
-	draw_circle(Vector2(0, 82), 3.0, Color(1.0, 0.85, 0.3))
+	draw_circle(Vector2(0, 89), 7.0, Color(0.25, 0.28, 0.34))
+	draw_circle(Vector2(0, 89), 3.0, Color(1.0, 0.85, 0.3))
 
-	# beacon light on the bow tower
-	draw_circle(Vector2(30, -76), 4.0, Color(1.0, 0.3, 0.25, 0.3 + 0.7 * pulse))
+	# beacon light on the upper spine, ahead of the engine block
+	draw_circle(Vector2(20, -66), 4.0, Color(1.0, 0.3, 0.25, 0.3 + 0.7 * pulse))

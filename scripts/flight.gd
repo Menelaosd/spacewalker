@@ -40,6 +40,7 @@ var _field_cache := {}
 var _trash_cache := {}
 var _comets: Array = []          # {pos, vel, size, life}
 var _comet_timer := 6.0
+var _near_beacon := false        # in reach of the current distress beacon
 var _near_field: Dictionary = {}
 var _near_home := false
 var _scooping := false
@@ -71,17 +72,23 @@ func _process(delta: float) -> void:
 	# helm controls: A/D yaw the ship, W burns the main drive, S retro-burns
 	_turn = Input.get_axis("move_left", "move_right")
 	_thr = Input.get_axis("move_down", "move_up")
+	if OS.get_environment("SW_THRUST") != "":
+		_thr = 1.0   # debug: force the main burn for screenshots
 	heading += _turn * TURN_RATE * delta
 	if absf(_thr) > 0.01:
 		var power := THRUST if _thr > 0.0 else THRUST_REV
 		vel += Vector2.from_angle(heading) * _thr * power * delta
-	vel = vel.limit_length(MAX_SPEED)
+	# VEGA the Navigator trims the drive — she knows every gravity well
+	var vmax := MAX_SPEED * (1.25 if GameState.rescued.has("VEGA") else 1.0)
+	vel = vel.limit_length(vmax)
 	vel = vel.lerp(Vector2.ZERO, 1.0 - exp(-DAMP * delta))
 	ship_pos += vel * delta
 	cam.position = ship_pos
 
 	_near_home = ship_pos.length() < HOME_DOCK_RADIUS
 	_near_field = _find_near_field()
+	_near_beacon = GameState.rescue_available() \
+		and ship_pos.distance_to(GameState.rescue_beacon()) < 300.0
 	if not GameState.pending_shift \
 			and ship_pos.distance_to(_flight_origin) > 600.0:
 		GameState.pending_shift = true   # you actually flew somewhere
@@ -95,7 +102,12 @@ func _process(delta: float) -> void:
 	_collect_trash()
 	_update_comets(delta)
 	_update_hud()
+	Sfx.thrust_on(absf(_thr) > 0.05 or absf(_turn) > 0.05)
 	queue_redraw()
+
+
+func _exit_tree() -> void:
+	Sfx.stop_loops()
 
 
 func _update_comets(delta: float) -> void:
@@ -132,11 +144,20 @@ func _unhandled_input(event: InputEvent) -> void:
 			if _near_home:
 				GameState.sector = Vector2.ZERO
 				GameState.save_game()
+				Sfx.play("bank", -8.0)
 				GameState.say("Docked at home.")
+				get_tree().change_scene_to_file("res://scenes/main.tscn")
+			elif _near_beacon:
+				GameState.sector = GameState.rescue_beacon()
+				GameState.save_game()
+				Sfx.play("radio", -4.0)
+				GameState.say("Beacon locked. %s is out there — suit up." % \
+					GameState.rescue_target()["name"])
 				get_tree().change_scene_to_file("res://scenes/main.tscn")
 			elif not _near_field.is_empty():
 				GameState.sector = _near_field["center"]
 				GameState.save_game()
+				Sfx.play("clack", -8.0)
 				GameState.say("Parked at the field. Suit up and mine.")
 				get_tree().change_scene_to_file("res://scenes/main.tscn")
 		KEY_Q:
@@ -317,10 +338,20 @@ func _build_hud() -> void:
 func _update_hud() -> void:
 	var km := ship_pos.length() / 100.0
 	var region_name: String = GameState.region_at(ship_pos)["name"]
-	_pos_label.text = "%s   ·   Sector (%d, %d)   ·   Home %.1f km" % [
+	var line := "%s   ·   Sector (%d, %d)   ·   Home %.1f km" % [
 		region_name.to_upper(), int(ship_pos.x / 100.0), int(ship_pos.y / 100.0), km]
+	if GameState.rescue_available():
+		var t: Dictionary = GameState.rescue_target()
+		line += "   ·   ✦ %s'S BEACON: %s" % [t["name"], str(t["region"]).to_upper()]
+	elif GameState.rescued_count() < GameState.RESCUES.size():
+		line += "   ·   ✦ NEXT SIGNAL NEEDS DRIVE PART %d" % (GameState.rescued_count() + 1)
+	_pos_label.text = line
 	_cargo_label.text = "Banked ore: %d" % GameState.banked
-	if _near_home:
+	if _near_beacon:
+		_prompt_label.text = "E    Answer the distress beacon — %s, %s" % [
+			GameState.rescue_target()["name"], GameState.rescue_target()["role"]]
+		_prompt_label.modulate.a = 0.95
+	elif _near_home:
 		_prompt_label.text = "E    Dock at home"
 		_prompt_label.modulate.a = 0.95
 	elif not _near_field.is_empty():
@@ -356,6 +387,7 @@ func _draw() -> void:
 	_draw_stars(center, half)
 	_draw_fields(center, half)
 	_draw_trash(center, half)
+	_draw_beacon(center)
 	_draw_home()
 	_draw_home_compass()
 	for c in _comets:
@@ -497,6 +529,27 @@ func _draw_fields(center: Vector2, half: Vector2) -> void:
 					Color(0.35, 0.8, 1.0, 0.25), 2.0)
 
 
+func _draw_beacon(center: Vector2) -> void:
+	## The current survivor's dead lifeboat — strobing distress light.
+	if not GameState.rescue_available():
+		return
+	var bp := GameState.rescue_beacon()
+	if (bp - center).length() > 1600.0:
+		return
+	var pulse := 0.5 + 0.5 * sin(_t * 4.0)
+	draw_set_transform(bp, 0.35, Vector2.ONE)
+	draw_rect(Rect2(-16, -7, 32, 14), Color(0.45, 0.48, 0.55))
+	draw_rect(Rect2(-16, -7, 32, 14), Color(0.2, 0.22, 0.28), false, 2.0)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	draw_circle(bp + Vector2(0, -12), 3.0, Color(1.0, 0.85, 0.3, 0.4 + 0.6 * pulse))
+	draw_arc(bp, 40.0 + pulse * 14.0, 0.0, TAU, 40,
+		Color(1.0, 0.85, 0.3, 0.5 - 0.3 * pulse), 2.0)
+	draw_arc(bp, 300.0, 0.0, TAU, 64, Color(1.0, 0.85, 0.3, 0.14), 2.0)
+	draw_string(_font, bp + Vector2(-70, -30), "DISTRESS BEACON",
+		HORIZONTAL_ALIGNMENT_CENTER, 140, 11,
+		Color(1.0, 0.85, 0.3, 0.5 + 0.4 * pulse))
+
+
 func _draw_home() -> void:
 	draw_arc(Vector2.ZERO, HOME_DOCK_RADIUS, 0.0, TAU, 64,
 		Color(0.3, 0.8, 1.0, 0.15), 2.0)
@@ -526,53 +579,64 @@ func _draw_home_compass() -> void:
 
 ## The captain's ship, bow facing +X (see tools/process_ship_art.gd).
 const SHIP_TEX := preload("res://assets/sprites/ship_hd.png")
-const SHIP_SCALE := 0.5
+const SHIP_SCALE := 0.72
 
 
 func _draw_ship() -> void:
-	# engine effects in ship space (unscaled world px)
-	draw_set_transform(ship_pos, heading, Vector2.ONE)
+	# engine effects in ship space, mapped to the hull's real nozzles.
+	# The flame block is tuned in the old 0.5-scale space, so it's drawn at
+	# SHIP_SCALE*2 — the offsets track the hull at any scale.
+	# Twin big orange mains astern (the pair sits ~17px apart, centred just
+	# below the spine), front wing turbines fire forward for reverse, and
+	# axial aft-facing wing pods burn differentially to yaw.
+	draw_set_transform(ship_pos, heading, Vector2(SHIP_SCALE * 2.0, SHIP_SCALE * 2.0))
 	if _thr > 0.05:
-		# twin main drives on the broad stern towers
+		# twin main drives — ship2's two big orange nozzles astern
+		# (pixel-detected at flame-space y −8 / +11, ~19px apart)
 		var flick := randf() * 9.0
-		for ey in [-21.0, 21.0]:
+		for ey in [-8.0, 11.0]:
 			draw_colored_polygon(
 				PackedVector2Array([
-					Vector2(-66, ey - 6), Vector2(-66, ey + 6),
-					Vector2(-88.0 - flick, ey)]),
-				Color(0.4, 0.85, 1.0, 0.85))
+					Vector2(-82, ey - 7), Vector2(-82, ey + 7),
+					Vector2(-110.0 - flick, ey)]),
+				Color(1.0, 0.7, 0.25, 0.85))
 			draw_colored_polygon(
 				PackedVector2Array([
-					Vector2(-66, ey - 3), Vector2(-66, ey + 3),
-					Vector2(-78.0 - flick * 0.5, ey)]),
-				Color(0.9, 0.98, 1.0, 0.9))
+					Vector2(-82, ey - 3.5), Vector2(-82, ey + 3.5),
+					Vector2(-97.0 - flick * 0.5, ey)]),
+				Color(1.0, 0.92, 0.6, 0.9))
+			draw_circle(Vector2(-84, ey), 9.0, Color(1.0, 0.6, 0.2, 0.14))
 	elif _thr < -0.05:
-		# bow retro jets, braking / backing up
-		for ey in [-10.0, 10.0]:
+		# reverse: the forward wing-tip turbines fire forward on both wings
+		# (pixel-detected at flame-space (32, ±51))
+		var rflick := randf() * 5.0
+		for ey in [-51.0, 51.0]:
 			draw_colored_polygon(
 				PackedVector2Array([
-					Vector2(66, ey - 3), Vector2(66, ey + 3),
-					Vector2(80.0 + randf() * 5.0, ey)]),
-				Color(0.4, 0.85, 1.0, 0.7))
+					Vector2(32, ey - 4), Vector2(32, ey + 4),
+					Vector2(50.0 + rflick, ey)]),
+				Color(0.4, 0.85, 1.0, 0.8))
+			draw_colored_polygon(
+				PackedVector2Array([
+					Vector2(32, ey - 2), Vector2(32, ey + 2),
+					Vector2(43.0 + rflick * 0.5, ey)]),
+				Color(0.92, 0.98, 1.0, 0.9))
 	if absf(_turn) > 0.05:
-		# RCS turbine at the trailing edge of the wing — fires OUTWARD on
-		# the pushing side, torquing the ship into the turn
-		var wy := -64.0 if _turn > 0.0 else 64.0
-		var base := Vector2(-40, wy)
+		# turning: the outer wing-tip pod fires a sideways puff, torquing
+		# the ship into the yaw
+		var wy := -51.0 if _turn > 0.0 else 51.0
+		var base := Vector2(32, wy)
 		var out := Vector2(0, signf(wy))
-		# nozzle stub
-		draw_line(base - out * 2.0, base + out * 3.0, Color(0.55, 0.6, 0.68), 4.0)
-		# flame cone with flicker, swept slightly aft
 		var flick := randf() * 6.0
-		var tip := base + out * (16.0 + flick) + Vector2(-5, 0)
 		draw_colored_polygon(PackedVector2Array([
-			base + Vector2(4, 0), base + Vector2(-4, 0), tip]),
+			base + Vector2(4, 0), base + Vector2(-4, 0),
+			base + out * (14.0 + flick)]),
 			Color(0.4, 0.85, 1.0, 0.8))
 		draw_colored_polygon(PackedVector2Array([
 			base + Vector2(2, 0), base + Vector2(-2, 0),
-			base + out * (9.0 + flick * 0.5) + Vector2(-2.5, 0)]),
+			base + out * (8.0 + flick * 0.5)]),
 			Color(0.92, 0.98, 1.0, 0.9))
-		draw_circle(base + out * 6.0, 7.0, Color(0.4, 0.85, 1.0, 0.18))
+		draw_circle(base + out * 5.0, 6.0, Color(0.4, 0.85, 1.0, 0.18))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	# painted hull, rotated toward the heading
 	draw_set_transform(ship_pos, heading, Vector2(SHIP_SCALE, SHIP_SCALE))

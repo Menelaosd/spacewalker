@@ -53,7 +53,10 @@ func _process(delta: float) -> void:
 	_moving = input.length() > 0.1
 	if _moving:
 		facing = input.normalized()
+		var beat_was := int(_step) % 2
 		_step += delta * 9.0
+		if int(_step) % 2 != beat_was:
+			Sfx.play("step", -22.0, randf_range(0.85, 1.15))
 	queue_redraw()
 
 

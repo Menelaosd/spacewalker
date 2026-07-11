@@ -69,6 +69,7 @@ const P := {
 	"holo_table": preload("res://assets/props/s7_10.png"),
 	# cargo / airlock (sheet 8)
 	"hatch": preload("res://assets/props/s8_00.png"),
+	"crew_npc": preload("res://assets/props/s10_00.png"),
 	"crate_quad": preload("res://assets/props/s8_01.png"),
 	"crate_hazard": preload("res://assets/props/s8_05.png"),
 	"barrel": preload("res://assets/props/s8_07.png"),
@@ -113,6 +114,15 @@ const ROOM_PROPS := {
 		["wardrobe", Vector2(-64, 34), 36.0],
 	],
 	"room": [],
+}
+
+# rescued crew live aboard: room type, offset in that room, suit tint
+const NPC_SPOTS := {
+	"JUNO": ["upgrade", Vector2(-40, 50), Color(1.15, 1.0, 0.72)],
+	"MIRA": ["quarters", Vector2(44, 6), Color(0.78, 1.12, 0.85)],
+	"HALE": ["cargo", Vector2(-58, -6), Color(0.8, 1.0, 1.15)],
+	"SOLA": ["quarters", Vector2(-14, 52), Color(1.15, 0.85, 0.85)],
+	"VEGA": ["bridge", Vector2(-66, -40), Color(1.0, 0.88, 1.2)],
 }
 
 # ambient light halos drawn IN FRONT of glowing props: [color, radius]
@@ -174,7 +184,11 @@ func _built(cell: int) -> bool:
 	return GameState.rooms.has(cell)
 
 
-const WALL_MARGIN := 12.0   # keep the crew off the wall plating
+# directional wall margins: the sprite is ~33px above the feet, so the
+# TOP wall needs a much deeper keep-out or the head climbs the plating
+const WALL_MARGIN := 12.0        # left/right
+const WALL_MARGIN_TOP := 28.0    # north walls (and the window glass)
+const WALL_MARGIN_BOTTOM := 10.0
 
 var _obstacles: Array[Rect2] = []   # furniture/station collision, feet-space
 
@@ -193,9 +207,9 @@ func _is_walkable(p: Vector2) -> bool:
 		return false
 	if feet.x > r.end.x - WALL_MARGIN and (col == GameState.SHIP_COLS - 1 or not _built(cell + 1)):
 		return false
-	if feet.y < r.position.y + WALL_MARGIN and (row == 0 or not _built(cell - GameState.SHIP_COLS)):
+	if feet.y < r.position.y + WALL_MARGIN_TOP and (row == 0 or not _built(cell - GameState.SHIP_COLS)):
 		return false
-	if feet.y > r.end.y - WALL_MARGIN and (row == GameState.SHIP_ROWS - 1 or not _built(cell + GameState.SHIP_COLS)):
+	if feet.y > r.end.y - WALL_MARGIN_BOTTOM and (row == GameState.SHIP_ROWS - 1 or not _built(cell + GameState.SHIP_COLS)):
 		return false
 	# furniture: a small foot BOX, so you can't clip corners diagonally
 	for o in _obstacles:
@@ -243,8 +257,10 @@ func _build_obstacles() -> void:
 			var tex: Texture2D = P[f[0]]
 			var w: float = f[2]
 			var h: float = w * tex.get_size().y / tex.get_size().x
+			# sides stay near-full width (no slipping past when walking
+			# vertically along a prop); only top/bottom shrink for depth
 			_obstacles.append(Rect2(c + (f[1] as Vector2) - Vector2(w, h) * 0.5,
-				Vector2(w, h)).grow(-w * 0.12))
+				Vector2(w, h)).grow_individual(-1.0, -w * 0.12, -1.0, -w * 0.12))
 	for st in _stations:
 		if not STATION_PROP.has(st["kind"]):
 			continue
@@ -253,7 +269,7 @@ func _build_obstacles() -> void:
 		var w2: float = sp[1]
 		var h2: float = w2 * tex2.get_size().y / tex2.get_size().x
 		_obstacles.append(Rect2((st["pos"] as Vector2) - Vector2(w2, h2) * 0.5,
-			Vector2(w2, h2)).grow(-w2 * 0.15))
+			Vector2(w2, h2)).grow_individual(-1.0, -w2 * 0.15, -1.0, -w2 * 0.15))
 
 
 func _find_cell(type: String) -> int:
@@ -336,6 +352,7 @@ func _ready() -> void:
 	if radio != "":
 		await get_tree().create_timer(2.8).timeout
 		if is_inside_tree():
+			Sfx.play("radio", -12.0)
 			GameState.say(radio)
 
 	GameState.save_game()
@@ -502,7 +519,10 @@ func _station_label(st: Dictionary) -> String:
 			return "E    Expand the ship   (%d ore)" % int(GameState.ROOM_TYPES["room"]["cost"])
 		"drive":
 			if GameState.game_complete:
-				return "E    THE DRIVE IS READY — SET COURSE FOR HAVEN"
+				if GameState.rescued_count() < GameState.RESCUES.size():
+					return "DRIVE READY — %d OF THE SIX STILL OUT THERE. NOBODY GETS LEFT." % \
+						(GameState.RESCUES.size() - GameState.rescued_count())
+				return "E    ALL ABOARD — SET COURSE FOR HAVEN"
 			var part: Dictionary = GameState.quest_part()
 			return "JUMP DRIVE · %s  —  %s%s" % [part["name"],
 				GameState.quest_progress_text(),
@@ -537,9 +557,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		if i < GameState.trader_stock.size():
 			var offer: Dictionary = GameState.trader_stock[i]
 			if GameState.buy_from_trader(i):
+				Sfx.play("bank", -8.0)
 				GameState.say("Bought 1 %s for %d ore. VESNA: Pleasure." % [
 					Elements.name_of(offer["sym"]), offer["price"]])
 			else:
+				Sfx.play("deny", -12.0)
 				GameState.say("VESNA: That's %d ore, friend. You have %d." % [
 					offer["price"], GameState.banked])
 	elif st["kind"] == "workbench" and event.physical_keycode in \
@@ -547,8 +569,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		var i: int = event.physical_keycode - KEY_1
 		var r: Dictionary = GameState.RECIPES[i]
 		if GameState.craft(i):
+			Sfx.play("upgrade", -5.0)
 			GameState.say("%s crafted — %s." % [r["name"], r["desc"]])
 		else:
+			Sfx.play("deny", -12.0)
 			GameState.say("Can't craft %s — check materials." % r["name"])
 
 
@@ -556,14 +580,21 @@ func _interact(st: Dictionary) -> void:
 	match st["kind"]:
 		"drive":
 			if GameState.game_complete:
-				_ending_t = 0.001   # roll credits
+				if GameState.rescued_count() < GameState.RESCUES.size():
+					Sfx.play("deny", -8.0)
+					GameState.say("The drive hums, ready. But %d beacon(s) still sing out there — nobody gets left behind." % \
+						(GameState.RESCUES.size() - GameState.rescued_count()))
+					return
+				_ending_t = 0.001   # roll credits — all six, going home
 				return
 			var part: Dictionary = GameState.quest_part()
 			if GameState.quest_install():
+				Sfx.play("upgrade", -4.0)
 				GameState.say("LOG: " + part["log"])
 				if GameState.game_complete:
 					GameState.say("THE JUMP DRIVE IS COMPLETE. Return to it when you're ready.")
 			else:
+				Sfx.play("deny", -10.0)
 				GameState.say("Missing materials — %s" % GameState.quest_progress_text())
 				# where to actually FIND them — mining can't drop everything
 				if part.has("hint"):
@@ -571,17 +602,21 @@ func _interact(st: Dictionary) -> void:
 		"board":
 			var n := GameState.deliver_contracts()
 			if n > 0:
+				Sfx.play("bank", -4.0)
 				GameState.say("%d contract%s delivered. Reputation %d. VESNA: Word travels." % [
 					n, "s" if n > 1 else "", GameState.reputation])
 			else:
+				Sfx.play("deny", -12.0)
 				GameState.say("Nothing ready to deliver yet.")
 		"expand":
 			var cost: int = GameState.ROOM_TYPES["room"]["cost"]
 			if GameState.build_room(st["cell"], "room"):
+				Sfx.play("upgrade", -5.0)
 				GameState.say("Hull section built out. What it becomes is up to you — later.")
 				_define_stations()
 				_spawn_lights()
 			else:
+				Sfx.play("deny", -10.0)
 				GameState.say("Can't build — need %d ore (have %d)." % [cost, GameState.banked])
 		"exit":
 			get_tree().change_scene_to_file("res://scenes/main.tscn")
@@ -591,6 +626,7 @@ func _interact(st: Dictionary) -> void:
 			var kind: String = st["kind"]
 			var cost := GameState.upgrade_cost(kind)
 			if GameState.try_upgrade(kind):
+				Sfx.play("upgrade", -5.0)
 				match kind:
 					"o2":
 						GameState.say("O2 tank upgraded — capacity now %d." % int(GameState.max_oxygen))
@@ -602,6 +638,7 @@ func _interact(st: Dictionary) -> void:
 						GameState.say("Suit reinforced — you can haul %d ore per walk now." %
 							GameState.carry_max())
 			else:
+				Sfx.play("deny", -10.0)
 				GameState.say("Not enough ore — need %d, have %d." % [cost, GameState.banked])
 
 
@@ -729,7 +766,7 @@ func _draw() -> void:
 	for cell in wall_sides:
 		var f: Dictionary = wall_sides[cell]
 		var ccol: int = int(cell) % cols
-		var crow: int = int(cell) / cols
+		var crow: int = int(float(cell) / cols)
 		if f["top"]:
 			hedges[Vector2i(ccol, crow)] = true
 		if f["bottom"]:
@@ -910,7 +947,7 @@ func _draw_ending() -> void:
 	if _ending_t > 4.2:
 		var a2 := clampf((_ending_t - 4.2) / 1.5, 0.0, 1.0)
 		_ci.draw_string(_font, center + Vector2(-400, 24),
-			"Shift %d. %d elements discovered.\nWelcome to your new home, %s." % [
+			"Shift %d. %d elements discovered. Six souls aboard.\nYou found them all, %s. Welcome home — all of you." % [
 				GameState.shift, GameState.discovered.size(), GameState.pilot_name()],
 			HORIZONTAL_ALIGNMENT_CENTER, 800, 16, Color(1, 1, 1, a2))
 
@@ -1034,6 +1071,30 @@ func _draw_depth(behind: bool) -> void:
 			- (sp[1] as float) * 0.15 - 4.0
 		if (base_y2 <= fy) == behind:
 			_draw_station_visual(st, i == _active)
+	# the found — your crew, living aboard
+	for nname in NPC_SPOTS:
+		if not GameState.rescued.has(nname):
+			continue
+		var spot: Array = NPC_SPOTS[nname]
+		var home := _find_cell(spot[0])
+		var npos: Vector2 = cell_rect(home).get_center() + (spot[1] as Vector2)
+		if (npos.y + 16.0 <= fy) == behind:
+			_draw_npc(nname, npos, spot[2])
+
+
+func _draw_npc(nname: String, pos: Vector2, tint: Color) -> void:
+	var tex: Texture2D = P["crew_npc"]
+	var s := 34.0 / tex.get_size().y
+	var phase := pos.x * 0.31
+	var bob := sin(_reactor * 1.5 + phase) * 1.4
+	_ci.draw_set_transform(pos + Vector2(0, 12), 0.0, Vector2(1.0, 0.42))
+	_ci.draw_circle(Vector2.ZERO, 9.0, Color(0, 0, 0, 0.25))
+	_ci.draw_set_transform(pos + Vector2(0, bob), 0.0,
+		Vector2(-s if sin(_reactor * 0.23 + phase) > 0.0 else s, s))
+	_ci.draw_texture(tex, -tex.get_size() * 0.5, tint)
+	_ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	_ci.draw_string(_font, pos + Vector2(-40, -26), nname,
+		HORIZONTAL_ALIGNMENT_CENTER, 80, 9, Color(0.55, 0.9, 1.0, 0.5))
 
 
 func _draw_expansions() -> void:
