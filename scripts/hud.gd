@@ -46,7 +46,7 @@ func _ready() -> void:
 		Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_MINSIZE, 120)
 
 	var hint := Label.new()
-	hint.text = "W/S thrust · A/D turn · LMB mine · dock to bank · I inventory · Esc menu"
+	hint.text = "W to cursor · S brake · A/D strafe · LMB mine · I inventory · Esc menu"
 	hint.add_theme_font_size_override("font_size", 12)
 	hint.modulate = Color(1, 1, 1, 0.4)
 	root.add_child(hint)

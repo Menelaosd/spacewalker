@@ -82,11 +82,7 @@ func _draw_suit_panel(rect: Rect2) -> void:
 	var y := rect.position.y + 250.0
 	for row in rows:
 		var slot_rect := Rect2(rect.position.x + 18, y, rect.size.x - 36, 62)
-		var pts := UITheme.cut_points(slot_rect, 8.0)
-		draw_colored_polygon(pts, UITheme.BG_LIGHT)
-		var outline := pts.duplicate()
-		outline.append(pts[0])
-		draw_polyline(outline, Color(1, 1, 1, 0.14), 1.0)
+		UITheme.draw_sub_panel(self, slot_rect)
 		(row[3] as Callable).call(slot_rect.position + Vector2(30, 31))
 		draw_string(_font, slot_rect.position + Vector2(62, 26), row[0],
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 13, UITheme.TEXT)
@@ -109,6 +105,9 @@ func _draw_elements_panel(rect: Rect2) -> void:
 	_header(rect, "ELEMENTS",
 		"%d / %d COLLECTED · REAL SOLAR ABUNDANCE · CHUNKS HELD %d" % [
 			owned, _sorted.size(), GameState.carried])
+	# collection ring gauge, top-right of the panel
+	UITheme.draw_ring_gauge(self, rect.position + Vector2(rect.size.x - 46, 40),
+		22.0, float(owned) / float(_sorted.size()), UITheme.ACCENT, _font)
 
 	var gx := rect.position.x + 18.0
 	var gy := rect.position.y + 74.0

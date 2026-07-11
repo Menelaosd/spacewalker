@@ -349,11 +349,12 @@ func _draw_ship() -> void:
 					Vector2(80.0 + randf() * 5.0, ey)]),
 				Color(0.4, 0.85, 1.0, 0.7))
 	if absf(_turn) > 0.05:
-		# the wingtip turbine on the pushing side fires during a yaw
-		var wy := -62.0 if _turn > 0.0 else 62.0
-		draw_circle(Vector2(6, wy), 4.5 + randf() * 2.5,
+		# the wingtip turbine on the pushing side fires during a yaw —
+		# the wings sit aft of midship on this hull
+		var wy := -66.0 if _turn > 0.0 else 66.0
+		draw_circle(Vector2(-26, wy), 4.5 + randf() * 2.5,
 			Color(0.4, 0.85, 1.0, 0.7))
-		draw_circle(Vector2(6, wy), 8.0, Color(0.4, 0.85, 1.0, 0.2))
+		draw_circle(Vector2(-26, wy), 8.0, Color(0.4, 0.85, 1.0, 0.2))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	# painted hull, rotated toward the heading
 	draw_set_transform(ship_pos, heading, Vector2(SHIP_SCALE, SHIP_SCALE))

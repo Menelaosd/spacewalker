@@ -40,22 +40,27 @@ func _draw() -> void:
 
 	UITheme.draw_sci_panel(self, Rect2(0, 0, W, H), accent)
 
+	# O2 ring gauge on the right — the hero readout
+	var ring_col := UITheme.DANGER if o2_low else Color(0.35, 0.8, 1.0)
+	UITheme.draw_ring_gauge(self, Vector2(256, 52), 24.0, o2_frac, ring_col, _font)
+	draw_string(_font, Vector2(232, 88), "O2", HORIZONTAL_ALIGNMENT_CENTER,
+		48, 11, UITheme.TEXT_DIM)
+
 	# O2 row
 	draw_string(_font, Vector2(16, 30), "O2", HORIZONTAL_ALIGNMENT_LEFT, -1, 13,
 		UITheme.DANGER if o2_low else UITheme.TEXT)
-	UITheme.draw_meter(self, Rect2(52, 18, 160, 15), o2_frac,
+	UITheme.draw_meter(self, Rect2(52, 16, 130, 16), o2_frac,
 		Color(0.35, 0.8, 1.0), o2_low)
-	draw_string(_font, Vector2(220, 30), "%d/%d" % [ceili(GameState.oxygen),
-		int(GameState.max_oxygen)], HORIZONTAL_ALIGNMENT_LEFT, -1, 12,
-		UITheme.TEXT_DIM)
+	draw_string(_font, Vector2(186, 29), "%d" % ceili(GameState.oxygen),
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 12, UITheme.TEXT_DIM)
 
 	# LINE row
 	var lf := _line_frac()
 	draw_string(_font, Vector2(16, 56), "LINE", HORIZONTAL_ALIGNMENT_LEFT, -1, 13,
 		UITheme.TEXT)
-	UITheme.draw_meter(self, Rect2(52, 44, 160, 15), lf,
+	UITheme.draw_meter(self, Rect2(52, 42, 130, 16), lf,
 		Color(1.0, 0.85, 0.3), lf < 0.12)
-	draw_string(_font, Vector2(220, 56), "%d%%" % int(lf * 100.0),
+	draw_string(_font, Vector2(186, 55), "%d%%" % int(lf * 100.0),
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 12, UITheme.TEXT_DIM)
 
 	# cargo counters

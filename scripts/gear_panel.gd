@@ -49,13 +49,11 @@ func _draw_tile(i: int, title: String, value: String, level: int,
 	var accent := UITheme.ACCENT
 	if _flash > 0.0:
 		accent = UITheme.ACCENT.lerp(UITheme.ACCENT_WARM, _flash)
-	# cut-corner tile
-	var pts := UITheme.cut_points(rect, 8.0)
-	draw_colored_polygon(pts, UITheme.BG)
-	var outline := pts.duplicate()
-	outline.append(pts[0])
-	draw_polyline(outline, Color(accent.r, accent.g, accent.b,
-		0.35 + 0.5 * _flash), 1.2)
+	# steel tile
+	UITheme.draw_sub_panel(self, rect)
+	if _flash > 0.0:
+		draw_rect(rect.grow(-2.0), Color(accent.r, accent.g, accent.b,
+			0.5 * _flash), false, 2.0)
 	# title
 	draw_string(_font, Vector2(x, 13), title, HORIZONTAL_ALIGNMENT_CENTER,
 		TILE, 9, UITheme.TEXT_DIM)

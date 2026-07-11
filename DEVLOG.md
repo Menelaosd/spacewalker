@@ -5,6 +5,46 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 11/07/2026 — v0.6: "Nemesis" UI kit (metallic frames, ring gauges, glossy buttons)
+
+Full UI kit in the style of the user's reference (Space War Nemesis):
+- **Texture generator** `tools/gen_ui_kit.gd` → `assets/ui/`: 9-slice
+  metallic frame with riveted corner plates + cyan inner glow, thin steel
+  sub-panel, glossy blue button (normal/hover/pressed — hover gets a cyan
+  rim), inset meter trough. All gradients/bevels baked, deterministic.
+- **Runtime glow components** in `ui_theme.gd`: **segmented cell meters**
+  (lit cells + glowing head cell), **ring gauges** (glow arc + hot core +
+  head dot + %), **headline plates** with metal side-wings, key chips.
+  Theme uses StyleBoxTexture 9-slices for Buttons/PanelContainer.
+- Applied game-wide: vitals panel now has an **O2 ring gauge** + segmented
+  meters; gear tiles, exosuit rows, inventory panels, title/menu buttons
+  all steel-framed; elements panel gets a **collection % ring**.
+- **Showcase scene** `scenes/ui_kit_demo.tscn` — the whole kit on one
+  sheet (framed list w/ headline, meters, gauges, live buttons, chips),
+  like the reference sheet. Run directly to eyeball any component.
+
+---
+
+## 11/07/2026 — Suit controls v3: mouse-flight (+ wing-jet fix, interior pass)
+
+- **Suit controls, third iteration** (tank → twin-stick → **mouse-flight**,
+  user picked the proposal): the cursor is the joystick. **W thrusts
+  toward the cursor, S retro-burns away, A/D strafe sideways** relative
+  to facing — point at a rock, W to approach, S to brake, A/D to orbit
+  while mining. Body still faces the mouse; flame opposes actual thrust.
+  **The ship keeps tank controls** (W/S thrust, A/D turn).
+- **Wing turn-jets** were drawing forward of the wing line after the hull
+  flip — moved aft to the actual wingtips (-26, ±66).
+- **Interior detail pass**: double-plated hull, deck-plate floor grids,
+  lit doorway gaps facing the corridor with cyan doorframe markers,
+  corridor ceiling lights with pulsing pools, ambient room light pools,
+  Quarters (blanket, locker, sun poster), Bridge (live green/red console
+  LEDs, framed star window), Engine Room (hazard-striped reactor ring,
+  twitchy wall gauge), Cargo Hold (dashed LOADING ZONE markings),
+  Airlock (animated approach chevrons, hatch wheel hub).
+
+---
+
 ## 11/07/2026 — Ship flipped + tank controls + save deletion (captain's feedback)
 
 - **Ship orientation corrected**: the tapered spine is the BOW, the broad

@@ -233,55 +233,125 @@ func _on_notify(text: String) -> void:
 # Placeholder visuals — hull, rooms, furniture, stations
 # ==================================================================
 func _draw() -> void:
-	# hull shell behind everything
+	# hull shell behind everything, double-plated
 	var shell := _bounds.grow(14.0)
+	draw_rect(shell.grow(6.0), Color(0.06, 0.075, 0.10), true)
 	draw_rect(shell, Color(0.10, 0.12, 0.16), true)
 	draw_rect(shell, Color(0.4, 0.44, 0.52), false, 4.0)
-
-	for r in _rooms:
-		_draw_room(r)
+	draw_rect(shell.grow(6.0), Color(0.25, 0.28, 0.34), false, 2.0)
 
 	# corridor band linking the two room rows
 	var corridor := Rect2(-360, -40, 720, 80)
-	draw_rect(corridor, Color(0.19, 0.21, 0.26), true)
-	draw_line(Vector2(-360, -40), Vector2(360, -40), Color(0, 0, 0, 0.25), 2.0)
-	draw_line(Vector2(-360, 40), Vector2(360, 40), Color(0, 0, 0, 0.25), 2.0)
+	draw_rect(corridor, Color(0.17, 0.19, 0.24), true)
+	_draw_floor_grid(corridor)
+	# corridor light fixtures with soft pools
+	for i in 5:
+		var lx := -300.0 + i * 150.0
+		var pulse := 0.8 + 0.2 * sin(_reactor * 2.2 + float(i) * 1.7)
+		draw_circle(Vector2(lx, 0), 30.0, Color(0.8, 0.9, 1.0, 0.05 * pulse))
+		draw_rect(Rect2(lx - 9, -2, 18, 4), Color(0.85, 0.95, 1.0, 0.55 * pulse))
+
+	for r in _rooms:
+		_draw_room(r)
 
 	_draw_furniture()
 	_draw_stations()
 
 
+func _draw_floor_grid(rect: Rect2) -> void:
+	## Subtle deck plating.
+	var x := rect.position.x + 28.0
+	while x < rect.end.x:
+		draw_line(Vector2(x, rect.position.y + 2), Vector2(x, rect.end.y - 2),
+			Color(1, 1, 1, 0.03), 1.0)
+		x += 28.0
+	var y := rect.position.y + 28.0
+	while y < rect.end.y:
+		draw_line(Vector2(rect.position.x + 2, y), Vector2(rect.end.x - 2, y),
+			Color(1, 1, 1, 0.03), 1.0)
+		y += 28.0
+
+
 func _draw_room(r: Dictionary) -> void:
 	var rect: Rect2 = r["rect"]
 	draw_rect(rect, r["floor"], true)
+	_draw_floor_grid(rect)
+	# soft ambient light pool in the middle of the room
+	draw_circle(rect.get_center(), minf(rect.size.x, rect.size.y) * 0.42,
+		Color(0.85, 0.92, 1.0, 0.03))
+	# wall shadow along the top edge
+	draw_rect(Rect2(rect.position, Vector2(rect.size.x, 7)), Color(0, 0, 0, 0.22))
 	draw_rect(rect, Color(0.32, 0.36, 0.44), false, 2.0)
+	# doorway facing the corridor — a lit gap in the wall
+	var door_y := rect.end.y if rect.position.y < -40.0 else rect.position.y
+	var cx := rect.get_center().x
+	draw_rect(Rect2(cx - 20, door_y - 3, 40, 6), Color(0.17, 0.19, 0.24))
+	draw_rect(Rect2(cx - 22, door_y - 2, 4, 4), Color(0.55, 0.9, 1.0, 0.6))
+	draw_rect(Rect2(cx + 18, door_y - 2, 4, 4), Color(0.55, 0.9, 1.0, 0.6))
 	# room name, small, top-left inside
-	draw_string(_font, rect.position + Vector2(8, 18), r["name"],
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1, 1, 1, 0.35))
+	draw_string(_font, rect.position + Vector2(9, 19), r["name"],
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.55, 0.9, 1.0, 0.4))
 
 
 func _draw_furniture() -> void:
-	# --- Quarters: a bunk ---
+	# --- Quarters: bunk, locker, wall poster ---
 	draw_rect(Rect2(-345, -110, 90, 40), Color(0.28, 0.3, 0.38))
+	draw_rect(Rect2(-345, -110, 90, 40), Color(0, 0, 0, 0.3), false, 1.5)
 	draw_rect(Rect2(-345, -110, 26, 40), Color(0.85, 0.86, 0.9))  # pillow
+	draw_rect(Rect2(-343, -78, 86, 6), Color(0.2, 0.55, 0.75))    # blanket edge
+	draw_rect(Rect2(-230, -158, 30, 52), Color(0.22, 0.25, 0.32)) # locker
+	draw_rect(Rect2(-230, -158, 30, 52), Color(0, 0, 0, 0.35), false, 1.5)
+	draw_line(Vector2(-215, -152), Vector2(-215, -112), Color(0, 0, 0, 0.4), 1.5)
+	draw_rect(Rect2(-219, -136, 3, 8), Color(0.7, 0.75, 0.85))    # handle
+	draw_rect(Rect2(-300, -160, 34, 24), Color(0.3, 0.5, 0.7, 0.5))  # poster
+	draw_circle(Vector2(-283, -148), 7.0, Color(0.9, 0.7, 0.3, 0.6)) # ...of a sun
 
-	# --- Bridge: forward window + console + chair ---
-	draw_rect(Rect2(298, -168, 60, 122), Color(0.04, 0.06, 0.12))  # window void
+	# --- Bridge: forward star window, console row with live LEDs, chair ---
+	draw_rect(Rect2(298, -168, 60, 122), Color(0.04, 0.06, 0.12))
 	for s in _win_stars:
 		draw_circle(s[0], s[1], Color(1, 1, 1, s[2]))
-	draw_rect(Rect2(120, -150, 150, 20), Color(0.24, 0.3, 0.4))    # console
-	draw_circle(Vector2(150, -110), 12.0, Color(0.3, 0.33, 0.4))   # pilot chair
+	draw_rect(Rect2(298, -168, 60, 122), Color(0.4, 0.44, 0.52), false, 2.0)
+	draw_rect(Rect2(120, -150, 150, 20), Color(0.24, 0.3, 0.4))
+	draw_rect(Rect2(120, -150, 150, 20), Color(0, 0, 0, 0.3), false, 1.5)
+	for i in 6:
+		var led_on := sin(_reactor * (1.3 + float(i) * 0.7) + float(i) * 2.1) > 0.0
+		var led_col := Color(0.4, 0.95, 0.6) if led_on else Color(0.9, 0.4, 0.3)
+		draw_rect(Rect2(129 + i * 23, -145, 9, 5), Color(led_col.r, led_col.g, led_col.b, 0.8))
+	draw_rect(Rect2(132, -144, 40, 12), Color(0.35, 0.8, 1.0, 0.10 + 0.05 * sin(_reactor * 3.0)))
+	draw_circle(Vector2(150, -110), 12.0, Color(0.3, 0.33, 0.4))
 	draw_circle(Vector2(150, -110), 12.0, Color(0.5, 0.7, 0.9, 0.15))
 
-	# --- Engine Room: pulsing reactor + pipes ---
+	# --- Engine Room: reactor in a hazard ring, pipes, wall gauge ---
 	var pulse := 0.5 + 0.5 * sin(_reactor * 3.0)
+	# hazard ring around the reactor pit
+	draw_circle(Vector2(-250, 105), 42.0, Color(0.12, 0.10, 0.09))
+	for i in 12:
+		var a0 := TAU * float(i) / 12.0
+		draw_arc(Vector2(-250, 105), 42.0, a0, a0 + TAU / 24.0, 6,
+			Color(0.9, 0.7, 0.1, 0.5), 3.0)
 	draw_circle(Vector2(-250, 105), 34.0, Color(1.0, 0.5, 0.1, 0.12 + 0.10 * pulse))
 	draw_circle(Vector2(-250, 105), 20.0, Color(1.0, 0.55, 0.2, 0.5 + 0.4 * pulse))
 	draw_circle(Vector2(-250, 105), 9.0, Color(1.0, 0.85, 0.5, 0.7 + 0.3 * pulse))
 	draw_line(Vector2(-300, 60), Vector2(-200, 60), Color(0.4, 0.42, 0.5), 5.0)
 	draw_line(Vector2(-300, 150), Vector2(-200, 150), Color(0.4, 0.42, 0.5), 5.0)
+	draw_line(Vector2(-300, 60), Vector2(-300, 150), Color(0.4, 0.42, 0.5), 5.0)
+	# wall gauge with a nervous needle
+	draw_circle(Vector2(-180, 70), 11.0, Color(0.16, 0.18, 0.24))
+	draw_circle(Vector2(-180, 70), 11.0, Color(0.5, 0.55, 0.65), false, 1.5)
+	var needle := -PI * 0.75 + (0.6 + 0.15 * sin(_reactor * 5.0)) * PI
+	draw_line(Vector2(-180, 70),
+		Vector2(-180, 70) + Vector2.from_angle(needle) * 8.0,
+		Color(1.0, 0.6, 0.2), 1.6)
 
-	# --- Cargo Hold: crate stack that grows with banked ore ---
+	# --- Cargo Hold: marked loading zone + crate stack from banked ore ---
+	var zone := Rect2(-132, 100, 110, 62)
+	var dash := zone.position.x
+	while dash < zone.end.x:   # dashed yellow floor marking
+		draw_line(Vector2(dash, zone.position.y), Vector2(minf(dash + 8, zone.end.x), zone.position.y),
+			Color(0.9, 0.75, 0.2, 0.4), 2.0)
+		draw_line(Vector2(dash, zone.end.y), Vector2(minf(dash + 8, zone.end.x), zone.end.y),
+			Color(0.9, 0.75, 0.2, 0.4), 2.0)
+		dash += 14.0
 	var crates: int = clampi(int(GameState.banked / 3.0), 0, 12)
 	for i in crates:
 		var col := i % 4
@@ -289,17 +359,24 @@ func _draw_furniture() -> void:
 		var cp := Vector2(-125 + col * 24, 150 - row * 24)
 		draw_rect(Rect2(cp.x, cp.y - 20, 20, 20), Color(0.55, 0.42, 0.2))
 		draw_rect(Rect2(cp.x, cp.y - 20, 20, 20), Color(0, 0, 0, 0.3), false, 1.5)
+		draw_line(cp + Vector2(3, -10), cp + Vector2(17, -10), Color(0, 0, 0, 0.25), 1.0)
 	if crates == 0:
-		draw_string(_font, Vector2(-125, 120), "(empty)",
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1, 1, 1, 0.3))
+		draw_string(_font, Vector2(-122, 135), "LOADING ZONE",
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.9, 0.75, 0.2, 0.3))
 
-	# --- Airlock: hatch with hazard stripes ---
+	# --- Airlock: hatch, hazard chevrons pointing the way out ---
+	for i in 3:
+		var chx := 230.0 + float(i) * 18.0
+		draw_polyline(PackedVector2Array([
+			Vector2(chx, 90), Vector2(chx + 10, 105), Vector2(chx, 120)]),
+			Color(0.9, 0.7, 0.1, 0.30 + 0.25 * sin(_reactor * 2.5 - float(i))), 3.0)
 	draw_circle(Vector2(300, 105), 30.0, Color(0.18, 0.2, 0.26))
 	draw_circle(Vector2(300, 105), 30.0, Color(0.7, 0.75, 0.85), false, 3.0)
 	for i in 4:
 		var a := TAU * float(i) / 4.0 + 0.4
 		draw_line(Vector2(300, 105), Vector2(300, 105) + Vector2.from_angle(a) * 30.0,
 			Color(0.9, 0.7, 0.1, 0.5), 3.0)
+	draw_circle(Vector2(300, 105), 6.0, Color(0.45, 0.5, 0.6))  # hatch wheel hub
 
 
 func _draw_stations() -> void:

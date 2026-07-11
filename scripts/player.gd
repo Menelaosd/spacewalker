@@ -3,9 +3,7 @@ extends CharacterBody2D
 ## drains O2 on spacewalks, mines with a laser pistol.
 ## All visuals are placeholder _draw() shapes — swap for sprites later.
 
-const THRUST := 330.0
-const THRUST_REV := 190.0
-const TURN_RATE := 3.4       # rad/s — A/D rotate the suit
+const THRUST := 320.0
 const MAX_SPEED := 340.0
 const DAMP := 0.5            # gentle drift damping so it stays controllable
 const LASER_RANGE := 240.0
@@ -23,10 +21,8 @@ var tether_anchor := Vector2.ZERO
 var in_dock := true
 var laser_on := false
 var laser_hit := Vector2.ZERO
-var aim_dir := Vector2.RIGHT   # pistol tracks the mouse, independent of body
-var facing := PI / 2           # body orientation, driven by A/D
-var _thr := 0.0
-var _turn := 0.0
+var aim_dir := Vector2.RIGHT   # body and pistol face the mouse
+var thrust_input := Vector2.ZERO
 
 
 func _ready() -> void:
@@ -34,18 +30,18 @@ func _ready() -> void:
 
 
 func _physics_process(delta: float) -> void:
-	# suit controls: A/D rotate, W thrusts along the body, S retro-thrusts
-	_turn = Input.get_axis("move_left", "move_right")
-	_thr = Input.get_axis("move_down", "move_up")
-	facing += _turn * TURN_RATE * delta
-	if absf(_thr) > 0.01:
-		var power := THRUST if _thr > 0.0 else THRUST_REV
-		velocity += Vector2.from_angle(facing) * _thr * power * delta
+	# EVA mouse-flight: the cursor is the joystick. W burns TOWARD it,
+	# S retro-burns away, A/D strafe sideways relative to your facing —
+	# point at a rock, W to approach, S to brake, A/D to orbit it.
+	_update_aim()
+	var fwd := Input.get_axis("move_down", "move_up")
+	var strafe := Input.get_axis("move_left", "move_right")
+	thrust_input = (aim_dir * fwd - aim_dir.orthogonal() * strafe).limit_length(1.0)
+	velocity += thrust_input * THRUST * delta
 	velocity = velocity.limit_length(MAX_SPEED)
 	velocity = velocity.lerp(Vector2.ZERO, 1.0 - exp(-DAMP * delta))
 	move_and_slide()
 	_apply_tether(delta)
-	_update_aim()
 	_update_laser(delta)
 	_update_oxygen(delta)
 	queue_redraw()
@@ -144,12 +140,11 @@ func _draw_tether() -> void:
 
 
 func _draw_suit() -> void:
-	var fwd := Vector2.from_angle(facing)
-	# backpack thruster flame — behind when burning W, ahead when braking S
-	if absf(_thr) > 0.05:
-		var flame_dir := -fwd * signf(_thr)
+	# thruster flame opposite to input, two-tone
+	if thrust_input.length() > 0.1:
+		var flame_dir := -thrust_input.normalized()
 		var base := flame_dir * 14.0
-		var tip := base + flame_dir * ((11.0 if _thr > 0.0 else 6.0) + randf() * 6.0)
+		var tip := base + flame_dir * (11.0 + randf() * 6.0)
 		var side := flame_dir.orthogonal() * 4.0
 		draw_colored_polygon(
 			PackedVector2Array([base + side, base - side, tip]),
@@ -158,12 +153,8 @@ func _draw_suit() -> void:
 			PackedVector2Array([base + side * 0.5, base - side * 0.5,
 				base + flame_dir * 7.0]),
 			Color(1.0, 0.9, 0.6, 0.9))
-	# side puffs while turning
-	if absf(_turn) > 0.05:
-		var puff := fwd.orthogonal() * (-14.0 if _turn > 0.0 else 14.0)
-		draw_circle(puff, 2.5 + randf() * 1.5, Color(0.7, 0.9, 1.0, 0.6))
-	# pixel astronaut — the body faces where A/D steered it
-	draw_set_transform(Vector2.ZERO, facing, Vector2(2.0, 2.0))
+	# pixel astronaut, body faces the mouse (zero-g twist)
+	draw_set_transform(Vector2.ZERO, aim_dir.angle(), Vector2(2.0, 2.0))
 	draw_texture(SUIT_TEX, Vector2(-8.0, -8.0))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
