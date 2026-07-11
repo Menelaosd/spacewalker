@@ -3,8 +3,10 @@ extends CanvasLayer
 ## fading message label and controls hint.
 
 const GEAR_PANEL := preload("res://scripts/gear_panel.gd")
+const INVENTORY_SCREEN := preload("res://scripts/inventory_screen.gd")
 
 var _oxygen_bar: ProgressBar
+var _oxygen_num: Label
 var _line_bar: ProgressBar
 var _cargo_label: Label
 var _msg_label: Label
@@ -16,24 +18,35 @@ func _ready() -> void:
 	var root := Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.theme = UITheme.make_theme()
 	add_child(root)
 
+	# vitals cluster in a rounded panel, NMS-style
+	var vitals := PanelContainer.new()
+	vitals.position = Vector2(14, 14)
+	vitals.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(vitals)
 	var box := VBoxContainer.new()
-	box.position = Vector2(16, 16)
-	root.add_child(box)
+	vitals.add_child(box)
 
 	_oxygen_bar = _make_bar("O2", box, Color(0.35, 0.8, 1.0))
+	_oxygen_num = Label.new()
+	_oxygen_num.modulate = Color(0.7, 0.9, 1.0)
+	_oxygen_bar.get_parent().add_child(_oxygen_num)
 	_line_bar = _make_bar("LINE", box, Color(1.0, 0.85, 0.3))
 
 	_cargo_label = Label.new()
 	_cargo_label.text = "Ore: 0   Banked: 0"
 	box.add_child(_cargo_label)
 
-	# gear rack (top-right)
+	# gear rack (bottom-right)
 	var gear := GEAR_PANEL.new()
 	root.add_child(gear)
 	gear.set_anchors_and_offsets_preset(
-		Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_MINSIZE, 16)
+		Control.PRESET_BOTTOM_RIGHT, Control.PRESET_MODE_MINSIZE, 16)
+
+	# full inventory overlay (I / Tab)
+	root.add_child(INVENTORY_SCREEN.new())
 
 	# "enter ship" prompt — only visible while docked
 	_dock_prompt = Label.new()
@@ -45,7 +58,7 @@ func _ready() -> void:
 		Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_MINSIZE, 120)
 
 	var hint := Label.new()
-	hint.text = "WASD thrust · Hold LMB to mine · Dock to bank & refill O2 · R restart"
+	hint.text = "WASD thrust · Hold LMB to mine · Dock to bank & refill O2 · I inventory · Esc menu"
 	hint.modulate = Color(1, 1, 1, 0.55)
 	root.add_child(hint)
 	hint.set_anchors_and_offsets_preset(
@@ -61,6 +74,9 @@ func _ready() -> void:
 	GameState.oxygen_changed.connect(_on_oxygen)
 	GameState.cargo_changed.connect(_on_cargo)
 	GameState.notify.connect(_on_notify)
+	# reflect loaded/current state immediately, not just on next change
+	_on_oxygen(GameState.oxygen, GameState.max_oxygen)
+	_on_cargo(GameState.carried, GameState.banked)
 
 
 func _make_bar(title: String, parent: Control, color: Color) -> ProgressBar:
@@ -75,9 +91,8 @@ func _make_bar(title: String, parent: Control, color: Color) -> ProgressBar:
 	bar.max_value = 100.0
 	bar.value = 100.0
 	bar.show_percentage = false
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = color
-	bar.add_theme_stylebox_override("fill", sb)
+	bar.add_theme_stylebox_override("background", UITheme.bar_bg())
+	bar.add_theme_stylebox_override("fill", UITheme.bar_fill(color))
 	row.add_child(bar)
 	return bar
 
@@ -93,6 +108,7 @@ func _process(_delta: float) -> void:
 func _on_oxygen(current: float, maximum: float) -> void:
 	_oxygen_bar.max_value = maximum
 	_oxygen_bar.value = current
+	_oxygen_num.text = "%d / %d" % [ceili(current), int(maximum)]
 
 
 func _on_cargo(carried: int, banked: int) -> void:

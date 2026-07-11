@@ -28,6 +28,7 @@ func _on_dock_entered(body: Node) -> void:
 	var banked := GameState.bank_cargo()
 	if banked > 0:
 		GameState.say("Docked — banked %d ore. O2 refilling." % banked)
+		GameState.save_game()
 	else:
 		GameState.say("Docked — O2 refilling.")
 
@@ -42,6 +43,9 @@ func _on_dock_exited(body: Node) -> void:
 # ------------------------------------------------------------------
 # Placeholder visuals
 # ------------------------------------------------------------------
+const SHIP_TEX := preload("res://assets/sprites/ship.png")
+
+
 func _draw() -> void:
 	var pulse := 0.5 + 0.5 * sin(_beacon_phase * 2.0)
 
@@ -49,26 +53,14 @@ func _draw() -> void:
 	draw_arc(Vector2.ZERO, 140.0, 0.0, TAU, 48,
 		Color(0.3, 0.8, 1.0, 0.10 + 0.05 * pulse), 2.0)
 
-	# hull (horizontal capsule)
-	var hull := Color(0.55, 0.58, 0.66)
-	draw_rect(Rect2(-40, -28, 80, 56), hull)
-	draw_circle(Vector2(-40, 0), 28.0, hull)
-	draw_circle(Vector2(40, 0), 28.0, hull)
+	# pixel hull (tools/gen_sprites.gd), 2x scale
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2(2.0, 2.0))
+	draw_texture(SHIP_TEX, Vector2(-32.0, -16.0))
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
-	# stripe
-	draw_rect(Rect2(-40, -4, 80, 8), Color(0.9, 0.45, 0.15))
-
-	# cockpit window
-	draw_circle(Vector2(42, -6), 12.0, Color(0.15, 0.3, 0.45))
-	draw_circle(Vector2(45, -9), 3.5, Color(0.6, 0.85, 1.0))
-
-	# engine block
-	draw_rect(Rect2(-78, -12, 14, 24), Color(0.35, 0.38, 0.45))
-
-	# airlock + tether anchor
-	draw_rect(Rect2(-10, 26, 20, 16), Color(0.4, 0.42, 0.5))
+	# tether anchor below the airlock
 	draw_circle(Vector2(0, 48), 7.0, Color(0.25, 0.28, 0.34))
 	draw_circle(Vector2(0, 48), 3.0, Color(1.0, 0.85, 0.3))
 
 	# beacon light
-	draw_circle(Vector2(0, -34), 4.0, Color(1.0, 0.3, 0.25, 0.3 + 0.7 * pulse))
+	draw_circle(Vector2(0, -36), 4.0, Color(1.0, 0.3, 0.25, 0.3 + 0.7 * pulse))

@@ -7,8 +7,15 @@ const THRUST := 300.0
 const MAX_SPEED := 340.0
 const DAMP := 0.5            # gentle drift damping so it stays controllable
 const LASER_RANGE := 240.0
-const OXYGEN_DRAIN := 4.0    # per second outside the ship
+const OXYGEN_DRAIN := 1.5    # per second outside the ship
 const REFILL_RATE := 45.0    # per second while docked
+
+# The lifeline has some give past its rated length — a soft bungee zone,
+# not a wall. Outward speed bleeds off and a pull-back force ramps up
+# with stretch until you simply can't push any farther.
+const TETHER_STRETCH := 90.0      # px of elastic give past max length
+const TETHER_PULL := 460.0        # max pull-back accel at full stretch
+const TETHER_BLEED := 10.0        # how fast outward velocity dies at full stretch
 
 var tether_anchor := Vector2.ZERO
 var in_dock := true
@@ -28,24 +35,33 @@ func _physics_process(delta: float) -> void:
 	velocity = velocity.limit_length(MAX_SPEED)
 	velocity = velocity.lerp(Vector2.ZERO, 1.0 - exp(-DAMP * delta))
 	move_and_slide()
-	_apply_tether()
+	_apply_tether(delta)
 	_update_aim()
 	_update_laser(delta)
 	_update_oxygen(delta)
 	queue_redraw()
 
 
-func _apply_tether() -> void:
+func _apply_tether(delta: float) -> void:
 	var offset := global_position - tether_anchor
 	var dist := offset.length()
 	var max_len: float = GameState.tether_length
-	if dist > max_len and dist > 0.0:
-		var n := offset / dist
-		global_position = tether_anchor + n * max_len
-		var radial := velocity.dot(n)
-		if radial > 0.0:
-			# kill outward velocity + a small elastic tug back
-			velocity -= n * radial * 1.7
+	if dist <= max_len or dist == 0.0:
+		return
+	var n := offset / dist
+	var over := dist - max_len
+	# absolute end of the line — the elastic is fully stretched
+	if over > TETHER_STRETCH:
+		global_position = tether_anchor + n * (max_len + TETHER_STRETCH)
+		over = TETHER_STRETCH
+	var t := over / TETHER_STRETCH   # 0..1 how deep into the bungee zone
+	# bleed outward speed progressively — no wall, just thickening resistance
+	var radial := velocity.dot(n)
+	if radial > 0.0:
+		velocity -= n * radial * minf((2.0 + TETHER_BLEED * t) * delta, 1.0)
+	# elastic pull-back ramps with stretch; at full stretch it beats the
+	# thrusters, so pushing further is a losing fight, not a crash
+	velocity -= n * TETHER_PULL * t * delta
 
 
 func _update_aim() -> void:
@@ -81,19 +97,19 @@ func _update_oxygen(delta: float) -> void:
 
 
 func _black_out() -> void:
-	var lost := GameState.lose_carried()
-	global_position = tether_anchor
-	velocity = Vector2.ZERO
+	## You faint. The lifeline reels you home and you wake up in your bunk.
+	GameState.last_lost = GameState.lose_carried()
 	GameState.refill_oxygen(GameState.max_oxygen)
-	if lost > 0:
-		GameState.say("Blacked out — the lifeline reeled you in. Lost %d ore." % lost)
-	else:
-		GameState.say("Blacked out — the lifeline reeled you in.")
+	GameState.wake_on_bunk = true
+	get_tree().change_scene_to_file("res://scenes/ship_interior.tscn")
 
 
 # ------------------------------------------------------------------
-# Placeholder visuals
+# Visuals — pixel sprite from tools/gen_sprites.gd + code-drawn extras
 # ------------------------------------------------------------------
+const SUIT_TEX := preload("res://assets/sprites/astronaut.png")
+
+
 func _draw() -> void:
 	_draw_tether()
 	_draw_suit()
@@ -112,7 +128,10 @@ func _draw_tether() -> void:
 		var p := a.lerp(Vector2.ZERO, t)
 		p.y += sin(t * PI) * sag
 		pts.append(p)
-	draw_polyline(pts, Color(1.0, 0.85, 0.3, 0.9), 2.0)
+	# strain shows: gold when easy, hot red-orange and thin at full stretch
+	var strain := clampf((dist - GameState.tether_length) / TETHER_STRETCH, 0.0, 1.0)
+	var col := Color(1.0, 0.85, 0.3, 0.9).lerp(Color(1.0, 0.35, 0.2, 1.0), strain)
+	draw_polyline(pts, col, 2.0 - strain * 0.8)
 
 
 func _draw_suit() -> void:
@@ -126,13 +145,10 @@ func _draw_suit() -> void:
 			PackedVector2Array([base + side, base - side, tip]),
 			Color(1.0, 0.6, 0.15, 0.9)
 		)
-	# backpack (O2 tank)
-	draw_circle(-aim_dir * 10.0, 9.0, Color(0.45, 0.48, 0.55))
-	# suit body
-	draw_circle(Vector2.ZERO, 14.0, Color(0.92, 0.94, 0.97))
-	# visor looks toward the mouse
-	draw_circle(aim_dir * 5.0, 7.5, Color(0.1, 0.2, 0.35))
-	draw_circle(aim_dir * 5.0 + Vector2(-2, -2), 2.0, Color(0.7, 0.9, 1.0, 0.8))
+	# pixel astronaut, whole body rotates toward the mouse (zero-g)
+	draw_set_transform(Vector2.ZERO, aim_dir.angle(), Vector2(2.0, 2.0))
+	draw_texture(SUIT_TEX, Vector2(-8.0, -8.0))
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 func _draw_pistol() -> void:

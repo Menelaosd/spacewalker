@@ -4,6 +4,7 @@ extends Area2D
 
 var value := 1
 var rich := false
+var kind := "iron"
 var drift := Vector2.ZERO
 
 var _spin := 0.0
@@ -27,14 +28,17 @@ func _physics_process(delta: float) -> void:
 
 func _on_body_entered(body: Node) -> void:
 	if body.is_in_group("player"):
-		GameState.add_carried(value)
+		GameState.add_carried(kind, value)
 		queue_free()
+
+
+const IRON_TEX := preload("res://assets/sprites/iron.png")
+const CRYSTAL_TEX := preload("res://assets/sprites/crystal.png")
 
 
 func _draw() -> void:
 	var col := Color(0.4, 0.95, 1.0) if rich else Color(1.0, 0.72, 0.25)
 	draw_circle(Vector2.ZERO, 9.0, Color(col.r, col.g, col.b, 0.18))
-	draw_colored_polygon(
-		PackedVector2Array([Vector2(0, -7), Vector2(5, 0), Vector2(0, 7), Vector2(-5, 0)]),
-		col
-	)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2(2.0, 2.0))
+	draw_texture(CRYSTAL_TEX if rich else IRON_TEX, Vector2(-4.0, -4.0))
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)

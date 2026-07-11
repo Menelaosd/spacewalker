@@ -15,20 +15,39 @@ Open the folder in Godot (Import → select `project.godot`) and press F5.
 ## Controls
 | Input | Action |
 |---|---|
-| WASD | Thrusters (zero-g drift) — or walk, when inside the ship |
+| WASD | Thrusters (zero-g drift) · walk (inside) · fly (helm) |
 | Hold LMB | Laser pistol — mine asteroids |
-| E | Enter the ship (while docked) · interact with a station (inside) |
-| R | Restart run |
+| E | Enter the ship (docked) · interact (inside) · park/dock (flight) |
+| Q | Leave the helm (flight) |
+| I | Cargo manifest (inventory) |
+| Esc | Pause menu — save, quit to title |
 
-The top-right **gear rack** shows your four tools — suit, lifeline, O2 tank,
+The game starts on a **title screen with 3 save slots** — resume or start
+fresh. Progress **auto-saves** at safe moments (banking, entering the ship,
+parking) and manually from the pause menu. Saves live in Godot's user dir.
+
+The bottom-right **gear rack** shows your four tools — suit, lifeline, O2 tank,
 laser — with their current stats, so upgrades read back at a glance.
 
 ## Loop
 1. Leave the ship → oxygen starts draining, lifeline pays out.
-2. Laser asteroids → they shatter into ore chunks that magnet to you.
-3. Cyan asteroids are rich — double ore value.
-4. Return to the dock ring → ore banks, O2 refills.
-5. O2 hits zero → blackout: reeled back to the ship, carried ore lost.
+2. Laser asteroids → they shatter into resource chunks that magnet to you:
+   **rock chunks** from common rocks, **crystal chunks** (double value) from
+   cyan ones.
+3. The lifeline has stretch — past its rated length it strains like a bungee
+   (gold → red) and pulls you back; you can't out-thrust a fully drawn line.
+4. Return to the dock ring → cargo banks, O2 refills.
+5. O2 hits zero → you faint and wake in your bunk — carried cargo lost.
+
+## The periodic table is the loot table
+Banked chunks refine into **real elements at real solar abundances** (83
+long-lived elements, IUPAC names, present-day solar atom-%). Rock gives the
+condensed elements — mostly O/Si/Mg/Fe, with gold in **micro**-units and
+uranium in **nano**-units, exactly as rare as the universe makes them.
+Crystals concentrate heavies tenfold (true ratios preserved). Gases — H, He,
+Ne & co — can't be mined from rock at all: **fly through a nebula and scoop
+them**. Press **I** (or Tab) for the inventory: EXOSUIT panel (character +
+gear) and the full element grid, X/83 collected.
 
 Some asteroids sit **beyond** tether range on purpose — tether upgrades reach them.
 
@@ -38,10 +57,41 @@ Walk (WASD) between six rooms drawn to resemble a real ship:
 
 - **Upgrade Bay** — three consoles. Stand at one, press **E** to spend banked
   ore: O2 tank capacity, lifeline length, or laser power. Costs scale each level.
+- **Bridge** — take the helm (pilot chair, **E**) to fly the ship (see below).
 - **Cargo Hold** — a crate stack that grows with your banked ore.
 - **Airlock** — press **E** to suit up and head back out on a spacewalk.
-- **Bridge / Quarters / Engine Room** — flavour rooms (forward window, bunk,
-  pulsing reactor) waiting to become real systems.
+- **Quarters / Engine Room** — flavour rooms (bunk, pulsing reactor) waiting
+  to become real systems.
+
+## Flying the ship
+From the Bridge helm you pilot the ship externally through **infinite,
+deterministically generated space** (same coordinates = same rocks, always).
+Fly near a field and press **E** to park — your next spacewalk happens
+there. Dock back at home (E in the home ring) or press **Q** to leave the
+helm and walk the ship.
+
+Space has **a plan**, not uniform noise — regions ring the home station,
+and the HUD names where you are:
+
+| Region | Where | Character |
+|---|---|---|
+| Home Reach | < 30 km | sparse, small practice rock |
+| The Drift | 30–60 km | baseline fields |
+| **The Belt** | 60–90 km | dense ring of big, earth-tinted rock |
+| **The Expanse** | 90 km+ | vast and empty — rare, huge, rich fields |
+| **Nebulae** ×4 | fixed landmarks | colored dust, crystal-rich, tinted rock |
+
+Where you park changes the dive: asteroid count, size, palette and richness
+all come from the region (`GameState.region_at`).
+
+## Art pipeline
+Sprites are generated pixel art — authored as ASCII art + shape code in
+`tools/gen_sprites.gd`, rebuilt with:
+```
+godot --headless --path . -s res://tools/gen_sprites.gd
+```
+One palette drives the whole style. Asteroids remain procedural `_draw()`
+polygons on purpose (per-rock variety).
 
 ## Structure
 ```

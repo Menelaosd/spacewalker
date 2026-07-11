@@ -8,9 +8,15 @@ const GAP := 6.0
 const ICON_CY := 24.0   # icon centre height inside a tile
 
 
+func _get_minimum_size() -> Vector2:
+	## Anchor presets (PRESET_MODE_MINSIZE) size the control from this,
+	## not from custom_minimum_size — without it the panel collapses to
+	## zero width and the tiles draw off-screen.
+	return Vector2(4.0 * TILE + 3.0 * GAP, 78.0)
+
+
 func _ready() -> void:
-	custom_minimum_size = Vector2(4.0 * TILE + 3.0 * GAP, 78.0)
-	size = custom_minimum_size
+	custom_minimum_size = _get_minimum_size()
 	GameState.gear_changed.connect(queue_redraw)
 	GameState.oxygen_changed.connect(func(_c, _m): queue_redraw())
 

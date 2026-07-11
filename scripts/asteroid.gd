@@ -16,10 +16,11 @@ var _ore_color := Color(1.0, 0.72, 0.25)
 var _flash := 0.0
 
 
-func setup(r: float, rich: bool) -> void:
-	## Call before add_child().
+func setup(r: float, rich: bool, tint := Color(0.42, 0.4, 0.38)) -> void:
+	## Call before add_child(). Tint gives regional rock palettes.
 	radius = r
 	is_rich = rich
+	_base_color = tint
 	if rich:
 		_ore_color = Color(0.4, 0.95, 1.0)
 
@@ -65,7 +66,8 @@ func _shatter() -> void:
 		var p := PICKUP_SCENE.instantiate()
 		p.position = position + Vector2.from_angle(randf() * TAU) * radius * 0.4
 		p.drift = Vector2.from_angle(randf() * TAU) * randf_range(10.0, 40.0)
-		p.value = 2 if is_rich else 1
+		p.kind = "crystal" if is_rich else "iron"
+		p.value = GameState.RESOURCE_TYPES[p.kind]["value"]
 		p.rich = is_rich
 		get_parent().add_child(p)
 	queue_free()

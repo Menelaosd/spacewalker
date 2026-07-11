@@ -7,6 +7,8 @@ extends Node2D
 
 const INTERACT_RADIUS := 52.0
 const GEAR_PANEL := preload("res://scripts/gear_panel.gd")
+const INVENTORY_SCREEN := preload("res://scripts/inventory_screen.gd")
+const BUNK_POS := Vector2(-300, -85)
 
 @onready var crew: Node2D = $Crew
 
@@ -32,14 +34,28 @@ func _ready() -> void:
 	_make_window_stars()
 
 	crew.bounds = _bounds
-	crew.position = Vector2(220, 118)   # step in from the airlock
 
 	# you're safe and breathing ship air inside — top the tank off
 	GameState.refill_oxygen(GameState.max_oxygen)
 
 	_build_hud()
 	GameState.notify.connect(_on_notify)
-	GameState.say("Inside the ship. Visit the Upgrade Bay to spend ore. Airlock to head out.")
+
+	if GameState.wake_on_bunk:
+		# fainted outside — the lifeline reeled you home, crew put you to bed
+		GameState.wake_on_bunk = false
+		crew.position = BUNK_POS
+		if GameState.last_lost > 0:
+			GameState.say("You black out... and wake in your bunk. The %d ore you carried is gone." %
+				GameState.last_lost)
+		else:
+			GameState.say("You black out... and wake in your bunk. The lifeline reeled you home.")
+		GameState.last_lost = 0
+	else:
+		crew.position = Vector2(220, 118)   # step in from the airlock
+		GameState.say("Inside the ship. Upgrade Bay to spend ore, Bridge helm to fly, Airlock to spacewalk.")
+
+	GameState.save_game()   # entering the ship is a safe moment — autosave
 
 
 func _define_rooms() -> void:
@@ -58,6 +74,7 @@ func _define_stations() -> void:
 		{"pos": Vector2(-95, -70), "kind": "o2"},
 		{"pos": Vector2(-30, -70), "kind": "tether"},
 		{"pos": Vector2(35, -70),  "kind": "laser"},
+		{"pos": Vector2(150, -110), "kind": "cockpit"},
 		{"pos": Vector2(300, 105), "kind": "exit"},
 	]
 
@@ -104,6 +121,8 @@ func _station_label(st: Dictionary) -> String:
 			return "Upgrade Lifeline   (%d ore)" % GameState.upgrade_cost("tether")
 		"laser":
 			return "Upgrade Laser   (%d ore)" % GameState.upgrade_cost("laser")
+		"cockpit":
+			return "Take the helm — explore space"
 		"exit":
 			return "Suit up & spacewalk"
 	return ""
@@ -125,6 +144,9 @@ func _unhandled_input(event: InputEvent) -> void:
 func _interact(kind: String) -> void:
 	if kind == "exit":
 		get_tree().change_scene_to_file("res://scenes/main.tscn")
+		return
+	if kind == "cockpit":
+		get_tree().change_scene_to_file("res://scenes/flight.tscn")
 		return
 	var cost := GameState.upgrade_cost(kind)
 	if GameState.try_upgrade(kind):
@@ -148,6 +170,7 @@ func _build_hud() -> void:
 	var root := Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.theme = UITheme.make_theme()
 	layer.add_child(root)
 
 	_banked_label = Label.new()
@@ -158,7 +181,9 @@ func _build_hud() -> void:
 	var gear := GEAR_PANEL.new()
 	root.add_child(gear)
 	gear.set_anchors_and_offsets_preset(
-		Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_MINSIZE, 16)
+		Control.PRESET_BOTTOM_RIGHT, Control.PRESET_MODE_MINSIZE, 16)
+
+	root.add_child(INVENTORY_SCREEN.new())
 
 	_room_label = Label.new()
 	_room_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -182,7 +207,7 @@ func _build_hud() -> void:
 		Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_MINSIZE, 70)
 
 	var hint := Label.new()
-	hint.text = "WASD walk · E interact · Airlock to spacewalk"
+	hint.text = "WASD walk · E interact · I inventory · Esc menu"
 	hint.modulate = Color(1, 1, 1, 0.55)
 	root.add_child(hint)
 	hint.set_anchors_and_offsets_preset(
@@ -279,6 +304,12 @@ func _draw_stations() -> void:
 		var on := (i == _active)
 		if st["kind"] == "exit":
 			continue  # the airlock hatch itself is the marker
+		if st["kind"] == "cockpit":
+			# the pilot chair is the marker; just glow when in reach
+			if on:
+				draw_circle(p, 26.0, Color(0.35, 0.8, 1.0, 0.10))
+				draw_arc(p, 18.0, 0.0, TAU, 32, Color(0.35, 0.8, 1.0, 0.8), 2.0)
+			continue
 		# upgrade console: a small terminal on a base
 		var glow := Color(0.35, 0.8, 1.0, 0.9) if on else Color(0.3, 0.5, 0.7, 0.7)
 		draw_rect(Rect2(p.x - 14, p.y - 4, 28, 22), Color(0.22, 0.25, 0.32))  # base
