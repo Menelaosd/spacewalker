@@ -249,7 +249,9 @@ func _draw_tether(st: Dictionary) -> void:
 	var a := to_local(tether_anchor)
 	var dist := a.length()
 	var slack := clampf(1.0 - dist / GameState.tether_length, 0.0, 1.0)
-	var sag := slack * 60.0
+	# sag scales with the SPAN — a short line near the ship must not droop a
+	# fixed 60px into a loop hanging below the astronaut
+	var sag := slack * clampf(dist * 0.28, 0.0, 60.0)
 	var pts := PackedVector2Array()
 	var steps := 14
 	for i in steps + 1:

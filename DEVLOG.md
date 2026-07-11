@@ -5,6 +5,38 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 12/07/2026 — v1.8.1: turbines, ship size, tether, menu flow, crashes
+
+- **Turning jets** moved back to the aft trailing-wing position (fire
+  outward + aft) — read better there than at the forward wing tips.
+- **Ship smaller** in flight and on the spacewalk (SHIP_SCALE 0.72→0.6).
+  Dock-ship tether hardpoint, beacon and collision capsule refit.
+- **Tether attachment fixed.** The lifeline clips to the **port-belly
+  airlock hatch** (pixel-picked hull plating, not the belly turbine it
+  used to sit on), and its sag scales with the span
+  (`slack · clamp(dist·0.28, 0, 60)`) instead of a flat 60px — a short
+  line near the ship no longer droops into a loop below the astronaut.
+- **Menu flow.** NEW GAME lists only FREE slots ("SLOT n — NEW GAME");
+  occupied slots are hidden (falls back to overwrite entries only if
+  every slot is full, so you're never stranded). CONTINUE lists only
+  real saves (name · DRIVE d/5), never empty slots or a new-game entry.
+  The menu builder is stored as a Callable so overwrite-confirm relabels
+  live (`_refresh()`); slot column widened so labels don't clip.
+- **Thrusters mapped to ship2's 6 real nozzles** (user-marked). Full
+  pixel inspection: two aft mains (flame −82/±10), two bow pods
+  (37.5/±52), and — the ones I'd missed — two small SIDE turbines on
+  the aft hull sides (top −48/−34, bottom −50/+36). Now: W = aft mains
+  fire aft; S (reverse) = both BOW pods fire forward (bells at x37.5,
+  not the old 33 that read "off"); A/D (turn) = the aft SIDE turbine on
+  one side fires aft-and-outward. Every flame sits on a real bell.
+- **Crash fix (chargen).** Same class as the title crash: `chargen.gd`
+  called `set_input_as_handled()` after `_confirm()` had changed the
+  scene (null viewport). Reordered. Audited all `set_input_as_handled`
+  sites — title/intro already correct, inventory_screen doesn't change
+  scene; chargen was the last one.
+
+---
+
 ## 12/07/2026 — v1.8: concept title screen, ship2, laser & turbine fixes
 
 **New title screen — the concept.** Rebuilt scripts/title.gd around the

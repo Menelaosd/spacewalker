@@ -123,8 +123,10 @@ func _confirm() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.physical_keycode == KEY_ESCAPE:
-			_confirm()   # defaults are a valid record; the flare won't wait
+			# mark handled BEFORE _confirm — it changes the scene, after which
+			# get_viewport() is null and would crash
 			get_viewport().set_input_as_handled()
+			_confirm()   # defaults are a valid record; the flare won't wait
 		elif event.physical_keycode == KEY_ENTER:
 			_confirm()
 

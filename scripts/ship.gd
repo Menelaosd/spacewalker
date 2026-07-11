@@ -8,7 +8,7 @@ var _beacon_phase := 0.0
 
 
 func anchor_point() -> Vector2:
-	return global_position + Vector2(0, 89)   # below the (bigger) hull
+	return global_position + Vector2(-40, 44)   # the port-belly airlock hatch
 
 
 func _ready() -> void:
@@ -51,7 +51,7 @@ func _on_dock_exited(body: Node) -> void:
 ## The captain's ship (tools/ship_source.png -> process_ship_art.gd).
 ## Drawn at half scale: ~150x149 world px, bow facing right.
 const SHIP_TEX := preload("res://assets/sprites/ship_hd.png")
-const SHIP_SCALE := 0.72
+const SHIP_SCALE := 0.6
 
 
 func _draw() -> void:
@@ -66,9 +66,9 @@ func _draw() -> void:
 	draw_texture(SHIP_TEX, -SHIP_TEX.get_size() * 0.5)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
-	# tether anchor below the hull
-	draw_circle(Vector2(0, 89), 7.0, Color(0.25, 0.28, 0.34))
-	draw_circle(Vector2(0, 89), 3.0, Color(1.0, 0.85, 0.3))
+	# tether hardpoint on the port-belly airlock — where the lifeline clips on
+	draw_circle(Vector2(-40, 44), 6.0, Color(0.25, 0.28, 0.34))
+	draw_circle(Vector2(-40, 44), 3.0, Color(1.0, 0.85, 0.3))
 
 	# beacon light on the upper spine, ahead of the engine block
-	draw_circle(Vector2(20, -66), 4.0, Color(1.0, 0.3, 0.25, 0.3 + 0.7 * pulse))
+	draw_circle(Vector2(17, -52), 4.0, Color(1.0, 0.3, 0.25, 0.3 + 0.7 * pulse))

@@ -14,7 +14,7 @@ const LOGO_TEX := preload("res://assets/sprites/logo.png")
 
 const MENU_X := 70.0
 const MENU_TOP := 322.0
-const ITEM_W := 306.0
+const ITEM_W := 340.0
 const ITEM_H := 50.0
 const ITEM_GAP := 12.0
 
@@ -23,7 +23,8 @@ var _t := 0.0
 
 var _menu: Array = []          # current menu's items
 var _menu_title := ""
-var _stack: Array = []         # [[title, items], ...] for Back
+var _rebuild: Callable         # builds the current menu (for live refresh)
+var _stack: Array = []         # [[title, builder], ...] for Back
 var _sel := 0
 var _hover := -1
 var _armed := -1               # slot index armed for overwrite confirm
@@ -36,7 +37,10 @@ func _ready() -> void:
 	theme = UITheme.make_theme()
 	GameState.in_game = false
 	get_tree().paused = false
-	_open(_main_menu(), "COMMAND")
+	_open(_main_menu, "COMMAND")
+	match OS.get_environment("SW_MENU"):   # debug: jump to a sub-menu for shots
+		"new": _push(_slot_menu.bind(true), "SELECT SAVE SLOT")
+		"continue": _push(_slot_menu.bind(false), "LOAD SAVE")
 
 
 func _process(delta: float) -> void:
@@ -66,11 +70,11 @@ func _main_menu() -> Array:
 	# ── add new top-level commands here ──────────────────────────
 	return [
 		{"label": "NEW GAME", "icon": "play",
-			"action": func(): _push(_slot_menu(true), "SELECT SAVE SLOT")},
+			"action": func(): _push(_slot_menu.bind(true), "SELECT SAVE SLOT")},
 		{"label": "CONTINUE", "icon": "continue", "enabled": _any_save(),
-			"action": func(): _push(_slot_menu(false), "LOAD SAVE")},
+			"action": func(): _push(_slot_menu.bind(false), "LOAD SAVE")},
 		{"label": "SETTINGS", "icon": "settings",
-			"action": func(): _push(_settings_menu(), "SETTINGS")},
+			"action": func(): _push(_settings_menu, "SETTINGS")},
 		{"label": "QUIT", "icon": "quit", "danger": true,
 			"action": func(): get_tree().quit()},
 	]
@@ -78,17 +82,34 @@ func _main_menu() -> Array:
 
 func _slot_menu(new_mode: bool) -> Array:
 	var items: Array = []
-	for i in SLOTS:
-		var empty := GameState.slot_data(i).is_empty()
-		if new_mode:
-			items.append({"label": _slot_text(i), "icon": ("plus" if empty else "slot"),
-				"action": _on_new_slot.bind(i)})
-		elif not empty:
-			items.append({"label": _slot_text(i), "icon": "slot",
-				"action": _on_load_slot.bind(i)})
-	if not new_mode and items.is_empty():
-		items.append({"label": "NO SAVES YET", "icon": "slot", "enabled": false,
-			"action": func(): pass})
+	if new_mode:
+		# NEW GAME lists only free slots. If every slot is full, it falls back
+		# to overwrite entries so you're never stranded.
+		var has_empty := false
+		for i in SLOTS:
+			if GameState.slot_data(i).is_empty():
+				has_empty = true
+				break
+		for i in SLOTS:
+			var empty := GameState.slot_data(i).is_empty()
+			if has_empty:
+				if empty:
+					items.append({"label": "SLOT %d — NEW GAME" % (i + 1),
+						"icon": "plus", "action": _on_new_slot.bind(i)})
+			else:
+				var lbl := ("SLOT %d — OVERWRITE?" % (i + 1)) if _armed == i \
+					else ("SLOT %d — OVERWRITE" % (i + 1))
+				items.append({"label": lbl, "icon": "slot",
+					"action": _on_new_slot.bind(i)})
+	else:
+		# CONTINUE lists only real saves, each with its own summary
+		for i in SLOTS:
+			if not GameState.slot_data(i).is_empty():
+				items.append({"label": _slot_text(i), "icon": "slot",
+					"action": _on_load_slot.bind(i)})
+		if items.is_empty():
+			items.append({"label": "NO SAVES YET", "icon": "slot", "enabled": false,
+				"action": func(): pass})
 	items.append({"label": "BACK", "icon": "back", "action": func(): _back()})
 	return items
 
@@ -102,8 +123,11 @@ func _settings_menu() -> Array:
 	]
 
 
-func _open(items: Array, title: String) -> void:
-	_menu = items
+func _open(builder: Callable, title: String) -> void:
+	# store the BUILDER, not a snapshot — so labels (overwrite-confirm,
+	# CONTINUE availability) can refresh in place via _refresh()
+	_rebuild = builder
+	_menu = builder.call()
 	_menu_title = title
 	_armed = -1
 	_sel = 0
@@ -113,9 +137,9 @@ func _open(items: Array, title: String) -> void:
 			break
 
 
-func _push(items: Array, title: String) -> void:
-	_stack.append([_menu_title, _menu])
-	_open(items, title)
+func _push(builder: Callable, title: String) -> void:
+	_stack.append([_menu_title, _rebuild])
+	_open(builder, title)
 
 
 func _back() -> void:
@@ -125,14 +149,21 @@ func _back() -> void:
 	_open(prev[1], prev[0])
 
 
+func _refresh() -> void:
+	# rebuild the current menu's items in place, keeping the selection
+	_menu = _rebuild.call()
+	_sel = clampi(_sel, 0, _menu.size() - 1)
+
+
 func _on_new_slot(i: int) -> void:
 	if GameState.slot_data(i).is_empty():
 		GameState.new_game(i)
 		get_tree().change_scene_to_file("res://scenes/chargen.tscn")
 		return
-	# occupied — arm once, confirm on the second press
+	# occupied — arm once (relabel to OVERWRITE?), confirm on the second press
 	if _armed != i:
 		_armed = i
+		_refresh()
 		return
 	GameState.new_game(i)
 	get_tree().change_scene_to_file("res://scenes/chargen.tscn")
@@ -153,18 +184,16 @@ func _activate(i: int) -> void:
 
 
 func _slot_text(i: int) -> String:
+	# CONTINUE labels — the save's own summary
 	var data := GameState.slot_data(i)
 	if data.is_empty():
-		return "SLOT %d — NEW" % (i + 1)
+		return "SLOT %d — EMPTY" % (i + 1)
 	var who := str((data.get("pilot", {}) as Dictionary).get("name", ""))
 	if who == "":
 		who = "WALKER"
-	if _armed == i:
-		return "SLOT %d — OVERWRITE?" % (i + 1)
 	if data.get("game_complete", false) and (data.get("rescued", []) as Array).size() >= 5:
 		return "SLOT %d — %s · ✦ HAVEN" % [i + 1, who]
-	return "SLOT %d — %s · DRIVE %d/5 · CREW %d/6" % [i + 1, who,
-		int(data.get("quest_stage", 0)), (data.get("rescued", []) as Array).size() + 1]
+	return "SLOT %d — %s · DRIVE %d/5" % [i + 1, who, int(data.get("quest_stage", 0))]
 
 
 # ------------------------------------------------------------------
@@ -198,7 +227,9 @@ func _unhandled_input(event: InputEvent) -> void:
 func _step_sel(dir: int) -> void:
 	if _menu.is_empty():
 		return
-	_armed = -1
+	if _armed != -1:
+		_armed = -1
+		_refresh()   # drop the OVERWRITE? relabel when you navigate away
 	var n := _menu.size()
 	for _k in n:
 		_sel = (_sel + dir + n) % n
@@ -342,7 +373,7 @@ func _draw_item(i: int) -> void:
 	if on:
 		tcol = Color.WHITE
 	draw_string(_font, Vector2(p.x + 62, r.get_center().y + 6), str(it["label"]),
-		HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 78, 17, tcol)
+		HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 92, 17, tcol)
 	# animated chevron on the active row
 	if on:
 		UITheme.draw_chevrons(self, Vector2(e.x - 26, r.get_center().y), 2, 10.0,

@@ -74,6 +74,11 @@ func _process(delta: float) -> void:
 	_thr = Input.get_axis("move_down", "move_up")
 	if OS.get_environment("SW_THRUST") != "":
 		_thr = 1.0   # debug: force the main burn for screenshots
+	if OS.get_environment("SW_TURN") != "":
+		_turn = 1.0  # debug: force a turn burn for screenshots
+		heading = 0.0   # freeze bow-right so the jet is readable
+	if OS.get_environment("SW_REV") != "":
+		_thr = -1.0  # debug: force a reverse burn for screenshots
 	heading += _turn * TURN_RATE * delta
 	if absf(_thr) > 0.01:
 		var power := THRUST if _thr > 0.0 else THRUST_REV
@@ -579,7 +584,7 @@ func _draw_home_compass() -> void:
 
 ## The captain's ship, bow facing +X (see tools/process_ship_art.gd).
 const SHIP_TEX := preload("res://assets/sprites/ship_hd.png")
-const SHIP_SCALE := 0.72
+const SHIP_SCALE := 0.6
 
 
 func _draw_ship() -> void:
@@ -607,36 +612,36 @@ func _draw_ship() -> void:
 				Color(1.0, 0.92, 0.6, 0.9))
 			draw_circle(Vector2(-84, ey), 9.0, Color(1.0, 0.6, 0.2, 0.14))
 	elif _thr < -0.05:
-		# reverse: the forward wing-tip turbines fire forward on both wings
-		# (pixel-detected at flame-space (32, ±51))
+		# reverse: BOTH bow pods fire FORWARD (+X). Bell centres pixel-mapped
+		# at flame-space (37.5, ±52) — the +X face of the nose pods
 		var rflick := randf() * 5.0
-		for ey in [-51.0, 51.0]:
+		for ey in [-52.0, 52.0]:
 			draw_colored_polygon(
 				PackedVector2Array([
-					Vector2(32, ey - 4), Vector2(32, ey + 4),
-					Vector2(50.0 + rflick, ey)]),
-				Color(0.4, 0.85, 1.0, 0.8))
+					Vector2(37, ey - 5), Vector2(37, ey + 5),
+					Vector2(58.0 + rflick, ey)]),
+				Color(0.4, 0.85, 1.0, 0.82))
 			draw_colored_polygon(
 				PackedVector2Array([
-					Vector2(32, ey - 2), Vector2(32, ey + 2),
-					Vector2(43.0 + rflick * 0.5, ey)]),
+					Vector2(37, ey - 2.5), Vector2(37, ey + 2.5),
+					Vector2(50.0 + rflick * 0.5, ey)]),
 				Color(0.92, 0.98, 1.0, 0.9))
 	if absf(_turn) > 0.05:
-		# turning: the outer wing-tip pod fires a sideways puff, torquing
-		# the ship into the yaw
-		var wy := -51.0 if _turn > 0.0 else 51.0
-		var base := Vector2(32, wy)
-		var out := Vector2(0, signf(wy))
+		# turning: ONE aft SIDE turbine fires aft-and-outward. These are the
+		# small nozzles on the aft hull sides (pixel-mapped top −48/−34,
+		# bottom −50/+36), the ship's real maneuvering thrusters
+		var top := _turn > 0.0
+		var base := Vector2(-48.0, -34.0) if top else Vector2(-50.0, 36.0)
+		var dir := (Vector2(-1.0, -0.6) if top else Vector2(-1.0, 0.6)).normalized()
+		var perp := dir.orthogonal()
 		var flick := randf() * 6.0
 		draw_colored_polygon(PackedVector2Array([
-			base + Vector2(4, 0), base + Vector2(-4, 0),
-			base + out * (14.0 + flick)]),
-			Color(0.4, 0.85, 1.0, 0.8))
+			base + perp * 5.0, base - perp * 5.0, base + dir * (16.0 + flick)]),
+			Color(0.4, 0.85, 1.0, 0.82))
 		draw_colored_polygon(PackedVector2Array([
-			base + Vector2(2, 0), base + Vector2(-2, 0),
-			base + out * (8.0 + flick * 0.5)]),
+			base + perp * 2.5, base - perp * 2.5, base + dir * (9.0 + flick * 0.5)]),
 			Color(0.92, 0.98, 1.0, 0.9))
-		draw_circle(base + out * 5.0, 6.0, Color(0.4, 0.85, 1.0, 0.18))
+		draw_circle(base + dir * 5.0, 6.0, Color(0.4, 0.85, 1.0, 0.18))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	# painted hull, rotated toward the heading
 	draw_set_transform(ship_pos, heading, Vector2(SHIP_SCALE, SHIP_SCALE))
