@@ -76,21 +76,37 @@ func _ready() -> void:
 	_build_hud()
 	GameState.notify.connect(_on_notify)
 
+	# boarding by ANY door ends the adrift opening — you're home now
+	var was_adrift: bool = GameState.adrift
+	GameState.adrift = false
+
+	# a shift only ticks after real work (left the dock / flew / blacked
+	# out) — walking in and out of the airlock, or loading a save, is free
+	var radio := ""
+	var ticked := false
+	if GameState.pending_shift:
+		GameState.pending_shift = false
+		radio = GameState.begin_shift()
+		ticked = true
+
 	if GameState.wake_on_bunk:
 		GameState.wake_on_bunk = false
 		crew.position = cell_rect(_find_cell("quarters")).get_center() + Vector2(-14, 8)
 		if GameState.last_lost > 0:
 			GameState.say("You black out... and wake in your bunk. The %d ore you carried is gone." %
 				GameState.last_lost)
+		elif was_adrift:
+			GameState.say("You black out... and wake in your bunk. The suit's auto-return burned its last fuel getting you aboard.")
 		else:
 			GameState.say("You black out... and wake in your bunk. The lifeline reeled you home.")
 		GameState.last_lost = 0
 	else:
 		crew.position = cell_rect(_find_cell("airlock")).get_center() + Vector2(-24, 0)
-		GameState.say("Shift %d. Board and market refreshed." % (GameState.shift + 1))
+		if ticked:
+			GameState.say("Shift %d. Board and market refreshed." % GameState.shift)
+		elif was_adrift:
+			GameState.say("Aboard. She's yours again, %s." % GameState.pilot_name())
 
-	# a new shift begins every time you come home
-	var radio := GameState.begin_shift()
 	if radio != "":
 		await get_tree().create_timer(2.8).timeout
 		if is_inside_tree():
@@ -108,6 +124,7 @@ func _define_stations() -> void:
 				_stations.append({"pos": c + Vector2(-44, 16), "kind": "o2"})
 				_stations.append({"pos": c + Vector2(-8, 16), "kind": "tether"})
 				_stations.append({"pos": c + Vector2(28, 16), "kind": "laser"})
+				_stations.append({"pos": c + Vector2(-14, -26), "kind": "suit"})
 				_stations.append({"pos": c + Vector2(46, -26), "kind": "workbench"})
 			"bridge":
 				_stations.append({"pos": c + Vector2(-10, 14), "kind": "cockpit"})
@@ -182,6 +199,9 @@ func _station_label(st: Dictionary) -> String:
 			return "E    Upgrade Lifeline   (%d ore)" % GameState.upgrade_cost("tether")
 		"laser":
 			return "E    Upgrade Laser   (%d ore)" % GameState.upgrade_cost("laser")
+		"suit":
+			return "E    Upgrade Suit — cargo %d ore  (%d ore)" % [
+				GameState.carry_max(), GameState.upgrade_cost("suit")]
 		"cockpit":
 			return "E    Take the helm — explore space"
 		"exit":
@@ -253,6 +273,9 @@ func _interact(st: Dictionary) -> void:
 					GameState.say("THE JUMP DRIVE IS COMPLETE. Return to it when you're ready.")
 			else:
 				GameState.say("Missing materials — %s" % GameState.quest_progress_text())
+				# where to actually FIND them — mining can't drop everything
+				if part.has("hint"):
+					GameState.say(str(part["hint"]))
 		"board":
 			var n := GameState.deliver_contracts()
 			if n > 0:
@@ -271,7 +294,7 @@ func _interact(st: Dictionary) -> void:
 			get_tree().change_scene_to_file("res://scenes/main.tscn")
 		"cockpit":
 			get_tree().change_scene_to_file("res://scenes/flight.tscn")
-		"o2", "tether", "laser":
+		"o2", "tether", "laser", "suit":
 			var kind: String = st["kind"]
 			var cost := GameState.upgrade_cost(kind)
 			if GameState.try_upgrade(kind):
@@ -282,6 +305,9 @@ func _interact(st: Dictionary) -> void:
 						GameState.say("Lifeline extended — reach now %dm." % int(GameState.tether_length))
 					"laser":
 						GameState.say("Laser tuned — power now %d." % int(GameState.laser_dps))
+					"suit":
+						GameState.say("Suit reinforced — you can haul %d ore per walk now." %
+							GameState.carry_max())
 			else:
 				GameState.say("Not enough ore — need %d, have %d." % [cost, GameState.banked])
 
@@ -628,6 +654,8 @@ func _draw_stations() -> void:
 						draw_circle(p + Vector2(0, -12), 4.0, Color(1.0, 0.85, 0.3, 0.9))
 					"laser":
 						draw_circle(p + Vector2(0, -12), 4.0, Color(1.0, 0.4, 0.3, 0.9))
+					"suit":
+						draw_circle(p + Vector2(0, -12), 4.0, Color(0.9, 0.95, 1.0, 0.9))
 				if on:
 					draw_circle(p + Vector2(0, 4), 34.0, Color(0.35, 0.8, 1.0, 0.06))
 
@@ -662,9 +690,11 @@ func _draw_comms_panel(st: Dictionary) -> void:
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(1.0, 0.75, 0.3, 0.8))
 	for i in GameState.trader_stock.size():
 		var o: Dictionary = GameState.trader_stock[i]
-		var afford: bool = GameState.banked >= int(o["price"])
+		var left: int = int(o.get("qty", 1))
+		var afford: bool = GameState.banked >= int(o["price"]) and left > 0
 		draw_string(_font, rect.position + Vector2(8, 28 + i * 16),
-			"[%d] %s — %s" % [i + 1, o["sym"], Elements.name_of(o["sym"])],
+			"[%d] %s — %s ×%d" % [i + 1, o["sym"], Elements.name_of(o["sym"]), left] \
+				if left > 0 else "[%d] %s — SOLD OUT" % [i + 1, o["sym"]],
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 10,
 			UITheme.TEXT if afford else Color(1, 1, 1, 0.3))
 		draw_string(_font, rect.position + Vector2(0, 28 + i * 16),

@@ -126,6 +126,7 @@ func _black_out() -> void:
 	GameState.last_lost = GameState.lose_carried()
 	GameState.refill_oxygen(GameState.max_oxygen)
 	GameState.wake_on_bunk = true
+	GameState.pending_shift = true   # fainting costs the shift
 	get_tree().change_scene_to_file("res://scenes/ship_interior.tscn")
 
 

@@ -14,7 +14,6 @@ const FLARE_DRAIN := 5.0       # extra O2/s while exposed
 const SHELTER_DIST := 130.0    # hide this close to a rock to survive it
 
 var _stars: Array = []
-var _planets: Array = []       # [pattern_pos, radius, seed] — deep parallax
 var _streaks: Array = []       # shooting stars: {pos, vel, size, life}
 var _streak_timer := 4.0
 var _t := 0.0
@@ -188,11 +187,13 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _make_stars() -> void:
-	## Three parallax depth layers: [pos, size, alpha, depth]
+	## Four parallax depth layers, properly dense — the pattern square is
+	## 5200px wide and the view sees ~4% of it, so counts must be big.
+	## Off-screen stars are culled at draw time. [pos, size, alpha, depth]
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 1337
-	for layer in [[0.25, 220, 0.4, 1.0, 0.4], [0.55, 140, 0.8, 1.7, 0.65],
-			[1.0, 90, 1.2, 2.6, 1.0]]:
+	for layer in [[0.12, 900, 0.3, 0.7, 0.3], [0.25, 1300, 0.4, 1.0, 0.4],
+			[0.55, 800, 0.8, 1.7, 0.65], [1.0, 500, 1.2, 2.6, 1.0]]:
 		for i in int(layer[1]):
 			_stars.append([
 				Vector2(rng.randf_range(-2600, 2600), rng.randf_range(-2600, 2600)),
@@ -200,16 +201,6 @@ func _make_stars() -> void:
 				rng.randf_range(0.25, 0.9) * float(layer[4]),
 				layer[0],
 			])
-	# one or two far worlds on the horizon, seeded by where you're parked —
-	# each dive site keeps its own sky
-	var prng := RandomNumberGenerator.new()
-	prng.seed = int(GameState.sector.x * 92821.0) ^ int(GameState.sector.y * 68917.0) ^ 7
-	for i in prng.randi_range(1, 2):
-		_planets.append([
-			Vector2.from_angle(prng.randf() * TAU) * prng.randf_range(420.0, 720.0),
-			prng.randf_range(46.0, 110.0),
-			prng.randi(),
-		])
 
 
 func _spawn_asteroids() -> void:
@@ -256,16 +247,15 @@ func _draw() -> void:
 		draw_set_transform(Vector2.ZERO, 0.4, Vector2(14.0, 14.0))
 		draw_texture(tex, -half_tex, Color(1, 1, 1, 0.55))
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-	# parallax: far stars track the camera, near stars sweep past
+	# parallax: far stars track the camera, near stars sweep past.
+	# Only what's on screen gets drawn — the pattern is much bigger.
 	var cam := player.global_position if player != null else Vector2.ZERO
-	# the sun — pinned deep, painting the field from one constant side
-	var sun_p := SpaceDressing.SUN_DIR * 440.0 + cam * 0.97
-	SpaceDressing.draw_sun(self, sun_p, 30.0, _t)
+	var vp := get_viewport_rect().size
+	var star_view := Rect2(cam - vp * 0.5 - Vector2(8, 8), vp + Vector2(16, 16))
 	for s in _stars:
-		draw_circle(s[0] + cam * (1.0 - s[3]), s[1], Color(1, 1, 1, s[2]))
-	# far worlds, barely drifting — this dive site's own horizon
-	for pl in _planets:
-		SpaceDressing.draw_planet(self, pl[0] + cam * 0.85, pl[1], pl[2])
+		var p: Vector2 = s[0] + cam * (1.0 - s[3])
+		if star_view.has_point(p):
+			draw_circle(p, s[1], Color(1, 1, 1, s[2]))
 	# shooting stars
 	for st in _streaks:
 		SpaceDressing.draw_comet(self, st, _t)

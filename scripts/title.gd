@@ -34,7 +34,7 @@ func _ready() -> void:
 
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 99
-	for i in 170:
+	for i in 280:
 		_stars.append([
 			Vector2(rng.randf_range(0, 1280), rng.randf_range(0, 720)),
 			rng.randf_range(0.5, 2.2),

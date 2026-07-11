@@ -63,12 +63,14 @@ func _draw() -> void:
 	draw_string(_font, Vector2(186, 55), "%d%%" % int(lf * 100.0),
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 12, UITheme.TEXT_DIM)
 
-	# cargo counters
+	# cargo counters — carried shows the suit's capacity limit
+	var full := GameState.carried >= GameState.carry_max()
 	draw_circle(Vector2(22, 82), 4.5, Color(1.0, 0.72, 0.25))
-	draw_string(_font, Vector2(32, 87), "ORE %d" % GameState.carried,
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 13, UITheme.TEXT)
-	draw_circle(Vector2(112, 82), 4.5, Color(0.55, 0.9, 1.0))
-	draw_string(_font, Vector2(122, 87), "BANKED %d" % GameState.banked,
+	draw_string(_font, Vector2(32, 87), "ORE %d/%d" % [GameState.carried,
+		GameState.carry_max()], HORIZONTAL_ALIGNMENT_LEFT, -1, 13,
+		UITheme.ACCENT_WARM if full else UITheme.TEXT)
+	draw_circle(Vector2(126, 82), 4.5, Color(0.55, 0.9, 1.0))
+	draw_string(_font, Vector2(136, 87), "BANKED %d" % GameState.banked,
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 13, UITheme.TEXT)
 
 	if o2_low:

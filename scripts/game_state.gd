@@ -31,13 +31,21 @@ var laser_dps: float = 70.0
 var o2_level: int = 0
 var tether_level: int = 0
 var laser_level: int = 0
+var suit_level: int = 0     # suit = cargo capacity (Dome Keeper tension knob)
 
 # --- Upgrade tuning: [cost_base, gain_per_level] ---
 const UPGRADES := {
 	"o2":     {"base": 10, "step": 25.0},
 	"tether": {"base": 15, "step": 120.0},
 	"laser":  {"base": 12, "step": 25.0},
+	"suit":   {"base": 12, "step": 15.0},
 }
+
+const CARRY_BASE := 25      # ore-value the MK I suit can haul per walk
+
+
+func carry_max() -> int:
+	return CARRY_BASE + int(UPGRADES["suit"]["step"]) * suit_level
 
 # --- Ship rooms: a 4x2 cell grid; some prefixed, the rest built with ore ---
 const ROOM_TYPES := {
@@ -113,6 +121,7 @@ var carried_veins := {}                           # symbol -> units held on the 
 var discovered := {}                              # symbol -> true once a VEIN of it
                                                   # was banked (or gas scooped)
 var rooms := {}                                   # cell (0-7) -> room type ("" = empty)
+var salvage_taken := {}                           # "cx:cy:i" -> true — wrecks stay looted
 var _scoop_accum := 0.0
 
 # Where the ship is parked in open space. ZERO = home station.
@@ -139,9 +148,11 @@ const QUEST_PARTS := [
 	{"name": "Field Coils", "req": {"Ni": 8, "Ti": 6, "Cu": 4}, "ore": 40,
 		"log": "Coils wound. Blue jump-field light flickers across the hull."},
 	{"name": "Ignition Lattice", "req": {"Ag": 3, "Pt": 2, "Au": 1}, "ore": 50,
-		"log": "Lattice aligned. One spark left to find — the heart."},
+		"log": "Lattice aligned. One spark left to find — the heart.",
+		"hint": "Precious metals never ride in rock — strip old wrecks for silver and gold; platinum is Vesna's trade (reputation 6)."},
 	{"name": "Fuel Core", "req": {"U": 1, "Th": 1}, "ore": 60,
-		"log": "The core burns steady. Course locked: HAVEN."},
+		"log": "The core burns steady. Course locked: HAVEN.",
+		"hint": "No rock carries fissiles. Vesna deals uranium and thorium at reputation 10 — work her contracts."},
 ]
 var quest_stage := 0          # part being built; QUEST_PARTS.size() = done
 var game_complete := false
@@ -179,6 +190,8 @@ var slot: int = -1          # active save slot, -1 = none
 var in_game := false        # false on the title screen
 var adrift := false         # new-game opening: floating free, no lifeline —
                             # reach the ship and the line clips on
+var pending_shift := false  # a shift only ticks after real work: set when
+                            # you leave the dock, fly somewhere, or black out
 var wake_on_bunk := false   # set by a blackout; interior spawns you in bed
 var last_lost: int = 0      # ore lost in the last blackout
 var flare_phase := ""       # "", "warn", "burn" — set by the dive scene
@@ -340,6 +353,7 @@ func _level_of(kind: String) -> int:
 		"o2": return o2_level
 		"tether": return tether_level
 		"laser": return laser_level
+		"suit": return suit_level
 	return 0
 
 
@@ -370,8 +384,11 @@ func try_upgrade(kind: String) -> bool:
 		"laser":
 			laser_level += 1
 			laser_dps += step
+		"suit":
+			suit_level += 1     # carry_max() derives from the level
 	cargo_changed.emit(carried, banked)
 	gear_changed.emit()
+	save_game()   # spent ore + gained gear commit together
 	return true
 
 
@@ -394,6 +411,8 @@ func save_game() -> void:
 		"o2_level": o2_level,
 		"tether_level": tether_level,
 		"laser_level": laser_level,
+		"suit_level": suit_level,
+		"salvage_taken": salvage_taken.keys(),
 		"oxygen": oxygen,
 		"banked": banked,
 		"inventory": inventory,
@@ -431,6 +450,10 @@ func load_game(s: int) -> bool:
 	o2_level = int(data.get("o2_level", 0))
 	tether_level = int(data.get("tether_level", 0))
 	laser_level = int(data.get("laser_level", 0))
+	suit_level = int(data.get("suit_level", 0))
+	salvage_taken = {}
+	for k in data.get("salvage_taken", []):
+		salvage_taken[str(k)] = true
 	oxygen = data.get("oxygen", max_oxygen)
 	banked = int(data.get("banked", 0))
 	var inv: Dictionary = data.get("inventory", {})
@@ -474,7 +497,8 @@ func load_game(s: int) -> bool:
 			"reward": int(c["reward"])})
 	trader_stock = []
 	for o in data.get("trader_stock", []):
-		trader_stock.append({"sym": str(o["sym"]), "price": int(o["price"])})
+		trader_stock.append({"sym": str(o["sym"]), "price": int(o["price"]),
+			"qty": int(o.get("qty", 1))})
 	var pl: Dictionary = data.get("pilot", {})
 	pilot = {"name": str(pl.get("name", "")), "gender": str(pl.get("gender", "")),
 		"age": int(pl.get("age", 27))}
@@ -500,6 +524,8 @@ func new_game(s: int) -> void:
 	o2_level = 0
 	tether_level = 0
 	laser_level = 0
+	suit_level = 0
+	salvage_taken = {}
 	oxygen = max_oxygen
 	banked = 0
 	carried = 0
@@ -594,11 +620,15 @@ func price_of(sym: String) -> int:
 # Contracts — rotate per shift, deliver at the cargo board
 # ------------------------------------------------------------------
 func roll_contracts() -> void:
+	## Contracts PERSIST until delivered — new ones only fill empty slots,
+	## so banking toward a request is never wasted (Dave the Diver keeps
+	## its orders standing too).
 	var rng := RandomNumberGenerator.new()
 	rng.seed = shift * 7919 + slot * 131 + 17
-	contracts = []
 	var pool := CONTRACT_POOL.duplicate()
-	for i in 3:
+	for c in contracts:
+		pool.erase(c["sym"])   # no duplicate requests
+	while contracts.size() < 3 and pool.size() > 0:
 		var sym: String = pool[rng.randi_range(0, pool.size() - 1)]
 		pool.erase(sym)
 		var price := price_of(sym)
@@ -651,20 +681,26 @@ func roll_trader() -> void:
 	for i in 3:
 		var sym: String = pool[rng.randi_range(0, pool.size() - 1)]
 		pool.erase(sym)
-		trader_stock.append({"sym": sym, "price": price_of(sym)})
+		# Vesna buys low, sells high: 2x market rate kills the buy-here-
+		# deliver-there arbitrage (contracts pay ~1x + a small bonus).
+		# Limited units per shift — she's a trader, not a replicator.
+		trader_stock.append({"sym": sym, "price": price_of(sym) * 2,
+			"qty": rng.randi_range(1, 3)})
 
 
 func buy_from_trader(i: int) -> bool:
 	if i < 0 or i >= trader_stock.size():
 		return false
 	var offer: Dictionary = trader_stock[i]
-	if banked < int(offer["price"]):
+	if int(offer.get("qty", 0)) <= 0 or banked < int(offer["price"]):
 		return false
 	banked -= int(offer["price"])
+	offer["qty"] = int(offer["qty"]) - 1
 	elements[offer["sym"]] = mini(int(elements.get(offer["sym"], 0)) + 1, ELEMENT_CAP)
 	discovered[offer["sym"]] = true
 	cargo_changed.emit(carried, banked)
 	inventory_changed.emit()
+	save_game()
 	return true
 
 
@@ -724,6 +760,7 @@ func begin_shift() -> String:
 			"VESNA: That drive of yours... my scanner felt it hum from here.",
 			"VESNA: The Expanse eats miners. Bring canisters.",
 			"VESNA: Haven's real, %s. Caught an ark beacon on the long band last night." % pilot_name(),
+			"VESNA: Gold never rides in rock, %s. Wrecks carry scraps — I carry the real thing, if you've earned the name for it." % pilot_name(),
 		]
 		return lines[rng.randi_range(0, lines.size() - 1)]
 	return ""

@@ -13,8 +13,6 @@ const MAX_SPEED := 720.0
 const DAMP := 0.45
 const STAR_CHUNK := 640.0
 const FIELD_CHUNK := 1600.0
-const PLANET_CHUNK := 4800.0     # sparse distant worlds, deep parallax
-const PLANET_DEPTH := 0.12
 const PARK_REACH := 140.0        # extra reach beyond a field's radius
 const HOME_DOCK_RADIUS := 300.0
 const INVENTORY_SCREEN := preload("res://scripts/inventory_screen.gd")
@@ -54,9 +52,13 @@ var _msg_label: Label
 var _msg_tween: Tween
 
 
+var _flight_origin := Vector2.ZERO
+
+
 func _ready() -> void:
 	texture_filter = TEXTURE_FILTER_LINEAR   # painted hull, not pixel art
 	ship_pos = GameState.sector
+	_flight_origin = ship_pos
 	cam.position = ship_pos
 	cam.reset_smoothing()
 	_build_hud()
@@ -79,6 +81,9 @@ func _process(delta: float) -> void:
 
 	_near_home = ship_pos.length() < HOME_DOCK_RADIUS
 	_near_field = _find_near_field()
+	if not GameState.pending_shift \
+			and ship_pos.distance_to(_flight_origin) > 600.0:
+		GameState.pending_shift = true   # you actually flew somewhere
 
 	_t += delta
 	# nebula flying scoops gas into the tanks — the only source of H/He & co
@@ -209,7 +214,10 @@ func _trash_in_chunk(cx: int, cy: int) -> Array:
 				"metal": metal,
 				"units": rng.randi_range(1, 3),
 				"spin": rng.randf_range(-0.6, 0.6),
-				"taken": false,
+				# looted-state lives in GameState (and the save), so wrecks
+				# stay stripped even after the chunk cache is dropped
+				"key": "%d:%d:%d" % [cx, cy, i],
+				"taken": GameState.salvage_taken.has("%d:%d:%d" % [cx, cy, i]),
 			})
 	_trash_cache[key] = pieces
 	return pieces
@@ -224,6 +232,7 @@ func _collect_trash() -> void:
 					continue
 				if ship_pos.distance_to(piece["pos"]) < TRASH_COLLECT_RADIUS:
 					piece["taken"] = true
+					GameState.salvage_taken[piece["key"]] = true
 					var sym: String = piece["metal"]
 					GameState.elements[sym] = mini(
 						int(GameState.elements.get(sym, 0)) + piece["units"],
@@ -336,9 +345,7 @@ func _draw() -> void:
 	var center := cam.get_screen_center_position()
 	var half := get_viewport_rect().size * 0.5 + Vector2(STAR_CHUNK, STAR_CHUNK)
 	_draw_nebulae(center, half)
-	_draw_sun(center)
 	_draw_stars(center, half)
-	_draw_planets(center, half)
 	_draw_fields(center, half)
 	_draw_trash(center, half)
 	_draw_home()
@@ -346,32 +353,6 @@ func _draw() -> void:
 	for c in _comets:
 		SpaceDressing.draw_comet(self, c, _t)
 	_draw_ship()
-
-
-func _draw_sun(center: Vector2) -> void:
-	## The system primary — pinned near-infinitely deep, so it hangs in
-	## the same corner of the sky wherever you fly. Everything else in
-	## the game is lit from its direction (SpaceDressing.SUN_DIR).
-	var p := SpaceDressing.SUN_DIR * 460.0 + center * 0.97
-	SpaceDressing.draw_sun(self, p, 34.0, _t)
-
-
-func _draw_planets(center: Vector2, half: Vector2) -> void:
-	## Sparse far worlds on their own deep parallax layer — the sky gets
-	## landmarks that crawl past as you burn across a region.
-	var shift := center * (1.0 - PLANET_DEPTH)
-	var vc := center - shift
-	var pad := half + Vector2(300, 300)
-	for cy in range(floori((vc.y - pad.y) / PLANET_CHUNK), floori((vc.y + pad.y) / PLANET_CHUNK) + 1):
-		for cx in range(floori((vc.x - pad.x) / PLANET_CHUNK), floori((vc.x + pad.x) / PLANET_CHUNK) + 1):
-			var rng := RandomNumberGenerator.new()
-			rng.seed = _chunk_seed(cx, cy, 44)
-			if rng.randf() > 0.24:
-				continue
-			var p := Vector2(cx, cy) * PLANET_CHUNK \
-				+ Vector2(rng.randf(), rng.randf()) * PLANET_CHUNK + shift
-			SpaceDressing.draw_planet(self, p, rng.randf_range(34.0, 105.0),
-				_chunk_seed(cx, cy, 45))
 
 
 func _draw_trash(center: Vector2, half: Vector2) -> void:
@@ -449,9 +430,9 @@ func _draw_nebulae(center: Vector2, half: Vector2) -> void:
 ## so far layers crawl and near layers sweep past — cheap, convincing 3D.
 const STAR_LAYERS := [
 	# [depth, count/chunk, size lo, size hi, alpha, tint]
-	[0.25, 30, 0.4, 1.0, 0.45, Color(0.75, 0.85, 1.0)],
-	[0.55, 18, 0.8, 1.7, 0.7, Color(0.9, 0.95, 1.0)],
-	[1.0, 10, 1.2, 2.6, 1.0, Color(1.0, 1.0, 1.0)],
+	[0.25, 62, 0.4, 1.0, 0.45, Color(0.75, 0.85, 1.0)],
+	[0.55, 38, 0.8, 1.7, 0.7, Color(0.9, 0.95, 1.0)],
+	[1.0, 20, 1.2, 2.6, 1.0, Color(1.0, 1.0, 1.0)],
 ]
 
 

@@ -5,6 +5,60 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 11/07/2026 — v1.2: LOGIC AUDIT — 10 fixes from a full-game examination
+
+Systematic audit of every gameplay script + genre-loop comparison
+(Dave the Diver / Dome Keeper). All fixes verified by a 22-check gauntlet:
+
+- **Adrift trap fixed**: boarding the ship by ANY door clears `adrift`
+  (blackout-while-adrift or dock-without-attach no longer flings you
+  back into space on your next exit). Blackout message is honest when
+  you had no line ("the suit's auto-return...").
+- **Shift rhythm has a cost now**: `pending_shift` flag — a shift only
+  ticks after real work (left the dock ring / flew >600px / blacked
+  out). Loading a save or lapping the airlock no longer advances time
+  or rerolls the boards. First boards fill after your first real walk.
+- **Arbitrage exploit killed**: Vesna sells at 2x market rate (she buys
+  low, sells high); contract rewards (~1x + 8-14) can no longer be
+  farmed by buying from her — verified unprofitable for all 15 pool
+  elements at max reward roll.
+- **Trader stock is finite**: 1-3 units per offer per shift, SOLD OUT
+  state in the comms panel, qty in the save.
+- **Contracts persist** until delivered — rolls only fill empty board
+  slots (no more banking toward a request that vanishes).
+- **Salvage stays looted**: taken-wreck keys live in GameState + the
+  save; the chunk-cache reset no longer respawns collected trash.
+- **Invisible endgame wall signposted**: quest parts 4/5 now carry
+  source hints (precious metals = wrecks + rep 6 trader; fissiles =
+  rep 10 trader) shown on a failed install; new Vesna radio line says
+  gold never rides in rock. (Abundances untouched, as decreed.)
+- **The suit finally does something: cargo capacity.** carry_max = 25
+  + 15/level (Dome Keeper-style trip tension). Full suit stops
+  magnetizing and collecting ("Cargo full — bank at the ship"), vitals
+  show ORE n/cap, gear tile shows MK level + capacity, new suit
+  upgrade station in the Upgrade Bay (base 12 ore).
+- **Esc on the intro** no longer leaks to the pause menu
+  (set_input_as_handled).
+- **Save discipline**: gear upgrades and trader purchases save
+  immediately (no more Alt-F4 rollback).
+
+---
+
+## 11/07/2026 — v1.1.1: sky cleanup — suns/planets removed, starfields densified
+
+Per the captain: no suns, no planets — just more stars.
+
+- Removed the drawn sun and all procedural planets from dive + flight
+  (SpaceDressing slimmed to SUN_DIR/sun_local + comets; the directional
+  rim lighting on asteroids stays — the sun is off-screen now).
+- Dive starfield rebuilt: four parallax layers (new ultra-far dust
+  layer), 3500 stars total with view culling (the old counts only put
+  ~30 on screen because the pattern square is 5200px wide).
+- Flight star chunks doubled (62/38/20 per layer per chunk); title 280
+  stars, intro 220.
+
+---
+
 ## 11/07/2026 — v1.1: HAVEN — story fix, crew record, painted logo, living sky, radar, adrift opening
 
 The story now makes sense, the sky is alive, and the game knows your name:

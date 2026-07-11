@@ -39,6 +39,7 @@ func _on_dock_exited(body: Node) -> void:
 	if not body.is_in_group("player"):
 		return
 	body.in_dock = false
+	GameState.pending_shift = true   # a real spacewalk began — time passes
 	GameState.say("Spacewalk started — watch your O2 and line.")
 
 

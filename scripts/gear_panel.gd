@@ -37,8 +37,13 @@ func _process(delta: float) -> void:
 		queue_redraw()
 
 
+const MK := ["I", "II", "III", "IV", "V"]
+
+
 func _draw() -> void:
-	_draw_tile(0, "SUIT", "MK I", 0, ICON_HELMET)
+	_draw_tile(0, "SUIT", "MK %s · %d" % [
+		MK[mini(GameState.suit_level, MK.size() - 1)], GameState.carry_max()],
+		GameState.suit_level, ICON_HELMET)
 	_draw_tile(1, "LINE", "%dm" % int(GameState.tether_length),
 		GameState.tether_level, ICON_LINE)
 	_draw_tile(2, "O2", "%d" % int(GameState.max_oxygen),

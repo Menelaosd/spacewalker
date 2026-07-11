@@ -25,7 +25,7 @@ func _ready() -> void:
 	]
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7
-	for i in 130:
+	for i in 220:
 		_stars.append([Vector2(rng.randf_range(0, 1280), rng.randf_range(0, 720)),
 			rng.randf_range(0.4, 1.8), rng.randf_range(0.15, 0.7),
 			rng.randf_range(0.0, TAU)])
@@ -43,6 +43,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	var advance := false
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.physical_keycode == KEY_ESCAPE:
+			# consume it — otherwise the same Esc reaches the pause menu
+			get_viewport().set_input_as_handled()
 			_start_game()
 			return
 		advance = true
