@@ -15,8 +15,8 @@ func _draw() -> void:
 	while y < vp.y:
 		draw_line(Vector2(0, y), Vector2(vp.x, y), Color(0, 0, 0, 0.035), 1.0)
 		y += 4.0
-	# corner vignette
-	var col := Color(0, 0.01, 0.03, 0.3)
+	# corner vignette — nested translucent triangles fake a soft gradient
+	# (a single hard triangle shows a straight edge over bright nebulas)
 	for c in [
 		[Vector2.ZERO, Vector2(1, 0), Vector2(0, 1)],
 		[Vector2(vp.x, 0), Vector2(-1, 0), Vector2(0, 1)],
@@ -24,5 +24,8 @@ func _draw() -> void:
 		[vp, Vector2(-1, 0), Vector2(0, -1)],
 	]:
 		var o: Vector2 = c[0]
-		draw_colored_polygon(PackedVector2Array([
-			o, o + (c[1] as Vector2) * 260.0, o + (c[2] as Vector2) * 180.0]), col)
+		for step in [[300.0, 210.0, 0.07], [220.0, 155.0, 0.08], [140.0, 100.0, 0.09]]:
+			draw_colored_polygon(PackedVector2Array([
+				o, o + (c[1] as Vector2) * float(step[0]),
+				o + (c[2] as Vector2) * float(step[1])]),
+				Color(0, 0.01, 0.03, step[2]))

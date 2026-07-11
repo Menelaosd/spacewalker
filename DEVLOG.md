@@ -5,6 +5,32 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 11/07/2026 — Nebulas v4: high dynamic range (more dark, more light, wider hues)
+
+Second tuning round on user feedback: hue drift widened to ±0.16 (full
+purple↔pink swing), and the density curve split into two branches —
+**dark dust** (below threshold: deep tinted near-black fog, denser as
+density drops) and **bright fog** (climbs to near-white hot cores).
+The result: dramatic voids and burning billows, reference-matched.
+
+---
+
+## 11/07/2026 — Nebulas v3: real smoke (user reference-matched)
+
+The ellipse wisps read as stacked circles — user wanted smoke/fog with
+color variance (reference: dense purple billowing clouds). Now done
+properly with **fractal noise**: `scripts/nebula_fog.gd` generates a
+320px fog texture per nebula (FastNoiseLite fbm 6-octave density,
+pow-contrast for billows + dark voids, second noise channel drifting
+the hue, luminous pockets where dense, radial falloff). Two layers
+drawn counter-drifting = living smoke. Lazily generated, cached per
+session. Dive scene reuses the same texture when parked inside.
+Also: screen-FX vignette softened to nested triangles (the hard
+triangle edge was visible over bright fog), denser star layers,
+46 tinted stars per cloud.
+
+---
+
 ## 11/07/2026 — v0.9: RCS wing turbines, painterly nebulas, salvage debris, parallax
 
 - **Wing turbines, realistic**: yaw thrusters now sit at the wings'

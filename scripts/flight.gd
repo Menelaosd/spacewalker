@@ -348,49 +348,39 @@ func _draw_trash(center: Vector2, half: Vector2) -> void:
 
 
 func _draw_nebulae(center: Vector2, half: Vector2) -> void:
-	## Painterly dust clouds — elongated hue-shifted wisps, dark dust
-	## lanes, a glowing heart and tinted stars. Landmarks you steer by.
+	## Smoke. Two layers of fractal-noise fog (NebulaFog) drifting slowly
+	## against each other, a glowing heart, and stars tinted by the cloud.
 	for i in GameState.NEBULAE.size():
 		var nc: Vector2 = GameState.nebula_center(i)
-		if (nc - center).length() > half.length() + GameState.NEBULA_RADIUS + 1200.0:
+		if (nc - center).length() > half.length() + GameState.NEBULA_RADIUS + 1400.0:
 			continue
 		var col: Color = GameState.NEBULAE[i]["color"]
+		var tex := NebulaFog.texture_for(i)
+		var half_tex := Vector2(NebulaFog.SIZE, NebulaFog.SIZE) * 0.5
+		# base fog layer, drifting
+		var s := GameState.NEBULA_RADIUS * 2.9 / float(NebulaFog.SIZE)
+		draw_set_transform(nc, _t * 0.008, Vector2(s, s))
+		draw_texture(tex, -half_tex)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		# second layer: bigger, rotated, counter-drifting — parallax smoke
+		draw_set_transform(nc, 2.4 - _t * 0.005, Vector2(s * 1.3, s * 1.15))
+		draw_texture(tex, -half_tex, Color(1, 1, 1, 0.7))
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		# glowing heart
 		var rng := RandomNumberGenerator.new()
 		rng.seed = 7000 + i
-		# broad outer wash
-		draw_circle(nc, GameState.NEBULA_RADIUS * 1.05, Color(col.r, col.g, col.b, 0.025))
-		# elongated wisps with drifting hue
-		for b in 16:
-			var off := Vector2.from_angle(rng.randf() * TAU) \
-				* rng.randf_range(0.0, GameState.NEBULA_RADIUS * 0.75)
-			var wisp_col := col
-			wisp_col.h = fmod(col.h + rng.randf_range(-0.05, 0.05) + 1.0, 1.0)
-			var squash := rng.randf_range(0.35, 0.7)
-			draw_set_transform(nc + off, rng.randf() * TAU, Vector2(1.0, squash))
-			draw_circle(Vector2.ZERO, rng.randf_range(380.0, 1100.0),
-				Color(wisp_col.r, wisp_col.g, wisp_col.b, rng.randf_range(0.025, 0.05)))
-			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-		# dark dust lanes threading through
-		for b in 5:
-			var off := Vector2.from_angle(rng.randf() * TAU) \
-				* rng.randf_range(GameState.NEBULA_RADIUS * 0.15, GameState.NEBULA_RADIUS * 0.6)
-			draw_set_transform(nc + off, rng.randf() * TAU, Vector2(1.0, rng.randf_range(0.2, 0.4)))
-			draw_circle(Vector2.ZERO, rng.randf_range(300.0, 700.0),
-				Color(0.01, 0.015, 0.03, rng.randf_range(0.06, 0.11)))
-			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-		# glowing heart
 		var heart := nc + Vector2.from_angle(rng.randf() * TAU) * GameState.NEBULA_RADIUS * 0.2
-		draw_circle(heart, 340.0, Color(col.lightened(0.3).r, col.lightened(0.3).g,
+		draw_circle(heart, 300.0, Color(col.lightened(0.3).r, col.lightened(0.3).g,
 			col.lightened(0.3).b, 0.05))
-		draw_circle(heart, 130.0, Color(col.lightened(0.55).r, col.lightened(0.55).g,
+		draw_circle(heart, 110.0, Color(col.lightened(0.55).r, col.lightened(0.55).g,
 			col.lightened(0.55).b, 0.07))
-		# stars tinted by the cloud they sit in
-		for b in 14:
+		# stars packed through the cloud, tinted by it
+		for b in 46:
 			var sp := nc + Vector2.from_angle(rng.randf() * TAU) \
-				* rng.randf_range(0.0, GameState.NEBULA_RADIUS * 0.85)
-			draw_circle(sp, rng.randf_range(0.8, 2.2),
-				Color(col.lightened(0.6).r, col.lightened(0.6).g,
-					col.lightened(0.6).b, rng.randf_range(0.35, 0.7)))
+				* rng.randf_range(0.0, GameState.NEBULA_RADIUS * 0.95)
+			draw_circle(sp, rng.randf_range(0.7, 2.4),
+				Color(col.lightened(0.65).r, col.lightened(0.65).g,
+					col.lightened(0.65).b, rng.randf_range(0.4, 0.9)))
 
 
 ## Parallax starfield: three depth layers scrolling at different rates.
@@ -398,9 +388,9 @@ func _draw_nebulae(center: Vector2, half: Vector2) -> void:
 ## so far layers crawl and near layers sweep past — cheap, convincing 3D.
 const STAR_LAYERS := [
 	# [depth, count/chunk, size lo, size hi, alpha, tint]
-	[0.25, 18, 0.4, 1.0, 0.4, Color(0.75, 0.85, 1.0)],
-	[0.55, 12, 0.8, 1.7, 0.65, Color(0.9, 0.95, 1.0)],
-	[1.0, 8, 1.2, 2.6, 1.0, Color(1.0, 1.0, 1.0)],
+	[0.25, 30, 0.4, 1.0, 0.45, Color(0.75, 0.85, 1.0)],
+	[0.55, 18, 0.8, 1.7, 0.7, Color(0.9, 0.95, 1.0)],
+	[1.0, 10, 1.2, 2.6, 1.0, Color(1.0, 1.0, 1.0)],
 ]
 
 

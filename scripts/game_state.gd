@@ -110,6 +110,13 @@ func nebula_center(i: int) -> Vector2:
 	return Vector2.from_angle(ang) * (5200.0 + 3600.0 * float(i))
 
 
+func nebula_index_at(p: Vector2) -> int:
+	for i in NEBULAE.size():
+		if p.distance_to(nebula_center(i)) < NEBULA_RADIUS:
+			return i
+	return -1
+
+
 func region_at(p: Vector2) -> Dictionary:
 	## The plan: name + field chance/size/richness modifiers + tint.
 	for i in NEBULAE.size():

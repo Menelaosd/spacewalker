@@ -99,16 +99,14 @@ func _spawn_asteroids() -> void:
 
 
 func _draw() -> void:
-	# nebula haze when parked inside one — the dive site belongs to a place
-	var region: Dictionary = GameState.region_at(GameState.sector)
-	if region["nebula"]:
-		var col: Color = region["tint"]
-		var rng := RandomNumberGenerator.new()
-		rng.seed = 4321
-		for i in 5:
-			var off := Vector2(rng.randf_range(-900, 900), rng.randf_range(-600, 600))
-			draw_circle(off, rng.randf_range(500.0, 1100.0),
-				Color(col.r, col.g, col.b, rng.randf_range(0.03, 0.055)))
+	# nebula fog when parked inside one — the dive site belongs to a place
+	var neb := GameState.nebula_index_at(GameState.sector)
+	if neb >= 0:
+		var tex := NebulaFog.texture_for(neb)
+		var half_tex := Vector2(NebulaFog.SIZE, NebulaFog.SIZE) * 0.5
+		draw_set_transform(Vector2.ZERO, 0.4, Vector2(14.0, 14.0))
+		draw_texture(tex, -half_tex, Color(1, 1, 1, 0.55))
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	# parallax: far stars track the camera, near stars sweep past
 	var cam := player.global_position if player != null else Vector2.ZERO
 	for s in _stars:
