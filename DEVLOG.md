@@ -5,6 +5,54 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 11/07/2026 — v1.1: HAVEN — story fix, crew record, painted logo, living sky, radar, adrift opening
+
+The story now makes sense, the sky is alive, and the game knows your name:
+
+- **Story rework — find a NEW home**: Earth is a cinder; there was never
+  a home to "go back" to. The arks that escaped are raising a colony at
+  Proxima called **HAVEN** — a home you've never seen. Quest renamed
+  (final log: "Course locked: HAVEN"), drive prompt says "SET COURSE FOR
+  HAVEN", ending headline is now **HAVEN** ("Welcome to your new home,
+  <name>"), title badge "✦ HAVEN". Intro rewritten around the idea.
+- **Crew record (character creation)**: new game → EMERGENCY CREW RECORD
+  scene (chargen.tscn) — name/callsign, gender (F/M/OTHER), age. Stored
+  in `GameState.pilot`, saved per slot (save v4→pilot key, legacy saves
+  default to WALKER/27). The intro addresses you by name and age, Vesna
+  greets you on the radio, the ending and the adrift opening use it,
+  title slots show the pilot's name.
+- **Adrift opening**: after the intro you spawn ~900px from the ship
+  with **no lifeline** (LINE 0%, no tether physics, no line drawn).
+  Pulsing chevrons walk from you toward the hull; within 150px the line
+  clips on ("CLACK. Lifeline secured."). `player.attached` flag;
+  SW_ADRIFT=1 debug hook.
+- **Holographic radar** (top-right of the spacewalk HUD, radar_panel.gd):
+  sweeping cyan holo disc with scanlines + flicker; asteroid blips in
+  their **vein element's color** (diamonds = rich), loose pickups as
+  sparks, blips flare as the sweep passes, ship square clamps to the rim
+  when out of range (adrift guidance), tether-reach ring in world scale,
+  region name caption. Pickups/ship got groups ("pickups"/"dock_ship").
+- **Living sky + painted light** (space_dressing.gd): one shared
+  `SUN_DIR` lights the whole game — a layered-glow **sun** with cross
+  flare pinned deep in the sky (dive + flight), procedural **distant
+  planets** (rocky/gas-banded/ice, terminator shadow, day-side rim,
+  atmosphere glow, some ringed) — deterministic per chunk in flight
+  (PLANET_CHUNK 4800, depth 0.12) and per sector in the dive; asteroids
+  now **rim-lit toward the sun** (sheen + night-side shadow + lit edge
+  arc); flight field rocks re-shaded to match; **comets** with tapering
+  ice tails and **shooting stars** in both dive and flight.
+- **Painted logo** on the title screen: user's logo.png, background
+  killed via border flood-fill keying (tools/process_logo_art.gd —
+  survives the logo's own grays, keeps glow fringes), drawn with cyan
+  under-glow + the signal-glitch effect. Title footer bumped to v1.1.
+- Tested: 14-check gauntlet (pilot round-trip, legacy saves, HAVEN
+  strings, Vesna personalization, planet determinism) all PASS; all 6
+  scenes headless-clean **with stderr captured** (lesson: `2>$null` was
+  hiding parse errors — new class_name needs `--import` to register);
+  visual verification screenshots of chargen, adrift dive, flight, title.
+
+---
+
 ## 11/07/2026 — v1.0: PURPOSE — quest, contracts, Vesna, hazards, crafting, intro
 
 The engagement package, fully braided (55/55 functional tests green):

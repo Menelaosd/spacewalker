@@ -190,7 +190,7 @@ func _station_label(st: Dictionary) -> String:
 			return "E    Expand the ship   (%d ore)" % int(GameState.ROOM_TYPES["room"]["cost"])
 		"drive":
 			if GameState.game_complete:
-				return "E    THE DRIVE IS READY — GO HOME"
+				return "E    THE DRIVE IS READY — SET COURSE FOR HAVEN"
 			var part: Dictionary = GameState.quest_part()
 			return "JUMP DRIVE · %s  —  %s%s" % [part["name"],
 				GameState.quest_progress_text(),
@@ -427,14 +427,14 @@ func _draw_ending() -> void:
 	draw_rect(rect, Color(0, 0.01, 0.02, fade), true)
 	if _ending_t > 2.5:
 		var a := clampf((_ending_t - 2.5) / 1.5, 0.0, 1.0)
-		draw_string(_font, center + Vector2(-400, -20), "THE LONG WAY HOME",
+		draw_string(_font, center + Vector2(-400, -20), "HAVEN",
 			HORIZONTAL_ALIGNMENT_CENTER, 800, 42,
 			Color(UITheme.ACCENT.r, UITheme.ACCENT.g, UITheme.ACCENT.b, a))
 	if _ending_t > 4.2:
 		var a2 := clampf((_ending_t - 4.2) / 1.5, 0.0, 1.0)
 		draw_string(_font, center + Vector2(-400, 24),
-			"Shift %d. %d elements discovered. You made it." % [
-				GameState.shift, GameState.discovered.size()],
+			"Shift %d. %d elements discovered.\nWelcome to your new home, %s." % [
+				GameState.shift, GameState.discovered.size(), GameState.pilot_name()],
 			HORIZONTAL_ALIGNMENT_CENTER, 800, 16, Color(1, 1, 1, a2))
 
 

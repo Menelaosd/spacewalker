@@ -18,6 +18,7 @@ const TETHER_PULL := 460.0        # max pull-back accel at full stretch
 const TETHER_BLEED := 10.0        # how fast outward velocity dies at full stretch
 
 var tether_anchor := Vector2.ZERO
+var attached := true   # false during the adrift opening — no line, no leash
 var in_dock := true
 var laser_on := false
 var laser_hit := Vector2.ZERO
@@ -54,6 +55,8 @@ func _physics_process(delta: float) -> void:
 
 
 func _apply_tether(delta: float) -> void:
+	if not attached:
+		return
 	var offset := global_position - tether_anchor
 	var dist := offset.length()
 	var max_len: float = GameState.tether_length
@@ -139,6 +142,8 @@ func _draw() -> void:
 
 
 func _draw_tether() -> void:
+	if not attached:
+		return
 	var a := to_local(tether_anchor)
 	var dist := a.length()
 	var slack := clampf(1.0 - dist / GameState.tether_length, 0.0, 1.0)

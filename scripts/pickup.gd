@@ -14,6 +14,7 @@ var _spin := 0.0
 
 
 func _ready() -> void:
+	add_to_group("pickups")   # radar sparks
 	_spin = randf_range(-2.0, 2.0)
 	body_entered.connect(_on_body_entered)
 

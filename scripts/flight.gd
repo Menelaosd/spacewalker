@@ -13,6 +13,8 @@ const MAX_SPEED := 720.0
 const DAMP := 0.45
 const STAR_CHUNK := 640.0
 const FIELD_CHUNK := 1600.0
+const PLANET_CHUNK := 4800.0     # sparse distant worlds, deep parallax
+const PLANET_DEPTH := 0.12
 const PARK_REACH := 140.0        # extra reach beyond a field's radius
 const HOME_DOCK_RADIUS := 300.0
 const INVENTORY_SCREEN := preload("res://scripts/inventory_screen.gd")
@@ -37,6 +39,8 @@ var _turn := 0.0    # -1..1  A / D
 
 var _field_cache := {}
 var _trash_cache := {}
+var _comets: Array = []          # {pos, vel, size, life}
+var _comet_timer := 6.0
 var _near_field: Dictionary = {}
 var _near_home := false
 var _scooping := false
@@ -83,8 +87,35 @@ func _process(delta: float) -> void:
 		GameState.scoop_gas(delta)
 
 	_collect_trash()
+	_update_comets(delta)
 	_update_hud()
 	queue_redraw()
+
+
+func _update_comets(delta: float) -> void:
+	## Two flavors share the list: slow ice comets that amble across the
+	## view, and quick shooting stars that flash by in under a second.
+	_comet_timer -= delta
+	if _comet_timer <= 0.0:
+		var shooting := randf() < 0.55
+		_comet_timer = randf_range(4.0, 9.0) if shooting else randf_range(11.0, 22.0)
+		var a := randf() * TAU
+		var start: Vector2 = ship_pos + Vector2.from_angle(a) * 860.0
+		var across := (ship_pos - start).normalized().rotated(randf_range(-0.7, 0.7))
+		_comets.append({
+			"pos": start,
+			"vel": across * (randf_range(950.0, 1500.0) if shooting
+				else randf_range(120.0, 210.0)),
+			"size": randf_range(1.2, 2.0) if shooting else randf_range(2.6, 4.2),
+			"life": randf_range(0.7, 1.1) if shooting else randf_range(9.0, 14.0),
+		})
+	var keep: Array = []
+	for c in _comets:
+		c["pos"] += (c["vel"] as Vector2) * delta
+		c["life"] = float(c["life"]) - delta
+		if float(c["life"]) > 0.0 and (c["pos"] as Vector2).distance_to(ship_pos) < 2400.0:
+			keep.append(c)
+	_comets = keep
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -305,12 +336,42 @@ func _draw() -> void:
 	var center := cam.get_screen_center_position()
 	var half := get_viewport_rect().size * 0.5 + Vector2(STAR_CHUNK, STAR_CHUNK)
 	_draw_nebulae(center, half)
+	_draw_sun(center)
 	_draw_stars(center, half)
+	_draw_planets(center, half)
 	_draw_fields(center, half)
 	_draw_trash(center, half)
 	_draw_home()
 	_draw_home_compass()
+	for c in _comets:
+		SpaceDressing.draw_comet(self, c, _t)
 	_draw_ship()
+
+
+func _draw_sun(center: Vector2) -> void:
+	## The system primary — pinned near-infinitely deep, so it hangs in
+	## the same corner of the sky wherever you fly. Everything else in
+	## the game is lit from its direction (SpaceDressing.SUN_DIR).
+	var p := SpaceDressing.SUN_DIR * 460.0 + center * 0.97
+	SpaceDressing.draw_sun(self, p, 34.0, _t)
+
+
+func _draw_planets(center: Vector2, half: Vector2) -> void:
+	## Sparse far worlds on their own deep parallax layer — the sky gets
+	## landmarks that crawl past as you burn across a region.
+	var shift := center * (1.0 - PLANET_DEPTH)
+	var vc := center - shift
+	var pad := half + Vector2(300, 300)
+	for cy in range(floori((vc.y - pad.y) / PLANET_CHUNK), floori((vc.y + pad.y) / PLANET_CHUNK) + 1):
+		for cx in range(floori((vc.x - pad.x) / PLANET_CHUNK), floori((vc.x + pad.x) / PLANET_CHUNK) + 1):
+			var rng := RandomNumberGenerator.new()
+			rng.seed = _chunk_seed(cx, cy, 44)
+			if rng.randf() > 0.24:
+				continue
+			var p := Vector2(cx, cy) * PLANET_CHUNK \
+				+ Vector2(rng.randf(), rng.randf()) * PLANET_CHUNK + shift
+			SpaceDressing.draw_planet(self, p, rng.randf_range(34.0, 105.0),
+				_chunk_seed(cx, cy, 45))
 
 
 func _draw_trash(center: Vector2, half: Vector2) -> void:
@@ -434,7 +495,11 @@ func _draw_fields(center: Vector2, half: Vector2) -> void:
 				var p: Vector2 = fc + rock["off"]
 				var r: float = rock["r"]
 				draw_circle(p, r, base)
-				draw_circle(p + Vector2(r * 0.3, -r * 0.2), r * 0.35, base.darkened(0.25))
+				# sun-side sheen, night-side shadow — same light as everything
+				draw_circle(p + SpaceDressing.SUN_DIR * r * 0.3, r * 0.5,
+					base.lightened(0.18))
+				draw_circle(p - SpaceDressing.SUN_DIR * r * 0.35, r * 0.5,
+					base.darkened(0.3))
 				var fleck := Color(0.4, 0.95, 1.0) if rock["rich"] else Color(1.0, 0.72, 0.25)
 				draw_circle(p + Vector2(-r * 0.25, r * 0.2), 2.5, fleck)
 			if not _near_field.is_empty() and _near_field["center"] == fc:

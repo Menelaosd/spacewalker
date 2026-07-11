@@ -10,7 +10,7 @@ signal notify(text: String)
 signal quest_changed()
 
 const SAVE_DIR := "user://saves"
-const SAVE_VERSION := 3
+const SAVE_VERSION := 4
 const ELEMENT_CAP := 9999      # per-element storage limit
 const SCOOP_INTERVAL := 2.2    # seconds per +1 gas while nebula-flying
 
@@ -118,9 +118,18 @@ var _scoop_accum := 0.0
 # Where the ship is parked in open space. ZERO = home station.
 var sector := Vector2.ZERO
 
+# --- Who's in the suit — set by the crew registry on a new game ---
+var pilot := {"name": "", "gender": "", "age": 27}
+
+
+func pilot_name() -> String:
+	return str(pilot.get("name", "")) if str(pilot.get("name", "")) != "" else "WALKER"
+
+
 # ==================================================================
-# THE LONG WAY HOME — story quest. Rebuild the jump drive from real
-# elements. Each part needs metals you mine, salvage, trade or earn.
+# HAVEN — story quest. Earth is gone; the arks jumped to Proxima and
+# are building a colony there: Haven, a home you've never seen.
+# Rebuild the jump drive from real elements to follow them.
 # ==================================================================
 const QUEST_PARTS := [
 	{"name": "Plasma Conduits", "req": {"Fe": 12, "Si": 8}, "ore": 20,
@@ -132,7 +141,7 @@ const QUEST_PARTS := [
 	{"name": "Ignition Lattice", "req": {"Ag": 3, "Pt": 2, "Au": 1}, "ore": 50,
 		"log": "Lattice aligned. One spark left to find — the heart."},
 	{"name": "Fuel Core", "req": {"U": 1, "Th": 1}, "ore": 60,
-		"log": "The core burns steady. Course locked: HOME."},
+		"log": "The core burns steady. Course locked: HAVEN."},
 ]
 var quest_stage := 0          # part being built; QUEST_PARTS.size() = done
 var game_complete := false
@@ -168,6 +177,8 @@ var shift := 0                # a "day": increments each return to the ship
 # --- Session (not saved) ---
 var slot: int = -1          # active save slot, -1 = none
 var in_game := false        # false on the title screen
+var adrift := false         # new-game opening: floating free, no lifeline —
+                            # reach the ship and the line clips on
 var wake_on_bunk := false   # set by a blackout; interior spawns you in bed
 var last_lost: int = 0      # ore lost in the last blackout
 var flare_phase := ""       # "", "warn", "burn" — set by the dive scene
@@ -397,6 +408,7 @@ func save_game() -> void:
 		"crafted": crafted.keys(),
 		"contracts": contracts,
 		"trader_stock": trader_stock,
+		"pilot": pilot,
 		"sector": [sector.x, sector.y],
 		"saved_at": Time.get_date_string_from_system(),
 	}
@@ -463,6 +475,9 @@ func load_game(s: int) -> bool:
 	trader_stock = []
 	for o in data.get("trader_stock", []):
 		trader_stock.append({"sym": str(o["sym"]), "price": int(o["price"])})
+	var pl: Dictionary = data.get("pilot", {})
+	pilot = {"name": str(pl.get("name", "")), "gender": str(pl.get("gender", "")),
+		"age": int(pl.get("age", 27))}
 	var sec: Array = data.get("sector", [0.0, 0.0])
 	sector = Vector2(sec[0], sec[1])
 	carried = 0
@@ -504,6 +519,7 @@ func new_game(s: int) -> void:
 	crafted = {}
 	contracts = []
 	trader_stock = []
+	pilot = {"name": "", "gender": "", "age": 27}
 	sector = Vector2.ZERO
 	wake_on_bunk = false
 	in_game = true
@@ -702,11 +718,12 @@ func begin_shift() -> String:
 	rng.seed = shift * 3571 + slot
 	if rng.randf() < 0.45:
 		var lines := [
-			"VESNA: Still breathing out there? Good. Check my stock.",
+			"VESNA: Still breathing out there, %s? Good. Check my stock." % pilot_name(),
 			"VESNA: Belt rock's running rich this cycle. You didn't hear it from me.",
 			"VESNA: I pay honest ore for honest elements. Board's updated.",
 			"VESNA: That drive of yours... my scanner felt it hum from here.",
 			"VESNA: The Expanse eats miners. Bring canisters.",
+			"VESNA: Haven's real, %s. Caught an ark beacon on the long band last night." % pilot_name(),
 		]
 		return lines[rng.randi_range(0, lines.size() - 1)]
 	return ""

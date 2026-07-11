@@ -14,6 +14,10 @@ const FLARE_DRAIN := 5.0       # extra O2/s while exposed
 const SHELTER_DIST := 130.0    # hide this close to a rock to survive it
 
 var _stars: Array = []
+var _planets: Array = []       # [pattern_pos, radius, seed] — deep parallax
+var _streaks: Array = []       # shooting stars: {pos, vel, size, life}
+var _streak_timer := 4.0
+var _t := 0.0
 var ship: Node2D
 var player: Node2D
 
@@ -39,7 +43,17 @@ func _ready() -> void:
 	_spawn_asteroids()
 	add_child(HUD_SCENE.instantiate())
 
-	if GameState.sector == Vector2.ZERO:
+	if OS.get_environment("SW_ADRIFT") != "":
+		GameState.adrift = true   # debug hook for screenshots/tests
+	if GameState.adrift:
+		# the opening: the flare threw you clear. No line. Get to the ship.
+		player.attached = false
+		player.in_dock = false
+		player.position = Vector2.from_angle(randf_range(-2.4, -0.7)) \
+			* randf_range(820.0, 980.0)
+		GameState.say("You're adrift — no lifeline. That's your ship, %s. Reach it." \
+			% GameState.pilot_name())
+	elif GameState.sector == Vector2.ZERO:
 		GameState.say("Welcome aboard. Hold LMB to mine. Bring ore back to the ship.")
 	else:
 		GameState.say("Parked in %s — rich chance ~%d%%. Watch your O2." % [
@@ -58,9 +72,47 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	_t += delta
+	_update_adrift()
 	_update_flare(delta)
 	_update_debris(delta)
+	_update_streaks(delta)
 	queue_redraw()   # parallax stars + hazards follow the camera
+
+
+func _update_adrift() -> void:
+	## The opening beat: float home, and the lifeline clips on when you
+	## touch the hull's reach. From then on the game is the game.
+	if not GameState.adrift or player == null:
+		return
+	if player.global_position.distance_to(ship.anchor_point()) < 150.0:
+		GameState.adrift = false
+		player.attached = true
+		GameState.say("CLACK. Lifeline secured. Never let it go, %s." \
+			% GameState.pilot_name())
+
+
+func _update_streaks(delta: float) -> void:
+	## Shooting stars — a flick of light every so often keeps the sky alive.
+	_streak_timer -= delta
+	if _streak_timer <= 0.0 and player != null:
+		_streak_timer = randf_range(5.0, 13.0)
+		var a := randf() * TAU
+		var start: Vector2 = player.global_position + Vector2.from_angle(a) * 780.0
+		_streaks.append({
+			"pos": start,
+			"vel": (player.global_position - start).normalized() \
+				.rotated(randf_range(-0.8, 0.8)) * randf_range(900.0, 1400.0),
+			"size": randf_range(1.1, 1.9),
+			"life": randf_range(0.6, 1.0),
+		})
+	var keep: Array = []
+	for s in _streaks:
+		s["pos"] += (s["vel"] as Vector2) * delta
+		s["life"] = float(s["life"]) - delta
+		if float(s["life"]) > 0.0:
+			keep.append(s)
+	_streaks = keep
 
 
 func _sheltered() -> bool:
@@ -148,6 +200,16 @@ func _make_stars() -> void:
 				rng.randf_range(0.25, 0.9) * float(layer[4]),
 				layer[0],
 			])
+	# one or two far worlds on the horizon, seeded by where you're parked —
+	# each dive site keeps its own sky
+	var prng := RandomNumberGenerator.new()
+	prng.seed = int(GameState.sector.x * 92821.0) ^ int(GameState.sector.y * 68917.0) ^ 7
+	for i in prng.randi_range(1, 2):
+		_planets.append([
+			Vector2.from_angle(prng.randf() * TAU) * prng.randf_range(420.0, 720.0),
+			prng.randf_range(46.0, 110.0),
+			prng.randi(),
+		])
 
 
 func _spawn_asteroids() -> void:
@@ -196,11 +258,35 @@ func _draw() -> void:
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	# parallax: far stars track the camera, near stars sweep past
 	var cam := player.global_position if player != null else Vector2.ZERO
+	# the sun — pinned deep, painting the field from one constant side
+	var sun_p := SpaceDressing.SUN_DIR * 440.0 + cam * 0.97
+	SpaceDressing.draw_sun(self, sun_p, 30.0, _t)
 	for s in _stars:
 		draw_circle(s[0] + cam * (1.0 - s[3]), s[1], Color(1, 1, 1, s[2]))
+	# far worlds, barely drifting — this dive site's own horizon
+	for pl in _planets:
+		SpaceDressing.draw_planet(self, pl[0] + cam * 0.85, pl[1], pl[2])
+	# shooting stars
+	for st in _streaks:
+		SpaceDressing.draw_comet(self, st, _t)
 	# faint ring showing max tether reach
 	draw_arc(Vector2(0, 48), GameState.tether_length, 0.0, TAU, 96,
 		Color(1.0, 0.85, 0.3, 0.08), 2.0)
+
+	# adrift opening: pulsing chevrons walking from you toward the ship
+	if GameState.adrift and player != null:
+		var to_ship: Vector2 = ship.anchor_point() - player.global_position
+		var dir := to_ship.normalized()
+		var side := dir.orthogonal() * 7.0
+		for i in 3:
+			var d := 60.0 + float(i) * 26.0 + fmod(_t * 40.0, 26.0)
+			if d > to_ship.length() - 120.0:
+				continue
+			var base: Vector2 = player.global_position + dir * d
+			var a := 0.7 - float(i) * 0.15
+			draw_polyline(PackedVector2Array([
+				base - dir * 9.0 + side, base, base - dir * 9.0 - side]),
+				Color(UITheme.ACCENT.r, UITheme.ACCENT.g, UITheme.ACCENT.b, a), 2.5)
 
 	# debris — tumbling fast rock with a motion trail
 	for d in _debris:

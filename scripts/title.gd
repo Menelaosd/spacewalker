@@ -5,6 +5,7 @@ extends Control
 
 const SLOTS := 3
 const SHIP_TEX := preload("res://assets/sprites/ship_hd.png")
+const LOGO_TEX := preload("res://assets/sprites/logo.png")
 const HAZARD_ICONS := [
 	preload("res://assets/icons/warning.svg"),
 	preload("res://assets/icons/radiation.svg"),
@@ -22,6 +23,7 @@ var _arm_delete := -1   # slot whose ✕ was pressed once (confirm state)
 
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
+	texture_filter = TEXTURE_FILTER_LINEAR   # painted logo/ship, not pixel art
 	theme = UITheme.make_theme()
 	GameState.in_game = false
 	get_tree().paused = false
@@ -89,9 +91,12 @@ func _slot_text(i: int) -> String:
 	var parts := date.split("-")
 	if parts.size() == 3:
 		date = "%s/%s/%s" % [parts[2], parts[1], parts[0]]
+	var who := str((data.get("pilot", {}) as Dictionary).get("name", ""))
+	if who == "":
+		who = "WALKER"
 	if data.get("game_complete", false):
-		return "SLOT %d   —   ✦ HOME · %s" % [i + 1, date]
-	return "SLOT %d   —   %d ORE · DRIVE %d/5 · %s" % [i + 1,
+		return "SLOT %d   —   %s · ✦ HAVEN · %s" % [i + 1, who, date]
+	return "SLOT %d   —   %s · %d ORE · DRIVE %d/5 · %s" % [i + 1, who,
 		int(data.get("banked", 0)), int(data.get("quest_stage", 0)), date]
 
 
@@ -130,7 +135,7 @@ func _on_slot(i: int) -> void:
 		get_tree().change_scene_to_file("res://scenes/ship_interior.tscn")
 	else:
 		GameState.new_game(i)
-		get_tree().change_scene_to_file("res://scenes/intro.tscn")
+		get_tree().change_scene_to_file("res://scenes/chargen.tscn")
 
 
 func _draw() -> void:
@@ -157,31 +162,28 @@ func _draw() -> void:
 		Color(0.75, 0.8, 0.9, 0.95))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
-	# title with layered glow + occasional signal glitch
-	var ty := 208.0
-	for glow in [[6, 0.09], [3, 0.16], [1, 0.3]]:
-		draw_string(_font, Vector2(float(glow[0]), ty + float(glow[0])),
-			"SPACEWALKER", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 58,
-			Color(UITheme.ACCENT.r, UITheme.ACCENT.g, UITheme.ACCENT.b,
-				float(glow[1])))
+	# the painted logo, breathing slightly, with the old signal glitch
+	var lc := Vector2(vp.x * 0.5, 168.0 + sin(_t * 0.8) * 3.0)
+	var half_logo := LOGO_TEX.get_size() * 0.5
+	draw_set_transform(lc, 0.0, Vector2(0.62, 0.62))
+	draw_texture(LOGO_TEX, -half_logo + Vector2(0, 6),
+		Color(0, 0.9, 1.0, 0.10))   # cyan under-glow
 	if fmod(_t, 2.9) < 0.14:
-		var j := sin(_t * 90.0) * 4.0
-		draw_string(_font, Vector2(j - 3.0, ty), "SPACEWALKER",
-			HORIZONTAL_ALIGNMENT_CENTER, vp.x, 58,
-			Color(UITheme.ACCENT.r, UITheme.ACCENT.g, UITheme.ACCENT.b, 0.55))
-		draw_string(_font, Vector2(-j + 3.0, ty), "SPACEWALKER",
-			HORIZONTAL_ALIGNMENT_CENTER, vp.x, 58,
-			Color(UITheme.DANGER.r, UITheme.DANGER.g, UITheme.DANGER.b, 0.4))
-	draw_string(_font, Vector2(0, ty), "SPACEWALKER",
-		HORIZONTAL_ALIGNMENT_CENTER, vp.x, 58, Color(0.94, 0.97, 1.0))
-	# accent rules around the subtitle
+		var j := sin(_t * 90.0) * 6.0
+		draw_texture(LOGO_TEX, -half_logo + Vector2(j, 0),
+			Color(0.3, 1.0, 1.0, 0.5))
+		draw_texture(LOGO_TEX, -half_logo - Vector2(j, 0),
+			Color(1.0, 0.35, 0.35, 0.4))
+	draw_texture(LOGO_TEX, -half_logo)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	# accent rules around the subtitle, tucked under the logo
 	var mid := vp.x * 0.5
 	var sub_a := 0.6 + 0.15 * sin(_t * 1.6)
-	draw_line(Vector2(mid - 240, 236), Vector2(mid - 118, 236),
+	draw_line(Vector2(mid - 240, 312), Vector2(mid - 118, 312),
 		Color(1, 1, 1, 0.75), 1.2)
-	draw_line(Vector2(mid + 118, 236), Vector2(mid + 240, 236),
+	draw_line(Vector2(mid + 118, 312), Vector2(mid + 240, 312),
 		Color(1, 1, 1, 0.75), 1.2)
-	draw_string(_font, Vector2(0, 241), "MINE THE VOID · MIND THE LINE",
+	draw_string(_font, Vector2(0, 317), "MINE THE VOID · MIND THE LINE",
 		HORIZONTAL_ALIGNMENT_CENTER, vp.x, 14,
 		Color(UITheme.ACCENT.r, UITheme.ACCENT.g, UITheme.ACCENT.b, sub_a))
 
@@ -203,6 +205,6 @@ func _draw() -> void:
 
 	# footer
 	draw_string(_font, Vector2(0, vp.y - 14),
-		"SPACEWALKER SYSTEMS ONLINE · v0.9 · PROTOTYPE",
+		"SPACEWALKER SYSTEMS ONLINE · v1.1 · PROTOTYPE",
 		HORIZONTAL_ALIGNMENT_CENTER, vp.x, 11,
 		Color(UITheme.ACCENT.r, UITheme.ACCENT.g, UITheme.ACCENT.b, 0.35))

@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://bt0v6lj8a6emi"]
+
+[ext_resource type="Script" path="res://scripts/chargen.gd" id="1"]
+
+[node name="Chargen" type="Control"]
+script = ExtResource("1")

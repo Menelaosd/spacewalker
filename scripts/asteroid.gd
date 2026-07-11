@@ -85,6 +85,14 @@ func _draw() -> void:
 	draw_colored_polygon(_poly, c)
 	for cr in _craters:
 		draw_circle(cr[0], cr[1], _base_color.darkened(0.25).lerp(Color.WHITE, _flash * 0.5))
+	# painted sunlight: sheen on the sunward face, the far side falls
+	# into shadow, and a crisp rim catches the light on the edge
+	var lit := SpaceDressing.sun_local(self)
+	draw_circle(lit * radius * 0.32, radius * 0.72, Color(1.0, 0.97, 0.88, 0.10))
+	draw_circle(-lit * radius * 0.38, radius * 0.7, Color(0.0, 0.005, 0.02, 0.26))
+	var la := lit.angle()
+	draw_arc(Vector2.ZERO, radius * 0.94, la - 1.15, la + 1.15, 20,
+		Color(1.0, 0.98, 0.92, 0.3), 2.5)
 	for f in _flecks:
 		draw_circle(f, 2.5, _ore_color)
 		draw_circle(f, 4.5, Color(_ore_color.r, _ore_color.g, _ore_color.b, 0.25))

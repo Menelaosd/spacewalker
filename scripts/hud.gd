@@ -3,6 +3,7 @@ extends CanvasLayer
 ## gear rack, pulsing dock prompt, toast messages, screen FX.
 
 const GEAR_PANEL := preload("res://scripts/gear_panel.gd")
+const RADAR_PANEL := preload("res://scripts/radar_panel.gd")
 const INVENTORY_SCREEN := preload("res://scripts/inventory_screen.gd")
 const VITALS := preload("res://scripts/vitals_panel.gd")
 const SCREEN_FX := preload("res://scripts/screen_fx.gd")
@@ -26,6 +27,12 @@ func _ready() -> void:
 	var vitals := VITALS.new()
 	vitals.position = Vector2(18, 18)
 	root.add_child(vitals)
+
+	# holographic resource radar (top-right)
+	var radar := RADAR_PANEL.new()
+	root.add_child(radar)
+	radar.set_anchors_and_offsets_preset(
+		Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_MINSIZE, 18)
 
 	# gear rack (bottom-right)
 	var gear := GEAR_PANEL.new()

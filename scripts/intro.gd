@@ -2,15 +2,9 @@ extends Control
 ## New-game intro — the end of the world, typewriter style.
 ## SPACE / click: finish the page, then next page. ESC skips everything.
 
-const PAGES := [
-	"2211.\n\nThe evacuation of Earth took nine years.\nYou watched the last arks burn for Proxima\nfrom the maintenance deck of a mining rig.",
-	"You were booked on the final transport.\n\nThe flare came first.\nIt took the transport, the relay network,\nand every jump gate in the system.",
-	"What's left:\n\nOne small ship. One suit. One lifeline.\nA jump drive burned to slag —\nand a galaxy of raw elements to rebuild it from.",
-	"Nobody is coming.\n\nMine the void. Mind the line.\nBuild the drive.\n\nGO HOME.",
-]
-
 const SHIP_TEX := preload("res://assets/sprites/ship_hd.png")
 
+var _pages: Array = []
 var _page := 0
 var _chars := 0.0
 var _t := 0.0
@@ -20,6 +14,15 @@ var _stars: Array = []
 
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
+	# the record you just filed writes you into the story
+	var who: String = GameState.pilot_name()
+	var age := int(GameState.pilot.get("age", 27))
+	_pages = [
+		"2211.\n\nThe evacuation of Earth took nine years.\nYou watched the last arks burn for Proxima\nfrom the maintenance deck of a mining rig.",
+		"%s. %d years old.\nBooked on the final transport out.\n\nThe flare came first.\nIt took the transport, the relay network,\nand every jump gate in the system." % [who, age],
+		"Behind you: nothing. Earth is a cinder.\nThere is no home to go back to.\n\nAhead, at Proxima, the arks are raising\na colony called HAVEN. A home you've\nnever seen — but it's yours, if you can reach it.",
+		"What's left: one small ship. One suit.\nOne lifeline. A jump drive burned to slag —\nand a galaxy of raw elements to rebuild it from.\n\nMine the void. Mind the line.\n\nFIND YOUR NEW HOME.",
+	]
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7
 	for i in 130:
@@ -47,10 +50,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		advance = true
 	if not advance:
 		return
-	var text: String = PAGES[_page]
+	var text: String = _pages[_page]
 	if int(_chars) < text.length():
 		_chars = text.length()   # finish the page
-	elif _page < PAGES.size() - 1:
+	elif _page < _pages.size() - 1:
 		_page += 1
 		_chars = 0.0
 	else:
@@ -58,6 +61,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _start_game() -> void:
+	# the story drops you where it left you: alone, off the line
+	GameState.adrift = true
 	get_tree().change_scene_to_file("res://scenes/main.tscn")
 
 
@@ -73,12 +78,12 @@ func _draw() -> void:
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 	# page counter ticks
-	for i in PAGES.size():
+	for i in _pages.size():
 		draw_rect(Rect2(vp.x * 0.5 - 30 + i * 16, vp.y - 52, 10, 3),
 			UITheme.ACCENT if i <= _page else Color(1, 1, 1, 0.15))
 
 	# typewriter text
-	var text: String = PAGES[_page]
+	var text: String = _pages[_page]
 	var visible_text := text.substr(0, int(_chars))
 	var lines := visible_text.split("\n")
 	var y := vp.y * 0.36

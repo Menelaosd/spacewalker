@@ -12,6 +12,7 @@ func anchor_point() -> Vector2:
 
 
 func _ready() -> void:
+	add_to_group("dock_ship")   # the radar's home-square blip
 	texture_filter = TEXTURE_FILTER_LINEAR   # painted art, not pixel art
 	dock_zone.body_entered.connect(_on_dock_entered)
 	dock_zone.body_exited.connect(_on_dock_exited)
