@@ -307,6 +307,13 @@ func new_game(s: int) -> void:
 	save_game()
 
 
+func delete_save(s: int) -> void:
+	if FileAccess.file_exists(save_path(s)):
+		DirAccess.remove_absolute(save_path(s))
+	if slot == s:
+		slot = -1
+
+
 func slot_data(s: int) -> Dictionary:
 	## Raw contents of a slot file, or {} if empty/corrupt.
 	if not FileAccess.file_exists(save_path(s)):

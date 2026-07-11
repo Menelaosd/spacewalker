@@ -6,7 +6,9 @@ extends Node2D
 ## spacewalk it. Q hands back the helm and returns inside.
 ## All visuals are placeholder _draw() shapes.
 
-const THRUST := 520.0
+const THRUST := 560.0
+const THRUST_REV := 260.0
+const TURN_RATE := 2.6          # rad/s — A/D yaw
 const MAX_SPEED := 720.0
 const DAMP := 0.45
 const STAR_CHUNK := 640.0
@@ -21,7 +23,8 @@ const INVENTORY_SCREEN := preload("res://scripts/inventory_screen.gd")
 var ship_pos := Vector2.ZERO
 var vel := Vector2.ZERO
 var heading := 0.0
-var thrust_input := Vector2.ZERO
+var _thr := 0.0     # -1..1  W forward / S reverse
+var _turn := 0.0    # -1..1  A / D
 
 var _field_cache := {}
 var _near_field: Dictionary = {}
@@ -37,6 +40,7 @@ var _msg_tween: Tween
 
 
 func _ready() -> void:
+	texture_filter = TEXTURE_FILTER_LINEAR   # painted hull, not pixel art
 	ship_pos = GameState.sector
 	cam.position = ship_pos
 	cam.reset_smoothing()
@@ -46,13 +50,16 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
-	thrust_input = Input.get_vector("move_left", "move_right", "move_up", "move_down")
-	vel += thrust_input * THRUST * delta
+	# helm controls: A/D yaw the ship, W burns the main drive, S retro-burns
+	_turn = Input.get_axis("move_left", "move_right")
+	_thr = Input.get_axis("move_down", "move_up")
+	heading += _turn * TURN_RATE * delta
+	if absf(_thr) > 0.01:
+		var power := THRUST if _thr > 0.0 else THRUST_REV
+		vel += Vector2.from_angle(heading) * _thr * power * delta
 	vel = vel.limit_length(MAX_SPEED)
 	vel = vel.lerp(Vector2.ZERO, 1.0 - exp(-DAMP * delta))
 	ship_pos += vel * delta
-	if vel.length() > 30.0:
-		heading = lerp_angle(heading, vel.angle(), 1.0 - exp(-6.0 * delta))
 	cam.position = ship_pos
 
 	_near_home = ship_pos.length() < HOME_DOCK_RADIUS
@@ -150,14 +157,19 @@ func _build_hud() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.theme = UITheme.make_theme()
 	layer.add_child(root)
+	root.add_child(preload("res://scripts/screen_fx.gd").new())
 	root.add_child(INVENTORY_SCREEN.new())
 
+	var nav := PanelContainer.new()
+	nav.position = Vector2(18, 18)
+	nav.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(nav)
 	var box := VBoxContainer.new()
-	box.position = Vector2(16, 16)
-	root.add_child(box)
+	nav.add_child(box)
 	_pos_label = Label.new()
 	box.add_child(_pos_label)
 	_cargo_label = Label.new()
+	_cargo_label.modulate = Color(1, 1, 1, 0.75)
 	box.add_child(_cargo_label)
 
 	_prompt_label = Label.new()
@@ -175,7 +187,7 @@ func _build_hud() -> void:
 		Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_MINSIZE, 70)
 
 	var hint := Label.new()
-	hint.text = "WASD fly · E park at a field / dock at home · Q leave the helm · Esc menu"
+	hint.text = "W/S thrust · A/D turn · E park / dock · Q leave the helm · Esc menu"
 	hint.modulate = Color(1, 1, 1, 0.55)
 	root.add_child(hint)
 	hint.set_anchors_and_offsets_preset(
@@ -306,20 +318,44 @@ func _draw_home_compass() -> void:
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(1.0, 0.85, 0.3, 0.55))
 
 
-const SHIP_TEX := preload("res://assets/sprites/ship.png")
+## The captain's ship, bow facing +X (see tools/process_ship_art.gd).
+const SHIP_TEX := preload("res://assets/sprites/ship_hd.png")
+const SHIP_SCALE := 0.5
 
 
 func _draw_ship() -> void:
+	# engine effects in ship space (unscaled world px)
 	draw_set_transform(ship_pos, heading, Vector2.ONE)
-	# engine flame while thrusting
-	if thrust_input.length() > 0.1:
-		var flick := randf() * 8.0
-		draw_colored_polygon(
-			PackedVector2Array([
-				Vector2(-56, -7), Vector2(-56, 7), Vector2(-74.0 - flick, 0)]),
-			Color(1.0, 0.6, 0.15, 0.9))
+	if _thr > 0.05:
+		# twin main drives on the broad stern towers
+		var flick := randf() * 9.0
+		for ey in [-21.0, 21.0]:
+			draw_colored_polygon(
+				PackedVector2Array([
+					Vector2(-66, ey - 6), Vector2(-66, ey + 6),
+					Vector2(-88.0 - flick, ey)]),
+				Color(0.4, 0.85, 1.0, 0.85))
+			draw_colored_polygon(
+				PackedVector2Array([
+					Vector2(-66, ey - 3), Vector2(-66, ey + 3),
+					Vector2(-78.0 - flick * 0.5, ey)]),
+				Color(0.9, 0.98, 1.0, 0.9))
+	elif _thr < -0.05:
+		# bow retro jets, braking / backing up
+		for ey in [-10.0, 10.0]:
+			draw_colored_polygon(
+				PackedVector2Array([
+					Vector2(66, ey - 3), Vector2(66, ey + 3),
+					Vector2(80.0 + randf() * 5.0, ey)]),
+				Color(0.4, 0.85, 1.0, 0.7))
+	if absf(_turn) > 0.05:
+		# the wingtip turbine on the pushing side fires during a yaw
+		var wy := -62.0 if _turn > 0.0 else 62.0
+		draw_circle(Vector2(6, wy), 4.5 + randf() * 2.5,
+			Color(0.4, 0.85, 1.0, 0.7))
+		draw_circle(Vector2(6, wy), 8.0, Color(0.4, 0.85, 1.0, 0.2))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-	# pixel hull, rotated toward the heading
-	draw_set_transform(ship_pos, heading, Vector2(2.0, 2.0))
-	draw_texture(SHIP_TEX, Vector2(-32.0, -16.0))
+	# painted hull, rotated toward the heading
+	draw_set_transform(ship_pos, heading, Vector2(SHIP_SCALE, SHIP_SCALE))
+	draw_texture(SHIP_TEX, -SHIP_TEX.get_size() * 0.5)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)

@@ -49,9 +49,14 @@ func _build() -> void:
 	margin.add_child(box)
 
 	var title := Label.new()
-	title.text = "PAUSED"
+	title.text = "◈  SYSTEMS PAUSED"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 17)
+	title.modulate = UITheme.ACCENT
 	box.add_child(title)
+	var sep := HSeparator.new()
+	sep.modulate = Color(1, 1, 1, 0.25)
+	box.add_child(sep)
 
 	var resume := Button.new()
 	resume.text = "Resume"

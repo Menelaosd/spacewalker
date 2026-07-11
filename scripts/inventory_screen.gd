@@ -51,19 +51,17 @@ func _draw() -> void:
 
 
 func _header(rect: Rect2, text: String, sub: String) -> void:
-	draw_string(_font, rect.position + Vector2(18, 32), text,
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 19, UITheme.TEXT)
-	draw_string(_font, rect.position + Vector2(18, 50), sub,
+	UITheme.draw_header(self, rect.position + Vector2(18, 32), text, _font, 19,
+		UITheme.ACCENT, rect.size.x - 36.0)
+	draw_string(_font, rect.position + Vector2(18, 56), sub,
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 11, UITheme.TEXT_DIM)
-	draw_line(rect.position + Vector2(16, 60), Vector2(rect.end.x - 16, rect.position.y + 60),
-		Color(UITheme.ACCENT.r, UITheme.ACCENT.g, UITheme.ACCENT.b, 0.3), 1.0)
 
 
 # ------------------------------------------------------------------
 # EXOSUIT — character + gear
 # ------------------------------------------------------------------
 func _draw_suit_panel(rect: Rect2) -> void:
-	UITheme.panel().draw(get_canvas_item(), rect)
+	UITheme.draw_sci_panel(self, rect)
 	_header(rect, "EXOSUIT", "SPACEWALKER · CREW OF 1")
 
 	# the character, big and pixel-crisp
@@ -84,8 +82,11 @@ func _draw_suit_panel(rect: Rect2) -> void:
 	var y := rect.position.y + 250.0
 	for row in rows:
 		var slot_rect := Rect2(rect.position.x + 18, y, rect.size.x - 36, 62)
-		UITheme.panel(Color(1, 1, 1, 0.12), UITheme.BG_LIGHT, 8).draw(
-			get_canvas_item(), slot_rect)
+		var pts := UITheme.cut_points(slot_rect, 8.0)
+		draw_colored_polygon(pts, UITheme.BG_LIGHT)
+		var outline := pts.duplicate()
+		outline.append(pts[0])
+		draw_polyline(outline, Color(1, 1, 1, 0.14), 1.0)
 		(row[3] as Callable).call(slot_rect.position + Vector2(30, 31))
 		draw_string(_font, slot_rect.position + Vector2(62, 26), row[0],
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 13, UITheme.TEXT)
@@ -100,7 +101,7 @@ func _draw_suit_panel(rect: Rect2) -> void:
 # ELEMENTS — the whole periodic table, real amounts
 # ------------------------------------------------------------------
 func _draw_elements_panel(rect: Rect2) -> void:
-	UITheme.panel().draw(get_canvas_item(), rect)
+	UITheme.draw_sci_panel(self, rect)
 	var owned := 0
 	for e in _sorted:
 		if GameState.elements.get(e[0], 0.0) > 0.0:
@@ -114,7 +115,7 @@ func _draw_elements_panel(rect: Rect2) -> void:
 	for i in _sorted.size():
 		var e: Array = _sorted[i]
 		var col := i % COLS
-		var row := i / COLS
+		var row := int(float(i) / COLS)
 		var p := Vector2(gx + col * (SLOT + SLOT_GAP), gy + row * (SLOT + SLOT_GAP))
 		var amount: float = GameState.elements.get(e[0], 0.0)
 		var have := amount > 0.0
@@ -131,6 +132,10 @@ func _draw_elements_panel(rect: Rect2) -> void:
 		sb.set_border_width_all(1)
 		sb.set_corner_radius_all(5)
 		sb.draw(get_canvas_item(), Rect2(p, Vector2(SLOT, SLOT)))
+		if have:
+			# category accent strip along the slot top — reads at a glance
+			draw_rect(Rect2(p + Vector2(6, 1), Vector2(SLOT - 12, 2)),
+				Color(ecol.r, ecol.g, ecol.b, 0.9))
 		# symbol + amount
 		var sym_col := ecol if have else Color(1, 1, 1, 0.22)
 		draw_string(_font, p + Vector2(0, 24), e[0],

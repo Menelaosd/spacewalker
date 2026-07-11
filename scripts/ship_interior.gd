@@ -173,10 +173,15 @@ func _build_hud() -> void:
 	root.theme = UITheme.make_theme()
 	layer.add_child(root)
 
+	root.add_child(preload("res://scripts/screen_fx.gd").new())
+
+	var info := PanelContainer.new()
+	info.position = Vector2(18, 18)
+	info.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(info)
 	_banked_label = Label.new()
 	_banked_label.text = "Banked ore:  0"
-	_banked_label.position = Vector2(16, 16)
-	root.add_child(_banked_label)
+	info.add_child(_banked_label)
 
 	var gear := GEAR_PANEL.new()
 	root.add_child(gear)
@@ -277,10 +282,10 @@ func _draw_furniture() -> void:
 	draw_line(Vector2(-300, 150), Vector2(-200, 150), Color(0.4, 0.42, 0.5), 5.0)
 
 	# --- Cargo Hold: crate stack that grows with banked ore ---
-	var crates: int = clampi(GameState.banked / 3, 0, 12)
+	var crates: int = clampi(int(GameState.banked / 3.0), 0, 12)
 	for i in crates:
 		var col := i % 4
-		var row := i / 4
+		var row := int(float(i) / 4.0)
 		var cp := Vector2(-125 + col * 24, 150 - row * 24)
 		draw_rect(Rect2(cp.x, cp.y - 20, 20, 20), Color(0.55, 0.42, 0.2))
 		draw_rect(Rect2(cp.x, cp.y - 20, 20, 20), Color(0, 0, 0, 0.3), false, 1.5)

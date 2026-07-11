@@ -5,6 +5,64 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 11/07/2026 — Ship flipped + tank controls + save deletion (captain's feedback)
+
+- **Ship orientation corrected**: the tapered spine is the BOW, the broad
+  twin-tower end is the STERN (processor now rotates CCW). Turbine logic
+  redone: **twin main drives** flame from the stern towers on W, **bow
+  retro jets** fire on S, and the **wingtip turbine on the pushing side**
+  glows during A/D yaw.
+- **New movement model — both vehicles**: W thrust forward, S retro,
+  **A/D turn** (ship 2.6 rad/s, suit 3.4 rad/s). Zero-g drift preserved.
+  The astronaut's body faces where you steer; the **laser pistol still
+  tracks the mouse independently** — you can strafe a rock while mining it.
+  Suit gets side-puff jets when turning, layered two-tone flames.
+- **Save deletion** on the title screen: ✕ next to each occupied slot,
+  two-step confirm (✕ → "SURE?" in red → deleted). `GameState.delete_save()`.
+
+---
+
+## 11/07/2026 — v0.5: UI redesign — "holographic cockpit"
+
+Full visual pass on every UI surface. New design language in
+`ui_theme.gd` (everything draws through it — restyle there only):
+cut-corner translucent panels with **corner brackets**, skewed
+parallelogram buttons with warm hover, teal-info/orange-action accents.
+
+- **Vitals panel** (`vitals_panel.gd`): custom-drawn O2 + LINE meters with
+  quarter ticks, glowing fill head, numeric readouts, ore counters, and a
+  pulsing red **O2 LOW** warning below 25%.
+- **Screen FX** (`screen_fx.gd`): faint scanlines + corner vignette on all
+  in-game HUDs — cockpit glass feel, zero per-frame cost.
+- **Gear rack**: cut-corner tiles, level pips under each tool, warm flash
+  animation on upgrade.
+- **Title screen**: layered glow title, twinkling stars, drifting nebula
+  haze, the ship gliding through the backdrop, styled slot buttons.
+- **Inventory**: sci-panels + brackets, glowing header underlines,
+  category accent strip on owned element slots.
+- Pause menu: "◈ SYSTEMS PAUSED" header; flight/interior info wrapped in
+  themed panels; prompts pulse.
+- Verified by screenshot: title, exterior HUD, inventory overlay.
+
+---
+
+## 11/07/2026 — The captain's ship: painted hull art
+
+Replaced the generated pixel capsule with the user's painted ship art
+(`tools/ship_source.png`, 1536×1024). New one-shot processor
+`tools/process_ship_art.gd`: border flood-fill kills the white background
+without touching white hull panels (1.19M px cleared), trims margins
+(937×942 content), rotates bow-right, Lanczos-downscales to 300×298
+(drawn at 0.5 = ~150 world px, linear filtering — it's painted, not pixel).
+
+**Turbine layout reasoned from the art:** blue dome = cockpit (forward),
+long tapered spine = stern with twin cyan exhausts at the tip → main drive
+flame there in flight mode; wingtip pods = maneuvering turbines → small
+cyan glows when thrusting. Docked scene: tether anchor moved below the new
+hull (0,82), beacon on the bow tower, collision capsule enlarged to fit.
+
+---
+
 ## 11/07/2026 — v0.4: the real periodic table, NMS-style inventory + exosuit screen, UI theme
 
 **Resources are now the actual universe.**
