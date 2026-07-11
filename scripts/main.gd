@@ -1,0 +1,84 @@
+extends Node2D
+## World scene. Spawns the ship, player, asteroid field and HUD.
+## Draws the star background and the tether range ring.
+
+const PLAYER_SCENE := preload("res://scenes/player.tscn")
+const SHIP_SCENE := preload("res://scenes/ship.tscn")
+const ASTEROID_SCENE := preload("res://scenes/asteroid.tscn")
+const HUD_SCENE := preload("res://scenes/hud.tscn")
+
+const ASTEROID_COUNT := 22
+
+var _stars: Array = []
+var ship: Node2D
+var player: Node2D
+
+
+func _ready() -> void:
+	_make_stars()
+
+	ship = SHIP_SCENE.instantiate()
+	add_child(ship)
+
+	player = PLAYER_SCENE.instantiate()
+	player.position = Vector2(0, 100)
+	add_child(player)
+	player.tether_anchor = ship.anchor_point()
+
+	_spawn_asteroids()
+	add_child(HUD_SCENE.instantiate())
+
+	GameState.say("Welcome aboard. Hold LMB to mine. Bring ore back to the ship.")
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.physical_keycode == KEY_R:
+			get_tree().reload_current_scene()
+		elif event.physical_keycode == KEY_E and player != null and player.in_dock:
+			# Step inside the ship. Bank whatever we're carrying first.
+			GameState.bank_cargo()
+			get_tree().change_scene_to_file("res://scenes/ship_interior.tscn")
+
+
+func _make_stars() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 1337
+	for i in 400:
+		_stars.append([
+			Vector2(rng.randf_range(-2200, 2200), rng.randf_range(-2200, 2200)),
+			rng.randf_range(0.6, 2.2),
+			rng.randf_range(0.25, 0.9),
+		])
+
+
+func _spawn_asteroids() -> void:
+	var placed: Array = []
+	var tries := 0
+	while placed.size() < ASTEROID_COUNT and tries < 500:
+		tries += 1
+		var ang := randf() * TAU
+		# some asteroids sit past the tether limit — upgrade bait
+		var dist := randf_range(280.0, GameState.tether_length + 320.0)
+		var pos := Vector2.from_angle(ang) * dist
+		var r := randf_range(18.0, 40.0)
+		var ok := true
+		for p in placed:
+			if pos.distance_to(p[0]) < (r + p[1] + 60.0):
+				ok = false
+				break
+		if not ok:
+			continue
+		placed.append([pos, r])
+		var a := ASTEROID_SCENE.instantiate()
+		a.setup(r, randf() < 0.18)
+		a.position = pos
+		add_child(a)
+
+
+func _draw() -> void:
+	for s in _stars:
+		draw_circle(s[0], s[1], Color(1, 1, 1, s[2]))
+	# faint ring showing max tether reach
+	draw_arc(Vector2(0, 48), GameState.tether_length, 0.0, TAU, 96,
+		Color(1.0, 0.85, 0.3, 0.08), 2.0)

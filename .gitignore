@@ -1,0 +1,19 @@
+# Godot 4+ cache/imports
+.godot/
+/android/
+
+# Exported builds
+/build/
+/export/
+*.exe
+*.pck
+
+# Steam dev-only
+steam_appid.txt
+
+# Claude Code personal settings
+.claude/settings.local.json
+
+# OS junk
+.DS_Store
+Thumbs.db
