@@ -60,11 +60,46 @@ const ROOM_TYPES := {
 		"cost": 35, "desc": "+15 laser power"},
 }
 const BUILD_ORDER := ["greenhouse", "refinery", "gascollector", "workshop"]
-# 4x2 grid: six prefixed rooms + two empty construction bays (cells 2, 6).
+
+# --- The ship is a build canvas: an 8x4 grid masked to a hull shape.
+# '#' = inside the hull (buildable), '.' = space. Bow points right,
+# like the exterior art. Cells are indexed row * SHIP_COLS + col.
+const SHIP_COLS := 8
+const SHIP_ROWS := 4
+const HULL_MASK := [
+	"#####...",
+	"########",
+	"########",
+	"#####...",
+]
+# starting rooms — a connected cluster amidships; everything else is
+# bare hull you expand into, one adjacent cell at a time
 const DEFAULT_ROOMS := {
-	0: "quarters", 1: "upgrade", 2: "", 3: "bridge",
-	4: "engine", 5: "cargo", 6: "", 7: "airlock",
+	1: "quarters", 8: "engine", 9: "upgrade", 10: "bridge",
+	16: "airlock", 17: "cargo",
 }
+
+
+func cell_in_hull(cell: int) -> bool:
+	if cell < 0 or cell >= SHIP_COLS * SHIP_ROWS:
+		return false
+	var col := cell % SHIP_COLS
+	var row := int(float(cell) / SHIP_COLS)
+	return HULL_MASK[row][col] == "#"
+
+
+func cell_neighbors(cell: int) -> Array:
+	var col := cell % SHIP_COLS
+	var out: Array = []
+	if col > 0:
+		out.append(cell - 1)
+	if col < SHIP_COLS - 1:
+		out.append(cell + 1)
+	if cell - SHIP_COLS >= 0:
+		out.append(cell - SHIP_COLS)
+	if cell + SHIP_COLS < SHIP_COLS * SHIP_ROWS:
+		out.append(cell + SHIP_COLS)
+	return out
 
 # --- Runtime state ---
 var oxygen: float = 100.0
@@ -348,9 +383,13 @@ func load_game(s: int) -> bool:
 			discovered[sym] = true
 	rooms = DEFAULT_ROOMS.duplicate()
 	var rj: Dictionary = data.get("rooms", {})
+	# adopt saved BUILT expansions that fit the current hull; the six
+	# core rooms always come from DEFAULT_ROOMS (layout is authoritative)
 	for k in rj:
 		var cell := int(k)
-		if rooms.has(cell) and ROOM_TYPES.has(rj[k]):
+		if cell_in_hull(cell) and not rooms.has(cell) \
+				and rj[k] is String and ROOM_TYPES.has(rj[k]) \
+				and ROOM_TYPES[rj[k]].get("buildable", false):
 			rooms[cell] = rj[k]
 	var sec: Array = data.get("sector", [0.0, 0.0])
 	sector = Vector2(sec[0], sec[1])
@@ -410,8 +449,16 @@ func has_room(type: String) -> bool:
 
 
 func build_room(cell: int, type: String) -> bool:
-	## Spends banked ore to construct a room in an empty cell.
-	if rooms.get(cell, "x") != "" or not ROOM_TYPES.get(type, {}).get("buildable", false):
+	## Constructs a room on a bare hull cell adjacent to the built ship.
+	if rooms.has(cell) or not cell_in_hull(cell) \
+			or not ROOM_TYPES.get(type, {}).get("buildable", false):
+		return false
+	var connected := false
+	for n in cell_neighbors(cell):
+		if rooms.has(n):
+			connected = true
+			break
+	if not connected:
 		return false
 	var cost: int = ROOM_TYPES[type]["cost"]
 	if banked < cost:

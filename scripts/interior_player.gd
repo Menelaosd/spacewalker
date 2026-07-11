@@ -6,16 +6,27 @@ extends Node2D
 const SPEED := 205.0
 
 var bounds := Rect2()
+var walk_check: Callable   # set by the interior — cell-based walkability
 var facing := Vector2.DOWN
 var _step := 0.0
 
 
 func _process(delta: float) -> void:
 	var input := Input.get_vector("move_left", "move_right", "move_up", "move_down")
-	position += input * SPEED * delta
-	if bounds.size != Vector2.ZERO:
-		position.x = clampf(position.x, bounds.position.x, bounds.end.x)
-		position.y = clampf(position.y, bounds.position.y, bounds.end.y)
+	var motion := input * SPEED * delta
+	if walk_check.is_valid():
+		# axis-separated so you slide along unbuilt hull instead of sticking
+		var nx := position + Vector2(motion.x, 0)
+		if walk_check.call(nx):
+			position = nx
+		var ny := position + Vector2(0, motion.y)
+		if walk_check.call(ny):
+			position = ny
+	else:
+		position += motion
+		if bounds.size != Vector2.ZERO:
+			position.x = clampf(position.x, bounds.position.x, bounds.end.x)
+			position.y = clampf(position.y, bounds.position.y, bounds.end.y)
 	if input.length() > 0.1:
 		facing = input.normalized()
 		_step += delta * 10.0

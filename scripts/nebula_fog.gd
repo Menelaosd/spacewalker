@@ -26,6 +26,15 @@ static func texture_for(i: int) -> ImageTexture:
 	hue_drift.fractal_octaves = 3
 	hue_drift.frequency = 0.006
 
+	# cool-tone channel: regions of the cloud shift green/teal/blue
+	var cool_mix := FastNoiseLite.new()
+	cool_mix.seed = 2600 + i
+	cool_mix.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	cool_mix.fractal_octaves = 3
+	cool_mix.frequency = 0.009
+	var cool_a := Color.from_hsv(fmod(col.h + 0.38, 1.0), col.s * 0.9, col.v)  # teal/green side
+	var cool_b := Color.from_hsv(fmod(col.h + 0.55, 1.0), col.s * 0.85, col.v) # blue side
+
 	var img := Image.create(SIZE, SIZE, false, Image.FORMAT_RGBA8)
 	var c := SIZE * 0.5
 	for y in SIZE:
@@ -39,6 +48,12 @@ static func texture_for(i: int) -> ImageTexture:
 			var pc := col
 			pc.h = fmod(col.h + hue_drift.get_noise_2d(x, y) * 0.16 + 1.0, 1.0)
 			pc.s = clampf(pc.s * 1.2, 0.0, 1.0)
+			# cool regions: whole patches drift green/teal or blue
+			var cm := (cool_mix.get_noise_2d(x, y) + 1.0) * 0.5
+			if cm > 0.60:
+				pc = pc.lerp(cool_a, clampf((cm - 0.60) * 2.4, 0.0, 0.8))
+			elif cm < 0.30:
+				pc = pc.lerp(cool_b, clampf((0.30 - cm) * 2.0, 0.0, 0.6))
 			var out: Color
 			if v < 0.38:
 				# dark dust lanes — deep tinted near-black, denser where v drops

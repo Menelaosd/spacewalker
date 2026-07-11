@@ -5,6 +5,32 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 11/07/2026 — v1.0-shape: the dynamic ship (hull build canvas), VHS, cooler fog
+
+**The rooms concept, finally as intended**: the interior is an **8x4 grid
+masked to a ship-shaped hull** (bow right, matching the exterior art).
+Six core rooms sit amidships as a connected cluster; everything else is
+bare hull — dark overlay, visible cyan build grid, structural
+cross-braces. **You expand cell by cell**: glowing "+" bays appear on
+every bare hull cell adjacent to the built ship; E builds (20 ore,
+hologram preview, red when unaffordable). Only adjacent cells can be
+built (verified: non-adjacent/outside-hull/occupied all rejected);
+expansions persist in saves; walkability is per-cell (crew slides along
+unbuilt hull, can't enter it). Hull walls auto-trace the silhouette;
+doorway markers appear between adjacent built rooms. Hull shape is one
+HULL_MASK string-array in GameState — reshaping the ship is an edit.
+
+Also, per feedback:
+- **Nebulas v5**: third noise channel drifts whole regions green/teal
+  and blue — purple/pink clouds with cool undercurrents.
+- **Vignette removed** (user disliked it).
+- **VHS filter** (shaders/vhs.gdshader on screen_fx): chromatic
+  aberration, scanlines, static grain, per-line wobble, tape-jitter
+  band, rolling luminance — applied under the HUD in all scenes + title,
+  so the world wears the tape and the instruments stay crisp.
+
+---
+
 ## 11/07/2026 — Nebulas v4: high dynamic range (more dark, more light, wider hues)
 
 Second tuning round on user feedback: hue drift widened to ±0.16 (full

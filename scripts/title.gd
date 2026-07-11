@@ -19,6 +19,10 @@ func _ready() -> void:
 	theme = UITheme.make_theme()
 	GameState.in_game = false
 	get_tree().paused = false
+	# VHS filter over the title backdrop too (added below the buttons)
+	var fx := preload("res://scripts/screen_fx.gd").new()
+	add_child(fx)
+	move_child(fx, 0)
 
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 99
