@@ -91,8 +91,6 @@ func _ready() -> void:
 	_refresh_age()
 	_name_edit.grab_focus()
 
-	var fx := preload("res://scripts/screen_fx.gd").new()
-	add_child(fx)
 
 
 func _set_gender(i: int) -> void:

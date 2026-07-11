@@ -29,8 +29,6 @@ func _ready() -> void:
 		_stars.append([Vector2(rng.randf_range(0, 1280), rng.randf_range(0, 720)),
 			rng.randf_range(0.4, 1.8), rng.randf_range(0.15, 0.7),
 			rng.randf_range(0.0, TAU)])
-	var fx := preload("res://scripts/screen_fx.gd").new()
-	add_child(fx)
 
 
 func _process(delta: float) -> void:

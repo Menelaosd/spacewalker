@@ -5,6 +5,242 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 11/07/2026 — v1.5.2: REAL lights + depth-line fix
+
+- **Real 2D lighting**: a CanvasModulate dims the deck and every
+  glowing prop carries an animated PointLight2D (shared radial
+  gradient texture) — the light now genuinely falls on the crew and
+  neighbouring props as you walk through it. Energy and position dance
+  with the same two-frequency sway/flicker as the painted halos;
+  lights rebuild when the ship expands; the quarters window spills
+  starlight.
+- **Depth-line fix** (captain: "accessing from the front puts me
+  behind"): the depth split line now matches the COLLISION bottom
+  (sprite base minus the obstacle shrink minus the foot box) — where
+  you can stand and where you sort are the same line, so facing a
+  console never hides you behind it.
+
+---
+
+## 11/07/2026 — v1.5.1: depth sorting, dancing lights, real shadow
+
+- **Depth sorting**: the interior renders in two passes around the
+  crew's feet line — props whose base is above it draw behind the crew,
+  props whose base is below it draw on a new overlay Node2D IN FRONT of
+  the crew. Walk behind a console and it now covers you. All kit
+  helpers route through a `_ci` canvas pointer; station info panels and
+  the ending sequence moved to the overlay (the ending used to fade
+  UNDER the crew — bonus fix).
+- **Dancing ambient lights**: glow halos now breathe on two frequencies,
+  sway a few px around their prop, cast a counter-swaying elliptical
+  pool on the deck, and suffer a rare electrical flicker. Every lit
+  prop dances slightly out of phase (position-seeded).
+- **Crew shadow**: soft two-layer ellipse hugging the feet (the old one
+  was a faint circle floating mid-body).
+
+---
+
+## 11/07/2026 — v1.5: roomy ship — bigger cells, hard collision, ambient light
+
+- **Cells enlarged 130x110 → 190x160** (ORIGIN recentered): furniture
+  and stations re-spread with real distance between them, everything
+  reachable with clean walking lanes. Station props scaled up (helm 84,
+  reactor 76...), interact radius 60 → 72, doorway bars widened. The
+  camera already follows the crew, so the bigger ship pans naturally.
+- **Collision is feet-based everywhere now**: cell membership, wall
+  margins AND furniture all test the foot point (with a 12x6 foot box
+  so corners can't be clipped diagonally) — walking down from behind
+  no longer overlaps walls or props.
+- **Crew shrunk 44 → 36 px** per the captain — better proportion to
+  the rooms and props.
+- **Ambient light halos**: every lit prop (screens, consoles, helm,
+  reactor, batteries, tank, window, medkit, hatch, pedestals...) casts
+  a soft breathing glow pool in front of it — three-pass radial halos
+  with a slow pulse, color-matched per prop (GLOWS table).
+
+---
+
+## 11/07/2026 — v1.4.8: interior collision — no more walking through walls
+
+- **Wall margin**: any cell side without a built neighbour is plated —
+  the crew stays 12px off it. Doorways between built rooms stay open
+  automatically (no wall = no margin).
+- **Furniture is solid**: every ROOM_PROPS piece and every station prop
+  (helm, reactor, workbench, consoles, pedestals, lockers, hatch...)
+  registers a collision rect (slightly shrunk from its sprite).
+  Collision tests the FEET point, so the head can still pass behind
+  tall props — classic top-down depth.
+- Wake-in-bunk spawns beside the (now solid) bunk; a spawn-unstick
+  scan nudges the crew to the nearest open spot if a save ever loads
+  inside furniture. Obstacles rebuild whenever the ship expands.
+
+---
+
+## 11/07/2026 — v1.4.7: seamless wall tiling (middle-slice)
+
+v1.4.6 tiled the FULL wall piece, so its baked end-caps repeated every
+segment — Γ-shapes stacked down every wall (captain's catch). Walls
+now tile only the art's clean middle band (28%-72% source region via
+draw_texture_rect_region) at natural scale: segments join invisibly,
+the trim runs continuous, light strips repeat naturally, and the real
+run ends are dressed by junction pieces as before.
+
+---
+
+## 11/07/2026 — v1.4.6: walls tiled, not stretched
+
+Long wall runs were stretching one piece up to 4x — panel lines
+smeared into fake "double walls". Runs now TILE: the piece repeats at
+near-natural proportions (half a cell per segment, remainder spread
+evenly), so plate detail keeps its scale and the joints read as
+riveted modular panels. Elbow extensions still apply to the end
+segments.
+
+---
+
+## 11/07/2026 — v1.4.5: FOUND the corner brackets + walk scale fix
+
+- The captain said "FIND corners" — and they were there all along:
+  sheet 4's four thin L-connectors (s4_00/01/03/04) are corner
+  BRACKETS in all four orientations. They now bolt over every inner
+  elbow, centered on the true wall-centerline crossing — riveted
+  structural joints from the kit itself, on top of the butted wall
+  runs. Verified at 4x zoom: hull steps and room junctions read as
+  deliberate construction now.
+- **Walk size-change fixed**: frames were each normalized to their own
+  height, so the taller synthesized stride frames (and the kit's
+  naturally-varying frame heights) made the body grow/shrink while
+  walking. ONE scale for all frames now (from the idle frame), head-
+  anchored so stride extension goes downward only.
+
+---
+
+## 11/07/2026 — v1.4.4: junctions verified at 4x zoom; real stride frames
+
+The captain was right and the fix had to be verified with magnified
+crops, not full-view screenshots:
+
+- **T-pieces were mis-centered** (bar hanging off the wall into space)
+  — the bar now aligns to the through-wall's exact centerline via the
+  piece's own geometry (bar center is 10px off piece center) plus the
+  wall's ±3px trim offset. All four orientations corrected.
+- **Inner elbows: caps abolished.** The code-drawn caps floated with
+  gaps on both sides. Now the two incident wall RUNS extend through
+  the joint to exactly the crossing wall's far face (8 or 14px by
+  trim side) and overlap — the corner is made purely of kit wall art
+  butting together. Verified at 4x zoom on the hull steps and room
+  junctions.
+- **Front-walk frames v2**: the first synthesis cut the sprite at 60%
+  (through the torso — transparent band artifact). Now the split is
+  at the hip (66%), the planted leg draws twice (rest + shifted) so
+  the overlap bridges the joint, and the lifted leg rises 7px and
+  BLENDS over the torso. 13px stride at source = ~4px in game =
+  visible steps. Shaky sway removed entirely.
+
+---
+
+## 11/07/2026 — v1.4.3: junction alignment + synthesized front-walk frames
+
+- **The "still weird" junctions were an alignment bug**: walls run 3px
+  off the grid line (toward the void) but T-pieces and elbow caps were
+  centered ON the line — everything floated slightly. T-pieces now
+  nudge 3px toward their trim side; elbow caps center on the actual
+  wall centerline and copy the wall art's look (dark plate, 6px silver
+  trim on void faces, dark seams on floor faces). Audited sheet 3's
+  four unmapped corners (s3_04-07): all top-lit variants — the kit
+  truly has no bottom-lit corners or inner elbows; flips + the styled
+  cap remain the right call unless the captain generates those pieces.
+- **Front-walk frames synthesized from the kit itself**
+  (tools/gen_walk_frames.gd): paper-doll split at the hip — planted
+  leg shifts down, lifted leg up, two frames with opposite legs.
+  Crew now has a real 4-beat front walk (stride A, idle, stride B,
+  idle); sway reduced to a hint.
+
+---
+
+## 11/07/2026 — v1.4.2: edge-graph walls, T/X junctions, inner elbows, mipmaps
+
+- **Walls rebuilt as an edge graph** (captain circled the weird joints):
+  every wall edge knows which side the floor is on; straight walls draw
+  as ONE merged run per stretch (mid-run seams gone), and every grid
+  point gets classified — L-corner (kit piece, 4 orientations), T
+  (re-extracted kit piece, sheet 3 recut at tighter merge padding —
+  16 props now), X-cross, or **inner elbow**. The kit's L-pieces
+  geometrically can't do concave corners (trim is always opposite the
+  arms), so inner elbows get a palette-matched plate cap with trim on
+  the two void-facing sides.
+- **Crew walk**: front/back walks (single-frame in the kit) now sell
+  their steps with a waddle sway + stronger bob on top of the mirror
+  alternation.
+- **"Weird pixelation" diagnosed**: hi-res props drawn at ~1/3 size
+  with plain linear filtering alias/shimmer, on top of the project's
+  1280x720 canvas_items stretch + nearest default filter. Fixed the
+  real half: mipmaps enabled on all 150 prop/astro textures and the
+  interior + crew + props now sample LINEAR_WITH_MIPMAPS.
+
+---
+
+## 11/07/2026 — v1.4.1: corner caps, VHS removed, crew walk fixed
+
+- **Wall corners done right**: the wall pass now computes each cell's
+  outside edges first, draws all straights, then caps every convex
+  corner with the kit's L-pieces (s3_02/s3_03, mirrored vertically for
+  bottom corners) — no more raw seams where walls met.
+- **VHS effect fully removed** per the captain (it also made people
+  dizzy in its wobbly form): screen_fx.gd and vhs.gdshader deleted,
+  all six scenes cleaned of the overlay.
+- **Interior crew fixed**: side frames face RIGHT in the art — the
+  flip was mirrored (walking right showed left). Walk cycle upgraded
+  to a proper 4-beat (stride A → stand → stride B → stand); front and
+  back walks mirror on alternate steps to fake strides.
+
+---
+
+## 11/07/2026 — v1.4: THE INTERIOR — built from the captain's prop kit
+
+The 10 green-screen ChatGPT sheets in game-assets became a real ship:
+
+- **Extraction pipeline** (tools/extract_props.gd): chroma-keys the
+  green, de-spills edges, finds each sprite as a connected component
+  (merging nearby parts so crate stacks/dashed frames stay whole) —
+  136 props cut into assets/props/ as sN_XX.png in reading order.
+  tools/make_contact.gd builds indexed contact sheets for mapping.
+- **Interior rebuilt on the kit** (ship_interior.gd): per-room floor
+  tiles (rust engine deck, purple quarters, hazard airlock, grate
+  cargo, braced upgrade bay, vented bridge) drawn 2x2 per cell;
+  plated wall sprites along every hull boundary AND around built
+  rooms (trim always faces the void); doorway threshold bars between
+  connected rooms; a glass viewport on the quarters' hull wall.
+- **Real furniture**: bunk/locker/nightstand/medkit in quarters;
+  batteries, coolant tank, cables and generator around the reactor
+  (the drive console IS the kit reactor now, warming up per quest
+  part); pegboard workbench + tinted upgrade pedestals + suit locker
+  in the bay; helm-with-chair, comms monitors, radar display and
+  holo-table on the bridge; crate stacks, hazard crate, barrel and
+  toolbox in the hold; hatch wheel, gas cylinders and suit wardrobe
+  in the airlock.
+- **Build markers from the kit**: teal dashed cell = buildable,
+  orange X = can't afford, drawn over the target bay.
+- **Crew sprite**: the interior avatar is the kit's mini-astronaut —
+  front/side/back walk frames with stride alternation and bob
+  (interior_player.gd rewritten).
+- Deleted the duplicate 08_14 batch from game-assets (byte-identical).
+
+---
+
+## 11/07/2026 — v1.3.2: the VHS filter actually renders now
+
+The tape effect had been silently OFF since it shipped: the shader
+compiled fine, but the ColorRect it lives on used FULL_RECT anchors
+under a CanvasLayer-parented Control — those anchors never resolve
+there, so the filter rendered into a 0x0 rect in every scene.
+screen_fx.gd now sizes itself to the viewport by hand (and tracks
+window resizes). Tuned to minor: aberration 1.1px, scanlines 0.06,
+grain 0.022. Visible in all six scenes; the world gets the tape look,
+the HUD stays crisp (it draws above the filter).
+
+---
+
 ## 11/07/2026 — v1.3.1: astronaut polish pass (captain's five fixes)
 
 - **One uniform scale for all frames** — process_astronaut.gd now derives

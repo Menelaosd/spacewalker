@@ -6,7 +6,6 @@ const GEAR_PANEL := preload("res://scripts/gear_panel.gd")
 const RADAR_PANEL := preload("res://scripts/radar_panel.gd")
 const INVENTORY_SCREEN := preload("res://scripts/inventory_screen.gd")
 const VITALS := preload("res://scripts/vitals_panel.gd")
-const SCREEN_FX := preload("res://scripts/screen_fx.gd")
 
 var _msg_label: Label
 var _msg_tween: Tween
@@ -21,8 +20,6 @@ func _ready() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.theme = UITheme.make_theme()
 	add_child(root)
-
-	root.add_child(SCREEN_FX.new())
 
 	var vitals := VITALS.new()
 	vitals.position = Vector2(18, 18)

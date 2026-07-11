@@ -270,7 +270,6 @@ func _build_hud() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.theme = UITheme.make_theme()
 	layer.add_child(root)
-	root.add_child(preload("res://scripts/screen_fx.gd").new())
 	root.add_child(INVENTORY_SCREEN.new())
 
 	# helm scanner — same hologram, field/wreck/nebula scale
