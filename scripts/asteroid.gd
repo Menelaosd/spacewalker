@@ -15,6 +15,7 @@ var _flecks: Array = []
 var _base_color := Color(0.42, 0.4, 0.38)
 var _ore_color := Color(1.0, 0.72, 0.25)
 var _flash := 0.0
+var _hit_local := Vector2.ZERO   # where the laser is biting, local space
 
 
 func setup(r: float, rich: bool, tint := Color(0.42, 0.4, 0.38)) -> void:
@@ -58,9 +59,10 @@ func _process(delta: float) -> void:
 		queue_redraw()
 
 
-func take_damage(dmg: float, _at: Vector2) -> void:
+func take_damage(dmg: float, at: Vector2) -> void:
 	health -= dmg
 	_flash = 1.0
+	_hit_local = to_local(at)
 	queue_redraw()
 	if health <= 0.0:
 		_shatter()
@@ -99,6 +101,24 @@ func _draw() -> void:
 	var outline := _poly.duplicate()
 	outline.append(_poly[0])
 	draw_polyline(outline, Color(0, 0, 0, 0.35), 2.0)
+	# laser bite: molten point, radial sparks, flying embers, heat ring
+	if _flash > 0.0:
+		var hp := _hit_local
+		draw_circle(hp, 6.5,
+			Color(_ore_color.r, _ore_color.g, _ore_color.b, 0.45 * _flash))
+		draw_circle(hp, 2.6 + randf() * 1.6, Color(1.0, 0.97, 0.85, _flash))
+		for i in 6:
+			var sa := randf() * TAU
+			var sd := Vector2.from_angle(sa)
+			draw_line(hp + sd * 2.0, hp + sd * (5.0 + randf() * 9.0),
+				Color(1.0, 0.85, 0.4, (0.5 + randf() * 0.5) * _flash), 1.4)
+		for i in 4:
+			draw_circle(hp + Vector2.from_angle(randf() * TAU) * randf_range(4.0, 17.0),
+				1.1 + randf() * 0.8,
+				Color(_ore_color.r, _ore_color.g, _ore_color.b, randf_range(0.3, 0.9) * _flash))
+		# expanding heat ring as the flash cools
+		draw_arc(hp, 6.0 + (1.0 - _flash) * 12.0, 0.0, TAU, 18,
+			Color(1.0, 0.7, 0.35, 0.4 * _flash), 1.5)
 	# assay readout — the vein's name appears while the laser bites
 	if _flash > 0.0 and vein != "":
 		var up := (Vector2.UP * (radius + 18.0)).rotated(-rotation)

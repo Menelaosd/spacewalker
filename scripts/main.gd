@@ -171,6 +171,7 @@ func _update_debris(delta: float) -> void:
 				and d["pos"].distance_to(player.global_position) < d["r"] + 14.0:
 			_debris_hit_cd = 1.5
 			player.velocity += d["vel"] * 0.7
+			player.hit_flash()
 			GameState.drain_oxygen(8.0)
 			GameState.say("Debris strike! Suit integrity holding — O2 vented.")
 		if player == null or d["pos"].distance_to(player.global_position) < 1800.0:
@@ -244,7 +245,9 @@ func _draw() -> void:
 	if neb >= 0:
 		var tex := NebulaFog.texture_for(neb)
 		var half_tex := Vector2(NebulaFog.SIZE, NebulaFog.SIZE) * 0.5
-		draw_set_transform(Vector2.ZERO, 0.4, Vector2(14.0, 14.0))
+		# haze thickness follows the nebula's own size
+		var fs: float = GameState.nebula_radius(neb) / 2400.0 * 14.0
+		draw_set_transform(Vector2.ZERO, 0.4, Vector2(fs, fs))
 		draw_texture(tex, -half_tex, Color(1, 1, 1, 0.55))
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	# parallax: far stars track the camera, near stars sweep past.

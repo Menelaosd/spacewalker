@@ -5,6 +5,54 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 11/07/2026 — v1.3.1: astronaut polish pass (captain's five fixes)
+
+- **One uniform scale for all frames** — process_astronaut.gd now derives
+  a single factor from a1's content height, so horizontal poses (a3) no
+  longer inflate; body size is identical across all 8 frames.
+- **Smaller astronaut** — ~38 world px (was 56); collision 17 → 13.
+- **Jet stream from the backpack** — flames anchor to the pose-aware
+  backpack point, not the body center.
+- **Laser fixed** — the aim pose (a5) rotates with the shot (mirrors
+  vertically when firing left), and the beam leaves the art's actual
+  muzzle. `_suit_state()` computes ONE shared Transform2D used by the
+  suit, the tether clip and the muzzle so nothing drifts apart.
+- **Tether always attached** — the line ends at the belt clip,
+  transformed with the current pose (incl. blackout tumble).
+- **Laser bite effect on rocks** — molten point + white-hot core,
+  radial sparks, flying embers in the vein's color, and an expanding
+  heat ring that cools with the flash.
+- Debug hook: SW_LASER=1 forces the beam for screenshots.
+
+---
+
+## 11/07/2026 — v1.3: painted astronaut, helm radar, nine nebulas
+
+- **Painted astronaut in the game** — the captain's 8 ChatGPT frames
+  (game-assets/spacewalker/a1-a8) processed by tools/process_astronaut.gd
+  (trim + Lanczos to 112px, real alpha) into assets/sprites/astro/.
+  player.gd got a frame state machine: idle drift A/B alternation,
+  thrust (flips toward the burn), brake star-pose, mining aim (pistol
+  lives in the art now — code draws only the beam), reach-for-the-line
+  during the adrift opening, debris-hit recoil (main.gd calls
+  hit_flash()), and a limp 1.1s tumble on blackout before the bunk.
+  Upright + horizontal flip toward the action, light velocity lean.
+  Collision radius 14 → 17 for the bigger figure.
+- **Helm radar** — the holographic scanner now rides the flight HUD
+  too (radar_panel.gd gained modes): asteroid FIELDS as rings tinted
+  gold→cyan by richness, salvage wrecks as metal-hue sparks, home
+  square, and nebulas — soft tinted blobs in range, colored rim ticks
+  pointing the way when beyond. Range 36 km.
+- **Nine nebulas, sized and colored individually** — the four
+  originals joined by Amethyst Deep (violet giant, 3400), Carmine
+  Hollow (small crimson), Gilded Drift (gold), Ghostlight Shoal (pale
+  ice wisp, 1200), Tyrian Abyss (magenta monster, 3800, deep in the
+  Expanse). Per-nebula radius everywhere (region logic, fog draw
+  scale, hearts, tinted star counts, radar); NebulaFog generates each
+  cloud's smoke from its own color automatically.
+
+---
+
 ## 11/07/2026 — v1.2: LOGIC AUDIT — 10 fixes from a full-game examination
 
 Systematic audit of every gameplay script + genre-loop comparison

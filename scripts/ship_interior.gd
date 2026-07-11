@@ -216,8 +216,8 @@ func _station_label(st: Dictionary) -> String:
 				GameState.quest_progress_text(),
 				"   ·   E INSTALL" if GameState.quest_can_install() else ""]
 		"board":
-			var ready := GameState.contracts_ready()
-			return "CONTRACTS BOARD — E deliver (%d ready)" % ready
+			var deliverable := GameState.contracts_ready()
+			return "CONTRACTS BOARD — E deliver (%d ready)" % deliverable
 		"comms":
 			return "VESNA'S MARKET — press 1-3 to buy"
 		"workbench":

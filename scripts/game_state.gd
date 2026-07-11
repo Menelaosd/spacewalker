@@ -203,24 +203,35 @@ var flare_phase := ""       # "", "warn", "burn" — set by the dive scene
 # hand-placed crystal-rich landmark destinations, and The Expanse is
 # deliberately vast and empty so finding a field out there means something.
 # ------------------------------------------------------------------
+# Nine landmark clouds, each with its own size and palette — from small
+# pale wisps to giants that swallow the horizon. Positions stay planned
+# (angle formula + per-nebula distance), not noise.
 const NEBULAE := [
-	{"name": "Rosefield Nebula", "color": Color(0.85, 0.35, 0.6)},
-	{"name": "Cerulean Shallows", "color": Color(0.3, 0.65, 0.95)},
-	{"name": "Ember Reach", "color": Color(0.95, 0.6, 0.25)},
-	{"name": "Viridian Veil", "color": Color(0.35, 0.85, 0.55)},
+	{"name": "Rosefield Nebula", "color": Color(0.85, 0.35, 0.6), "radius": 2400.0, "dist": 5200.0},
+	{"name": "Cerulean Shallows", "color": Color(0.3, 0.65, 0.95), "radius": 1900.0, "dist": 8800.0},
+	{"name": "Ember Reach", "color": Color(0.95, 0.6, 0.25), "radius": 2700.0, "dist": 12400.0},
+	{"name": "Viridian Veil", "color": Color(0.35, 0.85, 0.55), "radius": 2100.0, "dist": 16000.0},
+	{"name": "Amethyst Deep", "color": Color(0.62, 0.4, 0.98), "radius": 3400.0, "dist": 10500.0},
+	{"name": "Carmine Hollow", "color": Color(0.95, 0.32, 0.38), "radius": 1400.0, "dist": 7000.0},
+	{"name": "Gilded Drift", "color": Color(0.95, 0.78, 0.42), "radius": 1700.0, "dist": 13800.0},
+	{"name": "Ghostlight Shoal", "color": Color(0.78, 0.88, 0.98), "radius": 1200.0, "dist": 18500.0},
+	{"name": "Tyrian Abyss", "color": Color(0.82, 0.32, 0.92), "radius": 3800.0, "dist": 22500.0},
 ]
-const NEBULA_RADIUS := 2400.0
 
 
 func nebula_center(i: int) -> Vector2:
 	## Fixed, deterministic positions — landmarks, not noise.
 	var ang := TAU * (0.13 + 0.29 * float(i))
-	return Vector2.from_angle(ang) * (5200.0 + 3600.0 * float(i))
+	return Vector2.from_angle(ang) * float(NEBULAE[i]["dist"])
+
+
+func nebula_radius(i: int) -> float:
+	return float(NEBULAE[i]["radius"])
 
 
 func nebula_index_at(p: Vector2) -> int:
 	for i in NEBULAE.size():
-		if p.distance_to(nebula_center(i)) < NEBULA_RADIUS:
+		if p.distance_to(nebula_center(i)) < nebula_radius(i):
 			return i
 	return -1
 
@@ -228,7 +239,7 @@ func nebula_index_at(p: Vector2) -> int:
 func region_at(p: Vector2) -> Dictionary:
 	## The plan: name + field chance/size/richness modifiers + tint.
 	for i in NEBULAE.size():
-		if p.distance_to(nebula_center(i)) < NEBULA_RADIUS:
+		if p.distance_to(nebula_center(i)) < nebula_radius(i):
 			var n: Dictionary = NEBULAE[i]
 			return {"name": n["name"], "chance": 0.6, "size": 1.1,
 				"rich": 0.18, "tint": n["color"], "nebula": true}

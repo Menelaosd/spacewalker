@@ -1,13 +1,20 @@
 extends Control
-## Holographic resource radar — top-right of the spacewalk HUD.
-## A cyan sweep disc: asteroid blips glow in their vein element's color
-## (diamonds = rich crystal rock), loose ore chunks are sparks, and the
-## ship is the square you never want to lose. Blips flare as the sweep
-## line passes over them; the whole thing flickers like cheap holo tech.
+## Holographic resource radar — top-right of the HUD, two modes.
+## "walk" (spacewalk): asteroid blips in their vein element's color
+## (diamonds = rich), loose ore sparks, the ship square, tether ring.
+## "flight" (at the helm): whole asteroid FIELDS, salvage wrecks in
+## their metal's hue, the home station, and nebula bearings — soft
+## tinted blobs in range, rim ticks pointing the way when beyond.
+## Blips flare as the sweep passes; the whole thing flickers like
+## cheap holo tech.
 
 const PANEL := Vector2(178, 196)
 const R := 72.0                # disc radius in px
-const RANGE_PAD := 300.0       # world range = tether reach + this
+const RANGE_PAD := 300.0       # walk range = tether reach + this
+const FLIGHT_RANGE := 3600.0   # helm scanner reach in world px
+
+var mode := "walk"             # "walk" | "flight"
+var flight: Node2D = null      # the flight scene, set when mode == "flight"
 
 var _t := 0.0
 var _font: Font = ThemeDB.fallback_font
@@ -33,9 +40,27 @@ func _blip_alpha(rel_ang: float, sweep: float) -> float:
 
 
 func _draw() -> void:
-	var player := get_tree().get_first_node_in_group("player")
-	if player == null:
-		return
+	var center_pos := Vector2.ZERO
+	var world_range := 0.0
+	var face_ang := -PI * 0.5   # which way you're actually pointed/moving
+	if mode == "flight":
+		if flight == null:
+			return
+		center_pos = flight.ship_pos
+		world_range = FLIGHT_RANGE
+		face_ang = flight.heading
+	else:
+		var player := get_tree().get_first_node_in_group("player")
+		if player == null:
+			return
+		center_pos = player.global_position
+		world_range = GameState.tether_length + GameState.tether_stretch() + RANGE_PAD
+		# drifting = the arrow tracks your motion; still = it tracks your aim
+		if (player.velocity as Vector2).length() > 14.0:
+			face_ang = (player.velocity as Vector2).angle()
+		else:
+			face_ang = (player.aim_dir as Vector2).angle()
+
 	var c := Vector2(PANEL.x * 0.5, PANEL.y * 0.5 + 10.0)
 	var acc := UITheme.ACCENT
 	# holo flicker: mostly steady, with a heartbeat shimmer and rare dropouts
@@ -68,10 +93,43 @@ func _draw() -> void:
 		draw_line(c, c + Vector2.from_angle(a) * R,
 			Color(acc.r, acc.g, acc.b, (0.20 - 0.014 * float(i)) * flick), 2.0)
 
-	var world_range: float = GameState.tether_length + GameState.tether_stretch() + RANGE_PAD
 	var k := R / world_range
-	var pp: Vector2 = player.global_position
 
+	if mode == "flight":
+		_plot_flight(c, center_pos, k, sweep, flick)
+	else:
+		_plot_walk(c, center_pos, k, sweep, flick)
+
+	# you, dead center — the arrow points where you're headed
+	var nose := Vector2.from_angle(face_ang)
+	var wing := nose.orthogonal()
+	draw_colored_polygon(PackedVector2Array([
+		c + nose * 5.0, c - nose * 3.0 + wing * 3.5, c - nose * 3.0 - wing * 3.5]),
+		Color(1, 1, 1, 0.95 * flick))
+	# faint motion wake behind the arrow
+	draw_line(c - nose * 3.0, c - nose * 8.0,
+		Color(1, 1, 1, 0.3 * flick), 1.0)
+
+	# frame + captions
+	UITheme.draw_brackets(self, Rect2(c - Vector2(R + 8, R + 8),
+		Vector2((R + 8) * 2.0, (R + 8) * 2.0)), acc, 10.0, 2.0)
+	var where: String = str(GameState.region_at(
+		center_pos if mode == "flight" else GameState.sector)["name"]).to_upper()
+	draw_string(_font, Vector2(0, 12), "◈ SCAN · %s" % where,
+		HORIZONTAL_ALIGNMENT_CENTER, PANEL.x, 11,
+		Color(acc.r, acc.g, acc.b, 0.75 * flick))
+	var rng_label := "RNG %dkm" % int(world_range / 100.0) if mode == "flight" \
+		else "RNG %dm" % int(world_range)
+	draw_string(_font, Vector2(0, PANEL.y - 2), rng_label,
+		HORIZONTAL_ALIGNMENT_CENTER, PANEL.x, 10,
+		Color(acc.r, acc.g, acc.b, 0.4 * flick))
+
+
+# ------------------------------------------------------------------
+# Spacewalk plot: individual rocks, ore chunks, the ship
+# ------------------------------------------------------------------
+func _plot_walk(c: Vector2, pp: Vector2, k: float, sweep: float, flick: float) -> void:
+	var acc := UITheme.ACCENT
 	# tether reach ring, in world scale
 	draw_arc(c, GameState.tether_length * k, 0.0, TAU, 40,
 		Color(1.0, 0.85, 0.3, 0.22 * flick), 1.0)
@@ -106,30 +164,76 @@ func _draw() -> void:
 
 	# the ship — clamped to the rim when out of range, so it always points home
 	var ship := get_tree().get_first_node_in_group("dock_ship")
-	var ship_pos: Vector2 = ship.global_position if ship != null else Vector2.ZERO
-	var srel := (ship_pos - pp) * k
+	_plot_home(c, (ship.global_position if ship != null else Vector2.ZERO) - pp, k, flick)
+
+
+# ------------------------------------------------------------------
+# Helm plot: asteroid fields, wrecks, home, nebula bearings
+# ------------------------------------------------------------------
+func _plot_flight(c: Vector2, sp: Vector2, k: float, sweep: float, flick: float) -> void:
+	var acc := UITheme.ACCENT
+	var chunk: float = flight.FIELD_CHUNK
+	var cc := Vector2i((sp / chunk).floor())
+	var span := int(ceil(FLIGHT_RANGE / chunk)) + 1
+
+	# nebulas first (under everything): in range = soft tinted cloud,
+	# out of range = a colored tick on the rim pointing the way
+	for i in GameState.NEBULAE.size():
+		var ncol: Color = GameState.NEBULAE[i]["color"]
+		var rel := (GameState.nebula_center(i) - sp) * k
+		var nr: float = GameState.nebula_radius(i) * k
+		if rel.length() - nr < R - 4.0:
+			var pos := c + rel.limit_length(R - 4.0)
+			draw_circle(pos, minf(nr, R * 0.85), Color(ncol.r, ncol.g, ncol.b, 0.14 * flick))
+			draw_circle(pos, minf(nr, R * 0.85) * 0.5, Color(ncol.r, ncol.g, ncol.b, 0.12 * flick))
+		else:
+			var dir := rel.normalized()
+			draw_line(c + dir * (R - 6.0), c + dir * (R - 1.0),
+				Color(ncol.r, ncol.g, ncol.b, 0.8 * flick), 2.5)
+
+	# asteroid fields — one ring per field, gold→cyan by richness
+	for cy in range(cc.y - span, cc.y + span + 1):
+		for cx in range(cc.x - span, cc.x + span + 1):
+			var f: Dictionary = flight._field_in_chunk(cx, cy)
+			if f.is_empty():
+				continue
+			var rel: Vector2 = ((f["center"] as Vector2) - sp) * k
+			if rel.length() > R - 4.0:
+				continue
+			var col := Color(1.0, 0.72, 0.25).lerp(Color(0.4, 0.95, 1.0),
+				clampf(float(f["rich"]), 0.0, 1.0))
+			var al := _blip_alpha(rel.angle(), sweep) * flick
+			var bp := c + rel
+			var fr: float = maxf((f["radius"] as float) * k, 2.5)
+			draw_arc(bp, fr, 0.0, TAU, 20, Color(col.r, col.g, col.b, 0.7 * al), 1.2)
+			draw_circle(bp, 1.8, Color(col.r, col.g, col.b, al))
+
+	# salvage wrecks — sparks in their metal's color
+	for cy in range(cc.y - span, cc.y + span + 1):
+		for cx in range(cc.x - span, cc.x + span + 1):
+			for piece in flight._trash_in_chunk(cx, cy):
+				if piece["taken"]:
+					continue
+				var rel: Vector2 = ((piece["pos"] as Vector2) - sp) * k
+				if rel.length() > R - 3.0:
+					continue
+				var col: Color = Elements.hue_of(piece["metal"])
+				draw_circle(c + rel, 1.6,
+					Color(col.r, col.g, col.b, 0.9 * _blip_alpha(rel.angle(), sweep) * flick))
+
+	# home station — clamped to the rim when far, always points the way back
+	_plot_home(c, -sp, k, flick)
+
+
+func _plot_home(c: Vector2, rel_world: Vector2, k: float, flick: float) -> void:
+	var acc := UITheme.ACCENT
+	var srel := rel_world * k
 	var clamped := srel.length() > R - 7.0
 	if clamped:
 		srel = srel.normalized() * (R - 7.0)
-	var sp := c + srel
+	var sp2 := c + srel
 	var pulse := (0.7 + 0.3 * sin(_t * 5.0)) if clamped else 1.0
-	draw_rect(Rect2(sp - Vector2(3.5, 3.5), Vector2(7, 7)),
+	draw_rect(Rect2(sp2 - Vector2(3.5, 3.5), Vector2(7, 7)),
 		Color(acc.r, acc.g, acc.b, 0.95 * pulse * flick))
-	draw_rect(Rect2(sp - Vector2(5.5, 5.5), Vector2(11, 11)),
+	draw_rect(Rect2(sp2 - Vector2(5.5, 5.5), Vector2(11, 11)),
 		Color(acc.r, acc.g, acc.b, 0.4 * pulse * flick), false, 1.0)
-
-	# you, dead center
-	draw_colored_polygon(PackedVector2Array([
-		c + Vector2(0, -4), c + Vector2(3, 3), c + Vector2(-3, 3)]),
-		Color(1, 1, 1, 0.95 * flick))
-
-	# frame + caption
-	UITheme.draw_brackets(self, Rect2(c - Vector2(R + 8, R + 8),
-		Vector2((R + 8) * 2.0, (R + 8) * 2.0)), acc, 10.0, 2.0)
-	draw_string(_font, Vector2(0, 12), "◈ SCAN · %s" % \
-		str(GameState.region_at(GameState.sector)["name"]).to_upper(),
-		HORIZONTAL_ALIGNMENT_CENTER, PANEL.x, 11,
-		Color(acc.r, acc.g, acc.b, 0.75 * flick))
-	draw_string(_font, Vector2(0, PANEL.y - 2), "RNG %dm" % int(world_range),
-		HORIZONTAL_ALIGNMENT_CENTER, PANEL.x, 10,
-		Color(acc.r, acc.g, acc.b, 0.4 * flick))

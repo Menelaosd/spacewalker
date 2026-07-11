@@ -17,6 +17,7 @@ const PARK_REACH := 140.0        # extra reach beyond a field's radius
 const HOME_DOCK_RADIUS := 300.0
 const INVENTORY_SCREEN := preload("res://scripts/inventory_screen.gd")
 const FLOAT_TEXT := preload("res://scripts/float_text.gd")
+const RADAR_PANEL := preload("res://scripts/radar_panel.gd")
 
 # Derelict debris — old wrecks and lost cargo. Human-made, so its metal
 # mix is scrap composition, not solar: mostly Al/Fe hulls, Ti struts,
@@ -272,6 +273,14 @@ func _build_hud() -> void:
 	root.add_child(preload("res://scripts/screen_fx.gd").new())
 	root.add_child(INVENTORY_SCREEN.new())
 
+	# helm scanner — same hologram, field/wreck/nebula scale
+	var radar := RADAR_PANEL.new()
+	radar.mode = "flight"
+	radar.flight = self
+	root.add_child(radar)
+	radar.set_anchors_and_offsets_preset(
+		Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_MINSIZE, 18)
+
 	var nav := PanelContainer.new()
 	nav.position = Vector2(18, 18)
 	nav.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -394,13 +403,14 @@ func _draw_nebulae(center: Vector2, half: Vector2) -> void:
 	## against each other, a glowing heart, and stars tinted by the cloud.
 	for i in GameState.NEBULAE.size():
 		var nc: Vector2 = GameState.nebula_center(i)
-		if (nc - center).length() > half.length() + GameState.NEBULA_RADIUS + 1400.0:
+		var nr: float = GameState.nebula_radius(i)
+		if (nc - center).length() > half.length() + nr + 1400.0:
 			continue
 		var col: Color = GameState.NEBULAE[i]["color"]
 		var tex := NebulaFog.texture_for(i)
 		var half_tex := Vector2(NebulaFog.SIZE, NebulaFog.SIZE) * 0.5
-		# base fog layer, drifting
-		var s := GameState.NEBULA_RADIUS * 2.9 / float(NebulaFog.SIZE)
+		# base fog layer, drifting — scale follows this nebula's own size
+		var s := nr * 2.9 / float(NebulaFog.SIZE)
 		draw_set_transform(nc, _t * 0.008, Vector2(s, s))
 		draw_texture(tex, -half_tex)
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
@@ -408,18 +418,18 @@ func _draw_nebulae(center: Vector2, half: Vector2) -> void:
 		draw_set_transform(nc, 2.4 - _t * 0.005, Vector2(s * 1.3, s * 1.15))
 		draw_texture(tex, -half_tex, Color(1, 1, 1, 0.7))
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-		# glowing heart
+		# glowing heart, proportional to the cloud
 		var rng := RandomNumberGenerator.new()
 		rng.seed = 7000 + i
-		var heart := nc + Vector2.from_angle(rng.randf() * TAU) * GameState.NEBULA_RADIUS * 0.2
-		draw_circle(heart, 300.0, Color(col.lightened(0.3).r, col.lightened(0.3).g,
+		var heart := nc + Vector2.from_angle(rng.randf() * TAU) * nr * 0.2
+		draw_circle(heart, nr * 0.125, Color(col.lightened(0.3).r, col.lightened(0.3).g,
 			col.lightened(0.3).b, 0.05))
-		draw_circle(heart, 110.0, Color(col.lightened(0.55).r, col.lightened(0.55).g,
+		draw_circle(heart, nr * 0.046, Color(col.lightened(0.55).r, col.lightened(0.55).g,
 			col.lightened(0.55).b, 0.07))
-		# stars packed through the cloud, tinted by it
-		for b in 46:
+		# stars packed through the cloud, tinted by it — big clouds get more
+		for b in int(20.0 + nr / 60.0):
 			var sp := nc + Vector2.from_angle(rng.randf() * TAU) \
-				* rng.randf_range(0.0, GameState.NEBULA_RADIUS * 0.95)
+				* rng.randf_range(0.0, nr * 0.95)
 			draw_circle(sp, rng.randf_range(0.7, 2.4),
 				Color(col.lightened(0.65).r, col.lightened(0.65).g,
 					col.lightened(0.65).b, rng.randf_range(0.4, 0.9)))
