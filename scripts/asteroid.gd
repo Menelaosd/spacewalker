@@ -27,6 +27,7 @@ func setup(r: float, rich: bool, tint := Color(0.42, 0.4, 0.38)) -> void:
 
 
 func _ready() -> void:
+	add_to_group("asteroids")   # flare shelter checks
 	# the universe decides what this rock is mostly made of — crystal
 	# formations concentrate the heavy elements
 	vein = Elements.sample_crystal_element() if is_rich else Elements.sample_rock_element()

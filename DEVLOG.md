@@ -5,6 +5,66 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 11/07/2026 — v1.0: PURPOSE — quest, contracts, Vesna, hazards, crafting, intro
+
+The engagement package, fully braided (55/55 functional tests green):
+
+- **THE LONG WAY HOME** (story quest): rebuild the jump drive from real
+  elements — 5 parts from Plasma Conduits (Fe+Si) to the **Fuel Core
+  (Uranium + Thorium)**, installed at the Engine Room drive console
+  (progress in the prompt; the assembly visually fills per part).
+  Completion → ending sequence → title slot shows "✦ HOME".
+- **Contracts board** (Cargo Hold): 3 rotating element requests per
+  shift; deliver for ore + **reputation**. Board shows live progress.
+- **Vesna's market** (Bridge comms): buy elements with ore, keys 1-3.
+  **Prices scale with real abundance** (Fe 3 ore · Au 54 · U 75) and
+  **reputation unlocks rarer stock** (rep 3/6/10 tiers up to U/Th).
+  Radio flavor lines on some shifts.
+- **Hazards**: **solar flares** (7s warning klaxon + banner → 6s burn
+  draining O2 unless sheltered within 130px of a rock or docked; more
+  frequent in Ember Reach/Expanse; SW_FORCE_FLARE debug hook) and
+  **debris strikes** (fast tumbling rocks with trails, knockback + O2
+  vent on hit, dense in The Belt).
+- **Workbench crafting** (Upgrade Bay, keys 1-4): O2 Canister (4 O +
+  2 Fe — the oxygen element finally feeds the suit; auto-fires below
+  15% O2, max 3), Magnet Coil (+60% pickup reach), Gold Lens (+20
+  laser), Tether Dampener (+60 stretch). Permanent mods persist.
+- **Shift rhythm**: every return to the ship ticks a shift — contracts
+  and market refresh, Vesna may radio in.
+- **Intro cinematic** on new game: 4-page typewriter — the evacuation,
+  the flare, the stranding, GO HOME. Space advances, Esc skips.
+- Save v4 (quest/rep/shift/canisters/crafted/contracts/stock); title
+  slots show drive progress ("DRIVE 2/5").
+- Tested like hell: 55-check gauntlet (quest chain, price ladder,
+  contract determinism+delivery, trader tiers+purchases, all recipes,
+  caps, shift ticks, full save/load roundtrip) + all 5 scenes runtime
+  clean + visual checks (intro, flare burn, new stations).
+
+---
+
+## 11/07/2026 — UI kit v5: RETROFUTURISM (user reference-matched, all vector)
+
+Full restyle to the user's cyan-on-black tactical HUD reference:
+- **All vector now** — the baked-texture panels are gone. `ui_theme.gd`
+  draws angular panels (big 45° slant + notches) with **solid accent
+  wedges**, doubled top edges, tick marks and underlines; slim notched
+  sub-panels; **triangle-zigzag segment meters** (the reference loader);
+  ring gauges with tick rings; slanted **tech banners** with striped
+  caps; **hazard-stripe WARNING banners**; animated **chevron flows**;
+  bracket-cornered key chips. Buttons/panels via skewed StyleBoxFlat
+  parallelograms with cyan borders + glow-shadow on hover.
+- **Hand-written SVG icon set** (`assets/icons/`, 10 icons: helmet,
+  line, tank, laser, ore, warning, radiation, lock, skull, chevron) —
+  white strokes tinted at draw time via `UITheme.draw_icon`. Used in
+  the gear rack, inventory gear rows, title hazard strip.
+- **Title**: glitching wordmark (periodic cyan/red offset flashes),
+  chevron flows framing the slots, bracket-framed hazard icon strip,
+  "SYSTEMS ONLINE" footer.
+- Palette: cyan #4ADEFF on near-black teal; hazard amber reserved for
+  warnings. Everything restyles from UITheme consts + helpers only.
+
+---
+
 ## 11/07/2026 — v1.0-shape: the dynamic ship (hull build canvas), VHS, cooler fog
 
 **The rooms concept, finally as intended**: the interior is an **8x4 grid

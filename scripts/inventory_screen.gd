@@ -5,6 +5,10 @@ extends Control
 ## category strip, on-suit badge. Mouse wheel scrolls, hover for details.
 
 const SUIT_TEX := preload("res://assets/sprites/astronaut.png")
+const ICON_HELMET := preload("res://assets/icons/helmet.svg")
+const ICON_LINE := preload("res://assets/icons/line.svg")
+const ICON_TANK := preload("res://assets/icons/tank.svg")
+const ICON_LASER := preload("res://assets/icons/laser.svg")
 
 const PANEL_W := 1180.0
 const PANEL_H := 664.0
@@ -99,19 +103,19 @@ func _draw_suit_column(rect: Rect2) -> void:
 	draw_texture_rect(SUIT_TEX, Rect2(cx - 52, rect.position.y + 44, 104, 104), false)
 
 	var rows := [
-		["SUIT", "Mk I pressure suit", "—", _icon_suit],
+		["SUIT", "Mk I pressure suit", "—", ICON_HELMET],
 		["LIFELINE", "%dm rated reach" % int(GameState.tether_length),
-			"LV %d" % (GameState.tether_level + 1), _icon_tether],
+			"LV %d" % (GameState.tether_level + 1), ICON_LINE],
 		["O2 TANK", "%d capacity" % int(GameState.max_oxygen),
-			"LV %d" % (GameState.o2_level + 1), _icon_tank],
+			"LV %d" % (GameState.o2_level + 1), ICON_TANK],
 		["LASER", "%d output" % int(GameState.laser_dps),
-			"LV %d" % (GameState.laser_level + 1), _icon_pistol],
+			"LV %d" % (GameState.laser_level + 1), ICON_LASER],
 	]
 	var y := rect.position.y + 168.0
 	for row in rows:
 		var slot_rect := Rect2(rect.position.x, y, rect.size.x, 54)
 		UITheme.draw_sub_panel(self, slot_rect)
-		(row[3] as Callable).call(slot_rect.position + Vector2(26, 27))
+		UITheme.draw_icon(self, row[3], slot_rect.position + Vector2(26, 27), 24.0)
 		draw_string(_font, slot_rect.position + Vector2(52, 23), row[0],
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 12, UITheme.TEXT)
 		draw_string(_font, slot_rect.position + Vector2(52, 40), row[1],
@@ -240,31 +244,4 @@ func _draw_card(e: Array, r: Rect2, hovered: bool) -> void:
 			UITheme.ACCENT_WARM.b, 0.5), false, 1.0)
 
 
-# ------------------------------------------------------------------
-# Gear icons
-# ------------------------------------------------------------------
-func _icon_suit(c: Vector2) -> void:
-	draw_circle(c + Vector2(-7, 0), 6.0, Color(0.45, 0.48, 0.55))
-	draw_circle(c, 10.0, Color(0.92, 0.94, 0.97))
-	draw_circle(c + Vector2(3, -1), 5.5, Color(0.1, 0.2, 0.35))
-	draw_circle(c + Vector2(1, -3), 1.6, Color(0.7, 0.9, 1.0, 0.85))
-
-
-func _icon_tether(c: Vector2) -> void:
-	var pts := PackedVector2Array()
-	for i in 23:
-		var t := float(i) / 22.0
-		pts.append(c + Vector2(lerpf(-11.0, 11.0, t), sin(t * TAU * 1.5) * 6.0))
-	draw_polyline(pts, Color(1.0, 0.85, 0.3, 0.95), 2.0)
-
-
-func _icon_tank(c: Vector2) -> void:
-	draw_rect(Rect2(c.x - 6, c.y - 9, 12, 18), Color(0.35, 0.8, 1.0), true)
-	draw_rect(Rect2(c.x - 2, c.y - 12, 4, 3), Color(0.55, 0.58, 0.66))
-	draw_rect(Rect2(c.x - 5, c.y + 2, 10, 3), Color(1, 1, 1, 0.35))
-
-
-func _icon_pistol(c: Vector2) -> void:
-	draw_rect(Rect2(c.x - 10, c.y - 4, 16, 6), Color(0.6, 0.65, 0.7))
-	draw_rect(Rect2(c.x - 6, c.y + 2, 5, 7), Color(0.45, 0.48, 0.55))
-	draw_circle(c + Vector2(8, -1), 2.2, Color(1.0, 0.4, 0.3, 0.95))
+# gear icons are SVG assets (assets/icons/), tinted via UITheme.draw_icon

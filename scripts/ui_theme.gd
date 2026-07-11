@@ -1,118 +1,171 @@
 class_name UITheme
-## The game's UI design language — "Nemesis kit": metallic beveled frames
-## with riveted corner plates (baked textures from tools/gen_ui_kit.gd),
-## glossy buttons, segmented meters, glowing ring gauges.
+## The game's UI design language v5 — RETROFUTURISM (user reference):
+## cyan-on-black tactical HUD. Angular notched panels with accent wedges
+## and tick marks, triangle-segment loaders, hazard warning banners,
+## chevrons, bracket-cornered chips. All vector — crisp at any size.
 ## Every scene draws through these helpers; restyle here, nowhere else.
 
-const ACCENT := Color(0.72, 0.95, 1.0)         # ice cyan — info, borders
-const ACCENT_WARM := Color(1.0, 0.74, 0.38)    # bright amber — action
-const DANGER := Color(1.0, 0.38, 0.34)
-const BG := Color(0.11, 0.16, 0.25, 0.9)
-const BG_LIGHT := Color(0.19, 0.26, 0.37, 0.93)
-const TEXT := Color.WHITE
-const TEXT_DIM := Color(1.0, 1.0, 1.0, 0.65)
-const CUT := 12.0
-
-const TEX_FRAME := preload("res://assets/ui/panel_frame.png")
-const TEX_SMALL := preload("res://assets/ui/panel_small.png")
-const TEX_BTN_N := preload("res://assets/ui/btn_normal.png")
-const TEX_BTN_H := preload("res://assets/ui/btn_hover.png")
-const TEX_BTN_P := preload("res://assets/ui/btn_pressed.png")
-const TEX_METER := preload("res://assets/ui/meter_bg.png")
-
-static var _frame_sb: StyleBoxTexture
-static var _small_sb: StyleBoxTexture
-static var _meter_sb: StyleBoxTexture
-
-
-static func _tex_sb(tex: Texture2D, margin: float, content := 0.0) -> StyleBoxTexture:
-	var sb := StyleBoxTexture.new()
-	sb.texture = tex
-	sb.set_texture_margin_all(margin)
-	if content > 0.0:
-		sb.set_content_margin_all(content)
-	return sb
-
-
-static func frame_sb() -> StyleBoxTexture:
-	if _frame_sb == null:
-		_frame_sb = _tex_sb(TEX_FRAME, 12.0, 16.0)
-	return _frame_sb
-
-
-static func small_sb() -> StyleBoxTexture:
-	if _small_sb == null:
-		_small_sb = _tex_sb(TEX_SMALL, 6.0, 10.0)
-	return _small_sb
-
-
-static func meter_sb() -> StyleBoxTexture:
-	if _meter_sb == null:
-		_meter_sb = _tex_sb(TEX_METER, 4.0)
-	return _meter_sb
+const ACCENT := Color8(74, 222, 255)           # cyan — everything
+const ACCENT_DIM := Color(0.29, 0.55, 0.65)
+const ACCENT_WARM := Color8(255, 205, 64)      # hazard amber
+const DANGER := Color8(255, 82, 70)
+const BG := Color(0.016, 0.075, 0.105, 0.92)   # panel interior
+const BG_LIGHT := Color(0.035, 0.125, 0.17, 0.94)
+const TEXT := Color(0.88, 0.99, 1.0)
+const TEXT_DIM := Color(0.88, 0.99, 1.0, 0.6)
+const CUT := 18.0                              # big corner slant
 
 
 # ------------------------------------------------------------------
-# Panels
+# Panels — angular, notched, decorated
 # ------------------------------------------------------------------
-static func cut_points(rect: Rect2, cut := CUT) -> PackedVector2Array:
+static func panel_points(rect: Rect2, cut := CUT, notch := 7.0) -> PackedVector2Array:
+	## Big 45° slant top-left, notched everywhere else.
 	var p := rect.position
 	var e := rect.end
 	return PackedVector2Array([
-		Vector2(p.x + cut, p.y), Vector2(e.x, p.y), Vector2(e.x, e.y - cut),
-		Vector2(e.x - cut, e.y), Vector2(p.x, e.y), Vector2(p.x, p.y + cut),
+		Vector2(p.x + cut, p.y), Vector2(e.x - notch, p.y), Vector2(e.x, p.y + notch),
+		Vector2(e.x, e.y - notch), Vector2(e.x - notch, e.y), Vector2(p.x, e.y),
+		Vector2(p.x, p.y + cut),
 	])
 
 
 static func draw_sci_panel(ci: CanvasItem, rect: Rect2,
-		_accent := ACCENT, _bg := BG) -> void:
-	## Main panel: the ornate riveted metal frame.
-	frame_sb().draw(ci.get_canvas_item(), rect)
+		accent := ACCENT, bg := BG) -> void:
+	var pts := panel_points(rect)
+	ci.draw_colored_polygon(pts, bg)
+	var outline := pts.duplicate()
+	outline.append(pts[0])
+	ci.draw_polyline(outline, Color(accent.r, accent.g, accent.b, 0.9), 1.5)
+	var p := rect.position
+	var e := rect.end
+	# solid accent wedge hugging the slant
+	ci.draw_colored_polygon(PackedVector2Array([
+		Vector2(p.x + 2, p.y + CUT), Vector2(p.x + CUT, p.y + 2),
+		Vector2(p.x + CUT, p.y + CUT)]), Color(accent.r, accent.g, accent.b, 0.85))
+	# doubled top edge segment
+	ci.draw_line(Vector2(p.x + CUT + 5, p.y + 4),
+		Vector2(p.x + rect.size.x * 0.55, p.y + 4),
+		Color(accent.r, accent.g, accent.b, 0.3), 1.0)
+	# tick marks, bottom-right
+	for i in 3:
+		ci.draw_line(Vector2(e.x - 12.0 - i * 8.0, e.y - 5),
+			Vector2(e.x - 7.0 - i * 8.0, e.y - 5),
+			Color(accent.r, accent.g, accent.b, 0.7), 2.0)
+	# bottom-left accent underline
+	ci.draw_line(Vector2(p.x + 4, e.y - 5), Vector2(p.x + 34, e.y - 5),
+		Color(accent.r, accent.g, accent.b, 0.45), 2.0)
 
 
-static func draw_sub_panel(ci: CanvasItem, rect: Rect2) -> void:
-	## Thin steel sub-panel for tiles, rows, nested boxes.
-	small_sb().draw(ci.get_canvas_item(), rect)
+static func draw_sub_panel(ci: CanvasItem, rect: Rect2, accent := ACCENT) -> void:
+	## Slim notched sub-panel for rows, tiles, nested boxes.
+	var p := rect.position
+	var e := rect.end
+	var c := 8.0
+	var pts := PackedVector2Array([
+		Vector2(p.x + c, p.y), Vector2(e.x, p.y), Vector2(e.x, e.y - c),
+		Vector2(e.x - c, e.y), Vector2(p.x, e.y), Vector2(p.x, p.y + c),
+	])
+	ci.draw_colored_polygon(pts, BG_LIGHT)
+	var outline := pts.duplicate()
+	outline.append(pts[0])
+	ci.draw_polyline(outline, Color(accent.r, accent.g, accent.b, 0.45), 1.0)
+	ci.draw_line(Vector2(p.x + 2, p.y + c), Vector2(p.x + c, p.y + 2),
+		Color(accent.r, accent.g, accent.b, 0.9), 2.0)
+
+
+static func draw_brackets(ci: CanvasItem, rect: Rect2, accent := ACCENT,
+		arm := 9.0, pad := 3.0) -> void:
+	## Bracket ticks on the four corners — the reference thumbnail frames.
+	var col := Color(accent.r, accent.g, accent.b, 0.9)
+	var p := rect.position - Vector2(pad, pad)
+	var e := rect.end + Vector2(pad, pad)
+	for corner in [
+		[p, Vector2(1, 0), Vector2(0, 1)],
+		[Vector2(e.x, p.y), Vector2(-1, 0), Vector2(0, 1)],
+		[Vector2(p.x, e.y), Vector2(1, 0), Vector2(0, -1)],
+		[e, Vector2(-1, 0), Vector2(0, -1)],
+	]:
+		var o: Vector2 = corner[0]
+		ci.draw_line(o, o + (corner[1] as Vector2) * arm, col, 1.6)
+		ci.draw_line(o, o + (corner[2] as Vector2) * arm, col, 1.6)
 
 
 static func draw_header(ci: CanvasItem, pos: Vector2, text: String,
 		font: Font, size := 19, accent := ACCENT, width := 200.0) -> void:
 	ci.draw_string(font, pos + Vector2(1, 1), text,
-		HORIZONTAL_ALIGNMENT_LEFT, -1, size, Color(0, 0, 0, 0.5))
+		HORIZONTAL_ALIGNMENT_LEFT, -1, size, Color(0, 0, 0, 0.6))
 	ci.draw_string(font, pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, TEXT)
-	var y := pos.y + 10.0
+	var y := pos.y + 9.0
 	ci.draw_line(Vector2(pos.x, y), Vector2(pos.x + width, y),
-		Color(accent.r, accent.g, accent.b, 0.22), 5.0)
-	ci.draw_line(Vector2(pos.x, y), Vector2(pos.x + width * 0.55, y),
-		Color(1, 1, 1, 0.95), 1.5)
+		Color(accent.r, accent.g, accent.b, 0.25), 1.0)
+	ci.draw_line(Vector2(pos.x, y), Vector2(pos.x + width * 0.45, y),
+		Color(accent.r, accent.g, accent.b, 1.0), 2.0)
+	# end chevron + block tick
+	ci.draw_colored_polygon(PackedVector2Array([
+		Vector2(pos.x + width * 0.45 + 2, y - 3), Vector2(pos.x + width * 0.45 + 8, y),
+		Vector2(pos.x + width * 0.45 + 2, y + 3)]),
+		Color(accent.r, accent.g, accent.b, 1.0))
+	ci.draw_rect(Rect2(pos.x + width - 10, y - 2, 10, 4),
+		Color(accent.r, accent.g, accent.b, 0.5))
 
 
 static func draw_headline(ci: CanvasItem, rect: Rect2, text: String,
-		font: Font, size := 16) -> void:
-	## Metal nameplate with side wings, like the reference "HEADLINE" bar.
+		font: Font, size := 15) -> void:
+	## Slanted tech banner with striped end caps.
 	var cy := rect.get_center().y
-	var steel := Color8(84, 93, 109)
-	var steel_dark := Color8(46, 52, 64)
-	for side in [-1.0, 1.0]:
-		var x0 := rect.position.x if side < 0.0 else rect.end.x
-		var wing := PackedVector2Array([
-			Vector2(x0, cy - 5), Vector2(x0 + 30.0 * side, cy - 12),
-			Vector2(x0 + 30.0 * side, cy + 12), Vector2(x0, cy + 5)])
-		ci.draw_colored_polygon(wing, steel_dark)
-		ci.draw_polyline(PackedVector2Array([wing[0], wing[1], wing[2], wing[3], wing[0]]),
-			Color8(6, 8, 12), 1.5)
-	var plate := Rect2(rect.position.x + 26, rect.position.y,
-		rect.size.x - 52, rect.size.y)
-	ci.draw_rect(plate, Color8(10, 17, 31))
-	ci.draw_rect(Rect2(plate.position, Vector2(plate.size.x, 4)), steel)
-	ci.draw_rect(Rect2(plate.position + Vector2(0, plate.size.y - 4),
-		Vector2(plate.size.x, 4)), steel_dark)
-	ci.draw_rect(plate, Color8(6, 8, 12), false, 1.5)
-	ci.draw_string(font, Vector2(plate.position.x, cy + size * 0.36), text,
-		HORIZONTAL_ALIGNMENT_CENTER, plate.size.x, size, TEXT)
-	ci.draw_line(plate.position + Vector2(8, plate.size.y - 6),
-		plate.position + Vector2(plate.size.x - 8, plate.size.y - 6),
-		Color(ACCENT.r, ACCENT.g, ACCENT.b, 0.5), 1.0)
+	var sk := 10.0
+	var plate := PackedVector2Array([
+		Vector2(rect.position.x + sk, rect.position.y), Vector2(rect.end.x, rect.position.y),
+		Vector2(rect.end.x - sk, rect.end.y), Vector2(rect.position.x, rect.end.y)])
+	ci.draw_colored_polygon(plate, Color(0.02, 0.09, 0.13, 0.95))
+	var outline := plate.duplicate()
+	outline.append(plate[0])
+	ci.draw_polyline(outline, Color(ACCENT.r, ACCENT.g, ACCENT.b, 0.9), 1.4)
+	# striped caps
+	for i in 3:
+		var x0 := rect.position.x + sk + 6.0 + i * 6.0
+		ci.draw_line(Vector2(x0, rect.position.y + 4), Vector2(x0 - 5, rect.end.y - 4),
+			Color(ACCENT.r, ACCENT.g, ACCENT.b, 0.8), 2.0)
+		var x1 := rect.end.x - sk - 6.0 - i * 6.0
+		ci.draw_line(Vector2(x1, rect.position.y + 4), Vector2(x1 + 5, rect.end.y - 4),
+			Color(ACCENT.r, ACCENT.g, ACCENT.b, 0.8), 2.0)
+	ci.draw_string(font, Vector2(rect.position.x, cy + size * 0.36), text,
+		HORIZONTAL_ALIGNMENT_CENTER, rect.size.x, size, TEXT)
+
+
+static func draw_warning_banner(ci: CanvasItem, rect: Rect2, text: String,
+		font: Font, col := ACCENT_WARM, size := 13) -> void:
+	## Center label with hazard-stripe wings, like the reference WARNING bar.
+	var cy := rect.get_center().y
+	var label_w := maxf(rect.size.x * 0.4,
+		font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x + 24.0)
+	var lx := rect.get_center().x - label_w * 0.5
+	# stripe wings
+	for side in [[rect.position.x, lx - 8.0], [lx + label_w + 8.0, rect.end.x]]:
+		var x: float = side[0]
+		while x < float(side[1]):
+			ci.draw_line(Vector2(x, rect.end.y - 2), Vector2(x + 6, rect.position.y + 2),
+				Color(col.r, col.g, col.b, 0.75), 2.5)
+			x += 11.0
+	# label plate
+	ci.draw_rect(Rect2(lx, rect.position.y, label_w, rect.size.y), Color(0, 0, 0, 0.6))
+	ci.draw_rect(Rect2(lx, rect.position.y, label_w, rect.size.y),
+		Color(col.r, col.g, col.b, 0.95), false, 1.4)
+	ci.draw_string(font, Vector2(lx, cy + size * 0.36), text,
+		HORIZONTAL_ALIGNMENT_CENTER, label_w, size, col)
+
+
+static func draw_chevrons(ci: CanvasItem, pos: Vector2, count: int,
+		size: float, color: Color, t := 0.0) -> void:
+	## Animated ">>>" flow arrows.
+	for i in count:
+		var a := 0.25 + 0.75 * maxf(sin(t * 3.0 - float(i) * 0.7), 0.0)
+		var x := pos.x + float(i) * size * 0.8
+		ci.draw_polyline(PackedVector2Array([
+			Vector2(x, pos.y - size * 0.5), Vector2(x + size * 0.55, pos.y),
+			Vector2(x, pos.y + size * 0.5)]),
+			Color(color.r, color.g, color.b, a), 2.5)
 
 
 # ------------------------------------------------------------------
@@ -120,45 +173,55 @@ static func draw_headline(ci: CanvasItem, rect: Rect2, text: String,
 # ------------------------------------------------------------------
 static func draw_meter(ci: CanvasItem, rect: Rect2, frac: float,
 		color: Color, danger := false) -> void:
-	## Segmented cell meter in an inset steel trough.
+	## Zigzag triangle-segment loader, like the reference 91% bar.
 	frac = clampf(frac, 0.0, 1.0)
 	var col := DANGER if danger else color
-	meter_sb().draw(ci.get_canvas_item(), rect)
+	ci.draw_rect(rect, Color(0.0, 0.03, 0.05, 0.75))
+	ci.draw_rect(rect, Color(ACCENT.r, ACCENT.g, ACCENT.b, 0.35), false, 1.0)
 	var inner := rect.grow(-3.0)
-	var cw := 7.0
-	var gap := 2.0
-	var n := int((inner.size.x + gap) / (cw + gap))
+	var tw := 8.0
+	var n := int(inner.size.x / tw)
 	var lit := int(roundf(float(n) * frac))
 	for i in n:
-		var cell := Rect2(inner.position + Vector2(float(i) * (cw + gap), 0),
-			Vector2(cw, inner.size.y))
-		if i < lit:
-			ci.draw_rect(cell, col.darkened(0.1))
-			ci.draw_rect(Rect2(cell.position, Vector2(cw, inner.size.y * 0.45)),
-				col.lightened(0.45))
-			if i == lit - 1:
-				ci.draw_rect(cell.grow(1.5), Color(1, 1, 1, 0.4), false, 1.5)
+		var x := inner.position.x + float(i) * tw
+		var up := i % 2 == 0
+		var tri: PackedVector2Array
+		if up:
+			tri = PackedVector2Array([
+				Vector2(x, inner.end.y), Vector2(x + tw - 1, inner.end.y),
+				Vector2(x + tw * 0.5, inner.position.y)])
 		else:
-			ci.draw_rect(cell, Color(1, 1, 1, 0.04))
+			tri = PackedVector2Array([
+				Vector2(x, inner.position.y), Vector2(x + tw - 1, inner.position.y),
+				Vector2(x + tw * 0.5, inner.end.y)])
+		if i < lit:
+			ci.draw_colored_polygon(tri,
+				col.lightened(0.3) if i == lit - 1 else col)
+		else:
+			ci.draw_colored_polygon(tri, Color(1, 1, 1, 0.06))
 
 
 static func draw_ring_gauge(ci: CanvasItem, center: Vector2, radius: float,
 		frac: float, color: Color, font: Font, show_pct := true) -> void:
-	## Glowing circular gauge, like the reference 97% rings.
 	frac = clampf(frac, 0.0, 1.0)
 	ci.draw_arc(center, radius, 0, TAU, 64, Color(0, 0, 0, 0.5), 6.0)
-	ci.draw_arc(center, radius + 3.0, 0, TAU, 64, Color(1, 1, 1, 0.07), 1.0)
-	ci.draw_arc(center, radius - 3.0, 0, TAU, 64, Color(1, 1, 1, 0.07), 1.0)
+	ci.draw_arc(center, radius + 3.0, 0, TAU, 64,
+		Color(ACCENT.r, ACCENT.g, ACCENT.b, 0.15), 1.0)
+	# tick ring
+	for i in 12:
+		var a := TAU * float(i) / 12.0
+		ci.draw_line(center + Vector2.from_angle(a) * (radius - 4.0),
+			center + Vector2.from_angle(a) * (radius - 7.0),
+			Color(ACCENT.r, ACCENT.g, ACCENT.b, 0.3), 1.0)
 	if frac > 0.005:
 		var a0 := -PI / 2.0
 		var a1 := a0 + TAU * frac
 		ci.draw_arc(center, radius, a0, a1, 64,
-			Color(color.r, color.g, color.b, 0.32), 11.0)   # outer glow
+			Color(color.r, color.g, color.b, 0.3), 10.0)
 		ci.draw_arc(center, radius, a0, a1, 64, color, 4.0)
 		ci.draw_arc(center, radius, a0, a1, 64, Color(1, 1, 1, 0.9), 1.5)
 		var head := center + Vector2.from_angle(a1) * radius
 		ci.draw_circle(head, 3.0, Color(1, 1, 1, 0.95))
-		ci.draw_circle(head, 5.5, Color(color.r, color.g, color.b, 0.35))
 	if show_pct:
 		ci.draw_string(font, center + Vector2(-radius, 5.0),
 			"%d%%" % int(frac * 100.0), HORIZONTAL_ALIGNMENT_CENTER,
@@ -167,34 +230,61 @@ static func draw_ring_gauge(ci: CanvasItem, center: Vector2, radius: float,
 
 static func draw_key_chip(ci: CanvasItem, center: Vector2, key: String,
 		font: Font, accent := ACCENT) -> void:
-	var r := Rect2(center - Vector2(11, 11), Vector2(22, 22))
-	ci.draw_rect(r, Color(accent.r, accent.g, accent.b, 0.14))
-	ci.draw_rect(r, Color(accent.r, accent.g, accent.b, 0.9), false, 1.4)
-	ci.draw_string(font, Vector2(r.position.x, center.y + 5.5), key,
-		HORIZONTAL_ALIGNMENT_CENTER, r.size.x, 14, TEXT)
+	var r := Rect2(center - Vector2(10, 10), Vector2(20, 20))
+	ci.draw_rect(r, Color(accent.r, accent.g, accent.b, 0.12))
+	draw_brackets(ci, r, accent, 6.0, 1.0)
+	ci.draw_string(font, Vector2(r.position.x, center.y + 5.0), key,
+		HORIZONTAL_ALIGNMENT_CENTER, r.size.x, 13, TEXT)
+
+
+static func draw_icon(ci: CanvasItem, tex: Texture2D, center: Vector2,
+		size := 22.0, color := ACCENT) -> void:
+	## SVG icon, tinted. Icons are white-stroke so modulate = color.
+	ci.draw_texture_rect(tex, Rect2(center - Vector2(size, size) * 0.5,
+		Vector2(size, size)), false, color)
 
 
 # ------------------------------------------------------------------
 # Godot Theme for real Controls
 # ------------------------------------------------------------------
+static func _btn_box(border: Color, bg: Color, glow := 0.0) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = bg
+	sb.border_color = border
+	sb.set_border_width_all(1)
+	sb.border_width_left = 3
+	sb.skew = Vector2(0.25, 0.0)
+	sb.set_content_margin_all(10.0)
+	sb.content_margin_left = 22.0
+	sb.content_margin_right = 22.0
+	if glow > 0.0:
+		sb.shadow_color = Color(ACCENT.r, ACCENT.g, ACCENT.b, glow)
+		sb.shadow_size = 6
+	return sb
+
+
 static func make_theme() -> Theme:
 	var t := Theme.new()
-	var bn := _tex_sb(TEX_BTN_N, 8.0)
-	var bh := _tex_sb(TEX_BTN_H, 8.0)
-	var bp := _tex_sb(TEX_BTN_P, 8.0)
-	for sb: StyleBoxTexture in [bn, bh, bp]:
-		sb.content_margin_left = 20.0
-		sb.content_margin_right = 20.0
-		sb.content_margin_top = 10.0
-		sb.content_margin_bottom = 12.0
-	t.set_stylebox("normal", "Button", bn)
-	t.set_stylebox("hover", "Button", bh)
-	t.set_stylebox("pressed", "Button", bp)
-	t.set_stylebox("focus", "Button", bh)
+	t.set_stylebox("normal", "Button",
+		_btn_box(Color(ACCENT.r, ACCENT.g, ACCENT.b, 0.6), Color(0.03, 0.13, 0.18, 0.92)))
+	t.set_stylebox("hover", "Button",
+		_btn_box(ACCENT, Color(0.05, 0.22, 0.30, 0.95), 0.3))
+	t.set_stylebox("pressed", "Button",
+		_btn_box(ACCENT, Color(0.02, 0.08, 0.11, 0.95)))
+	t.set_stylebox("focus", "Button",
+		_btn_box(ACCENT, Color(0.05, 0.22, 0.30, 0.95), 0.3))
 	t.set_color("font_color", "Button", TEXT)
-	t.set_color("font_hover_color", "Button", Color(0.8, 0.95, 1.0))
+	t.set_color("font_hover_color", "Button", Color.WHITE)
 	t.set_color("font_pressed_color", "Button", ACCENT)
 
-	t.set_stylebox("panel", "PanelContainer", _tex_sb(TEX_SMALL, 6.0, 12.0))
+	var panel := StyleBoxFlat.new()
+	panel.bg_color = BG
+	panel.border_color = Color(ACCENT.r, ACCENT.g, ACCENT.b, 0.55)
+	panel.set_border_width_all(1)
+	panel.skew = Vector2(0.12, 0.0)
+	panel.set_content_margin_all(12.0)
+	panel.content_margin_left = 18.0
+	panel.content_margin_right = 18.0
+	t.set_stylebox("panel", "PanelContainer", panel)
 	t.set_color("font_color", "Label", TEXT)
 	return t

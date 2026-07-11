@@ -5,6 +5,12 @@ extends Control
 
 const SLOTS := 3
 const SHIP_TEX := preload("res://assets/sprites/ship_hd.png")
+const HAZARD_ICONS := [
+	preload("res://assets/icons/warning.svg"),
+	preload("res://assets/icons/radiation.svg"),
+	preload("res://assets/icons/lock.svg"),
+	preload("res://assets/icons/skull.svg"),
+]
 
 var _stars: Array = []
 var _font: Font = ThemeDB.fallback_font
@@ -83,7 +89,10 @@ func _slot_text(i: int) -> String:
 	var parts := date.split("-")
 	if parts.size() == 3:
 		date = "%s/%s/%s" % [parts[2], parts[1], parts[0]]
-	return "SLOT %d   —   %d ORE · %s" % [i + 1, int(data.get("banked", 0)), date]
+	if data.get("game_complete", false):
+		return "SLOT %d   —   ✦ HOME · %s" % [i + 1, date]
+	return "SLOT %d   —   %d ORE · DRIVE %d/5 · %s" % [i + 1,
+		int(data.get("banked", 0)), int(data.get("quest_stage", 0)), date]
 
 
 func _on_delete(i: int) -> void:
@@ -121,7 +130,7 @@ func _on_slot(i: int) -> void:
 		get_tree().change_scene_to_file("res://scenes/ship_interior.tscn")
 	else:
 		GameState.new_game(i)
-		get_tree().change_scene_to_file("res://scenes/main.tscn")
+		get_tree().change_scene_to_file("res://scenes/intro.tscn")
 
 
 func _draw() -> void:
@@ -148,13 +157,21 @@ func _draw() -> void:
 		Color(0.75, 0.8, 0.9, 0.95))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
-	# title with layered glow
+	# title with layered glow + occasional signal glitch
 	var ty := 208.0
 	for glow in [[6, 0.09], [3, 0.16], [1, 0.3]]:
 		draw_string(_font, Vector2(float(glow[0]), ty + float(glow[0])),
 			"SPACEWALKER", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 58,
 			Color(UITheme.ACCENT.r, UITheme.ACCENT.g, UITheme.ACCENT.b,
 				float(glow[1])))
+	if fmod(_t, 2.9) < 0.14:
+		var j := sin(_t * 90.0) * 4.0
+		draw_string(_font, Vector2(j - 3.0, ty), "SPACEWALKER",
+			HORIZONTAL_ALIGNMENT_CENTER, vp.x, 58,
+			Color(UITheme.ACCENT.r, UITheme.ACCENT.g, UITheme.ACCENT.b, 0.55))
+		draw_string(_font, Vector2(-j + 3.0, ty), "SPACEWALKER",
+			HORIZONTAL_ALIGNMENT_CENTER, vp.x, 58,
+			Color(UITheme.DANGER.r, UITheme.DANGER.g, UITheme.DANGER.b, 0.4))
 	draw_string(_font, Vector2(0, ty), "SPACEWALKER",
 		HORIZONTAL_ALIGNMENT_CENTER, vp.x, 58, Color(0.94, 0.97, 1.0))
 	# accent rules around the subtitle
@@ -168,6 +185,24 @@ func _draw() -> void:
 		HORIZONTAL_ALIGNMENT_CENTER, vp.x, 14,
 		Color(UITheme.ACCENT.r, UITheme.ACCENT.g, UITheme.ACCENT.b, sub_a))
 
+	# chevron flows framing the slot list
+	UITheme.draw_chevrons(self, Vector2(vp.x * 0.5 - 300, 400), 4, 16.0,
+		UITheme.ACCENT, _t)
+	UITheme.draw_chevrons(self, Vector2(vp.x * 0.5 + 260, 400), 4, 16.0,
+		UITheme.ACCENT, _t + 0.5)
+
+	# hazard systems strip — bracket-framed icons, reference style
+	var strip_x := vp.x * 0.5 - 110.0
+	for i in HAZARD_ICONS.size():
+		var r := Rect2(strip_x + i * 58.0, vp.y - 90.0, 36, 36)
+		draw_rect(r, Color(UITheme.ACCENT.r, UITheme.ACCENT.g, UITheme.ACCENT.b, 0.06))
+		UITheme.draw_brackets(self, r, UITheme.ACCENT, 8.0, 2.0)
+		var pulse := 0.45 + 0.3 * sin(_t * 1.8 + float(i) * 1.3)
+		UITheme.draw_icon(self, HAZARD_ICONS[i], r.get_center(), 22.0,
+			Color(UITheme.ACCENT.r, UITheme.ACCENT.g, UITheme.ACCENT.b, pulse))
+
 	# footer
-	draw_string(_font, Vector2(0, vp.y - 14), "v0.5 · prototype",
-		HORIZONTAL_ALIGNMENT_CENTER, vp.x, 11, Color(1, 1, 1, 0.25))
+	draw_string(_font, Vector2(0, vp.y - 14),
+		"SPACEWALKER SYSTEMS ONLINE · v0.9 · PROTOTYPE",
+		HORIZONTAL_ALIGNMENT_CENTER, vp.x, 11,
+		Color(UITheme.ACCENT.r, UITheme.ACCENT.g, UITheme.ACCENT.b, 0.35))

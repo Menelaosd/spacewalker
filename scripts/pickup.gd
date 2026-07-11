@@ -22,7 +22,7 @@ func _physics_process(delta: float) -> void:
 	var player := get_tree().get_first_node_in_group("player")
 	if player != null:
 		var to_player: Vector2 = player.global_position - global_position
-		if to_player.length() < 130.0:
+		if to_player.length() < GameState.pickup_reach():   # magnet coil extends this
 			drift = drift.lerp(to_player.normalized() * 160.0, 0.1)
 	global_position += drift * delta
 	drift = drift.lerp(Vector2.ZERO, 0.3 * delta)

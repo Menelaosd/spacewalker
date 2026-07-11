@@ -35,10 +35,23 @@ func _draw() -> void:
 		draw_circle(Vector2(rng.randf_range(0, vp.x), rng.randf_range(0, vp.y)),
 			rng.randf_range(0.5, 1.8), Color(1, 1, 1, rng.randf_range(0.1, 0.5)))
 
-	draw_string(_font, Vector2(40, 50), "SPACEWALKER · UI KIT",
+	draw_string(_font, Vector2(40, 50), "SPACEWALKER · RETROFUTURISM KIT",
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 26, UITheme.TEXT)
-	draw_line(Vector2(40, 62), Vector2(400, 62),
+	draw_line(Vector2(40, 62), Vector2(460, 62),
 		Color(UITheme.ACCENT.r, UITheme.ACCENT.g, UITheme.ACCENT.b, 0.6), 1.5)
+	UITheme.draw_chevrons(self, Vector2(490, 44), 4, 14.0, UITheme.ACCENT, _t)
+
+	# warning banner + hazard icon chips
+	UITheme.draw_warning_banner(self, Rect2(700, 540, 330, 26), "WARNING", _font)
+	var icons := [preload("res://assets/icons/warning.svg"),
+		preload("res://assets/icons/radiation.svg"),
+		preload("res://assets/icons/lock.svg"),
+		preload("res://assets/icons/skull.svg")]
+	for i in icons.size():
+		var r := Rect2(700 + i * 50.0, 580.0, 34, 34)
+		draw_rect(r, Color(UITheme.ACCENT.r, UITheme.ACCENT.g, UITheme.ACCENT.b, 0.06))
+		UITheme.draw_brackets(self, r, UITheme.ACCENT, 7.0, 2.0)
+		UITheme.draw_icon(self, icons[i], r.get_center(), 20.0)
 
 	# --- main framed panel with headline + list rows ---
 	var panel := Rect2(40, 100, 380, 300)

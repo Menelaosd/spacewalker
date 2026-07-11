@@ -10,6 +10,7 @@ const SCREEN_FX := preload("res://scripts/screen_fx.gd")
 var _msg_label: Label
 var _msg_tween: Tween
 var _dock_prompt: Label
+var _flare_banner: Control
 var _t := 0.0
 
 
@@ -60,11 +61,28 @@ func _ready() -> void:
 	_msg_label.set_anchors_and_offsets_preset(
 		Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_MINSIZE, 80)
 
+	# flare warning banner, top-center — hazard stripes when it hits
+	_flare_banner = Control.new()
+	_flare_banner.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_flare_banner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_flare_banner.draw.connect(func():
+		if GameState.flare_phase == "":
+			return
+		var vp := _flare_banner.get_viewport_rect().size
+		var col := UITheme.ACCENT_WARM if GameState.flare_phase == "warn" else UITheme.DANGER
+		var label := "⚠ SOLAR FLARE INBOUND — TAKE COVER" \
+			if GameState.flare_phase == "warn" else "☢ FLARE BURN — SHELTER BEHIND ROCK"
+		UITheme.draw_warning_banner(_flare_banner,
+			Rect2(vp.x * 0.5 - 260, 24, 520, 26), label,
+			ThemeDB.fallback_font, col, 12))
+	root.add_child(_flare_banner)
+
 	GameState.notify.connect(_on_notify)
 
 
 func _process(delta: float) -> void:
 	_t += delta
+	_flare_banner.queue_redraw()
 	var player := get_tree().get_first_node_in_group("player")
 	if player != null and player.in_dock:
 		_dock_prompt.modulate.a = 0.75 + 0.25 * absf(sin(_t * 3.5))

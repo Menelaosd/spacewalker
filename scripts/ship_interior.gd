@@ -27,6 +27,7 @@ var _room_label: Label
 var _prompt_label: Label
 var _msg_label: Label
 var _msg_tween: Tween
+var _ending_t := 0.0   # > 0 while the going-home sequence plays
 
 
 # ------------------------------------------------------------------
@@ -86,7 +87,14 @@ func _ready() -> void:
 		GameState.last_lost = 0
 	else:
 		crew.position = cell_rect(_find_cell("airlock")).get_center() + Vector2(-24, 0)
-		GameState.say("Inside the ship. Glowing bays at the hull edge can be built out.")
+		GameState.say("Shift %d. Board and market refreshed." % (GameState.shift + 1))
+
+	# a new shift begins every time you come home
+	var radio := GameState.begin_shift()
+	if radio != "":
+		await get_tree().create_timer(2.8).timeout
+		if is_inside_tree():
+			GameState.say(radio)
 
 	GameState.save_game()
 
@@ -97,13 +105,19 @@ func _define_stations() -> void:
 		var c := cell_rect(cell).get_center()
 		match GameState.rooms[cell]:
 			"upgrade":
-				_stations.append({"pos": c + Vector2(-40, 16), "kind": "o2"})
-				_stations.append({"pos": c + Vector2(0, 16), "kind": "tether"})
-				_stations.append({"pos": c + Vector2(40, 16), "kind": "laser"})
+				_stations.append({"pos": c + Vector2(-44, 16), "kind": "o2"})
+				_stations.append({"pos": c + Vector2(-8, 16), "kind": "tether"})
+				_stations.append({"pos": c + Vector2(28, 16), "kind": "laser"})
+				_stations.append({"pos": c + Vector2(46, -26), "kind": "workbench"})
 			"bridge":
-				_stations.append({"pos": c + Vector2(-10, 10), "kind": "cockpit"})
+				_stations.append({"pos": c + Vector2(-10, 14), "kind": "cockpit"})
+				_stations.append({"pos": c + Vector2(-38, -22), "kind": "comms"})
 			"airlock":
 				_stations.append({"pos": c + Vector2(20, 10), "kind": "exit"})
+			"engine":
+				_stations.append({"pos": c + Vector2(0, -42), "kind": "drive"})
+			"cargo":
+				_stations.append({"pos": c + Vector2(-40, -30), "kind": "board"})
 	# expansion bays: bare hull cells touching the built ship — station
 	# sits just inside the built neighbor, at the shared edge
 	for cell in GameState.SHIP_COLS * GameState.SHIP_ROWS:
@@ -132,6 +146,13 @@ func _make_window_stars() -> void:
 
 func _process(delta: float) -> void:
 	_reactor += delta
+	if _ending_t > 0.0:
+		_ending_t += delta
+		if _ending_t > 8.0:
+			GameState.in_game = false
+			get_tree().change_scene_to_file("res://scenes/title.tscn")
+		queue_redraw()
+		return
 	_update_active_station()
 	_room_label.text = _room_at(crew.position)
 	_banked_label.text = "BANKED ORE   %d" % GameState.banked
@@ -167,6 +188,20 @@ func _station_label(st: Dictionary) -> String:
 			return "E    Suit up & spacewalk"
 		"expand":
 			return "E    Expand the ship   (%d ore)" % int(GameState.ROOM_TYPES["room"]["cost"])
+		"drive":
+			if GameState.game_complete:
+				return "E    THE DRIVE IS READY — GO HOME"
+			var part: Dictionary = GameState.quest_part()
+			return "JUMP DRIVE · %s  —  %s%s" % [part["name"],
+				GameState.quest_progress_text(),
+				"   ·   E INSTALL" if GameState.quest_can_install() else ""]
+		"board":
+			var ready := GameState.contracts_ready()
+			return "CONTRACTS BOARD — E deliver (%d ready)" % ready
+		"comms":
+			return "VESNA'S MARKET — press 1-3 to buy"
+		"workbench":
+			return "WORKBENCH — press 1-4 to craft"
 	return ""
 
 
@@ -180,13 +215,51 @@ func _room_at(p: Vector2) -> String:
 func _unhandled_input(event: InputEvent) -> void:
 	if not (event is InputEventKey and event.pressed and not event.echo):
 		return
-	if _active < 0 or event.physical_keycode != KEY_E:
+	if _active < 0:
 		return
-	_interact(_stations[_active])
+	var st: Dictionary = _stations[_active]
+	if event.physical_keycode == KEY_E:
+		_interact(st)
+	elif st["kind"] == "comms" and event.physical_keycode in [KEY_1, KEY_2, KEY_3]:
+		var i: int = event.physical_keycode - KEY_1
+		if i < GameState.trader_stock.size():
+			var offer: Dictionary = GameState.trader_stock[i]
+			if GameState.buy_from_trader(i):
+				GameState.say("Bought 1 %s for %d ore. VESNA: Pleasure." % [
+					Elements.name_of(offer["sym"]), offer["price"]])
+			else:
+				GameState.say("VESNA: That's %d ore, friend. You have %d." % [
+					offer["price"], GameState.banked])
+	elif st["kind"] == "workbench" and event.physical_keycode in \
+			[KEY_1, KEY_2, KEY_3, KEY_4]:
+		var i: int = event.physical_keycode - KEY_1
+		var r: Dictionary = GameState.RECIPES[i]
+		if GameState.craft(i):
+			GameState.say("%s crafted — %s." % [r["name"], r["desc"]])
+		else:
+			GameState.say("Can't craft %s — check materials." % r["name"])
 
 
 func _interact(st: Dictionary) -> void:
 	match st["kind"]:
+		"drive":
+			if GameState.game_complete:
+				_ending_t = 0.001   # roll credits
+				return
+			var part: Dictionary = GameState.quest_part()
+			if GameState.quest_install():
+				GameState.say("LOG: " + part["log"])
+				if GameState.game_complete:
+					GameState.say("THE JUMP DRIVE IS COMPLETE. Return to it when you're ready.")
+			else:
+				GameState.say("Missing materials — %s" % GameState.quest_progress_text())
+		"board":
+			var n := GameState.deliver_contracts()
+			if n > 0:
+				GameState.say("%d contract%s delivered. Reputation %d. VESNA: Word travels." % [
+					n, "s" if n > 1 else "", GameState.reputation])
+			else:
+				GameState.say("Nothing ready to deliver yet.")
 		"expand":
 			var cost: int = GameState.ROOM_TYPES["room"]["cost"]
 			if GameState.build_room(st["cell"], "room"):
@@ -341,6 +414,28 @@ func _draw() -> void:
 				draw_rect(Rect2(mid + dir * 16.0 - Vector2(2, 2) + dir * 2.0, Vector2(4, 4)),
 					Color(0.55, 0.9, 1.0, 0.6))
 	_draw_stations()
+	if _ending_t > 0.0:
+		_draw_ending()
+
+
+func _draw_ending() -> void:
+	## Camera sits on the crew; paint the whole view. Fade to black,
+	## then the words you crossed a galaxy for.
+	var center: Vector2 = crew.position
+	var rect := Rect2(center - Vector2(660, 380), Vector2(1320, 760))
+	var fade := clampf(_ending_t / 2.5, 0.0, 1.0)
+	draw_rect(rect, Color(0, 0.01, 0.02, fade), true)
+	if _ending_t > 2.5:
+		var a := clampf((_ending_t - 2.5) / 1.5, 0.0, 1.0)
+		draw_string(_font, center + Vector2(-400, -20), "THE LONG WAY HOME",
+			HORIZONTAL_ALIGNMENT_CENTER, 800, 42,
+			Color(UITheme.ACCENT.r, UITheme.ACCENT.g, UITheme.ACCENT.b, a))
+	if _ending_t > 4.2:
+		var a2 := clampf((_ending_t - 4.2) / 1.5, 0.0, 1.0)
+		draw_string(_font, center + Vector2(-400, 24),
+			"Shift %d. %d elements discovered. You made it." % [
+				GameState.shift, GameState.discovered.size()],
+			HORIZONTAL_ALIGNMENT_CENTER, 800, 16, Color(1, 1, 1, a2))
 
 
 func _draw_room_cell(cell: int) -> void:
@@ -481,6 +576,46 @@ func _draw_stations() -> void:
 						else Color(1.0, 0.4, 0.3, 0.08 + 0.05 * pulse)
 					draw_rect(target.grow(-6.0), holo, true)
 					draw_rect(target.grow(-6.0), Color(holo.r, holo.g, holo.b, 0.55), false, 1.5)
+			"drive":
+				# the jump drive assembly — grows brighter per installed part
+				var stage := GameState.quest_stage
+				var pulse2 := 0.5 + 0.5 * sin(_reactor * (1.0 + stage))
+				draw_rect(Rect2(p.x - 18, p.y - 10, 36, 22), Color(0.16, 0.14, 0.2))
+				draw_rect(Rect2(p.x - 18, p.y - 10, 36, 22),
+					Color(0.7, 0.5, 1.0, 0.5 + 0.4 * pulse2 if on else 0.35), false, 1.5)
+				for s2 in 5:
+					var lit := s2 < stage
+					draw_rect(Rect2(p.x - 14 + s2 * 6, p.y - 5, 4, 12),
+						Color(0.7, 0.5, 1.0, 0.5 + 0.5 * pulse2) if lit else Color(1, 1, 1, 0.10))
+				if GameState.game_complete:
+					draw_circle(p, 26.0, Color(0.7, 0.5, 1.0, 0.10 + 0.08 * pulse2))
+			"board":
+				draw_rect(Rect2(p.x - 16, p.y - 12, 32, 24), Color(0.1, 0.14, 0.2))
+				draw_rect(Rect2(p.x - 16, p.y - 12, 32, 24),
+					Color(0.55, 0.9, 1.0, 0.8 if on else 0.4), false, 1.5)
+				for li in 3:
+					var cready: bool = li < GameState.contracts.size() and \
+						int(GameState.elements.get(GameState.contracts[li]["sym"], 0)) >= \
+						int(GameState.contracts[li]["qty"])
+					draw_line(Vector2(p.x - 11, p.y - 6 + li * 7), Vector2(p.x + 11, p.y - 6 + li * 7),
+						Color(0.4, 1.0, 0.5, 0.8) if cready else Color(0.55, 0.9, 1.0, 0.35), 2.0)
+				if on:
+					_draw_board_panel(st)
+			"comms":
+				var pulse3 := 0.5 + 0.5 * sin(_reactor * 2.5)
+				draw_rect(Rect2(p.x - 10, p.y - 14, 20, 24), Color(0.14, 0.12, 0.1))
+				draw_rect(Rect2(p.x - 10, p.y - 14, 20, 24),
+					Color(1.0, 0.75, 0.3, 0.8 if on else 0.4), false, 1.5)
+				draw_circle(p + Vector2(0, -18), 2.5, Color(1.0, 0.75, 0.3, 0.4 + 0.5 * pulse3))
+				if on:
+					_draw_comms_panel(st)
+			"workbench":
+				draw_rect(Rect2(p.x - 16, p.y - 6, 32, 14), Color(0.3, 0.26, 0.2))
+				draw_rect(Rect2(p.x - 16, p.y - 6, 32, 14),
+					Color(0.5, 1.0, 0.6, 0.7 if on else 0.3), false, 1.5)
+				draw_line(p + Vector2(-8, -6), p + Vector2(-4, -14), Color(0.6, 0.65, 0.7), 2.0)
+				if on:
+					_draw_workbench_panel(st)
 			_:
 				var glow := Color(0.35, 0.8, 1.0, 0.9) if on else Color(0.3, 0.5, 0.7, 0.7)
 				draw_rect(Rect2(p.x - 12, p.y - 4, 24, 18), Color(0.22, 0.25, 0.32))
@@ -495,3 +630,65 @@ func _draw_stations() -> void:
 						draw_circle(p + Vector2(0, -12), 4.0, Color(1.0, 0.4, 0.3, 0.9))
 				if on:
 					draw_circle(p + Vector2(0, 4), 34.0, Color(0.35, 0.8, 1.0, 0.06))
+
+
+func _menu_panel(p: Vector2, w: float, h: float) -> Rect2:
+	var rect := Rect2(p + Vector2(-w * 0.5, -h - 26.0), Vector2(w, h))
+	draw_rect(rect, Color(0.02, 0.09, 0.13, 0.92))
+	draw_rect(rect, Color(0.55, 0.9, 1.0, 0.6), false, 1.2)
+	return rect
+
+
+func _draw_board_panel(st: Dictionary) -> void:
+	var rect := _menu_panel(st["pos"], 196.0, 20.0 + GameState.contracts.size() * 16.0)
+	draw_string(_font, rect.position + Vector2(8, 13), "OPEN CONTRACTS",
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.55, 0.9, 1.0, 0.7))
+	for i in GameState.contracts.size():
+		var c: Dictionary = GameState.contracts[i]
+		var have: int = int(GameState.elements.get(c["sym"], 0))
+		var ok: bool = have >= int(c["qty"])
+		draw_string(_font, rect.position + Vector2(8, 28 + i * 16),
+			"%d× %s (%d/%d)" % [c["qty"], Elements.name_of(c["sym"]), mini(have, c["qty"]), c["qty"]],
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 10,
+			Color(0.4, 1.0, 0.5) if ok else UITheme.TEXT_DIM)
+		draw_string(_font, rect.position + Vector2(0, 28 + i * 16),
+			"%d ore  " % c["reward"], HORIZONTAL_ALIGNMENT_RIGHT, rect.size.x - 6, 10,
+			UITheme.ACCENT_WARM)
+
+
+func _draw_comms_panel(st: Dictionary) -> void:
+	var rect := _menu_panel(st["pos"], 188.0, 20.0 + GameState.trader_stock.size() * 16.0)
+	draw_string(_font, rect.position + Vector2(8, 13), "VESNA'S STOCK · SHIFT %d" % GameState.shift,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(1.0, 0.75, 0.3, 0.8))
+	for i in GameState.trader_stock.size():
+		var o: Dictionary = GameState.trader_stock[i]
+		var afford: bool = GameState.banked >= int(o["price"])
+		draw_string(_font, rect.position + Vector2(8, 28 + i * 16),
+			"[%d] %s — %s" % [i + 1, o["sym"], Elements.name_of(o["sym"])],
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 10,
+			UITheme.TEXT if afford else Color(1, 1, 1, 0.3))
+		draw_string(_font, rect.position + Vector2(0, 28 + i * 16),
+			"%d ore  " % o["price"], HORIZONTAL_ALIGNMENT_RIGHT, rect.size.x - 6, 10,
+			Color(0.4, 1.0, 0.5) if afford else Color(1.0, 0.4, 0.3, 0.6))
+
+
+func _draw_workbench_panel(st: Dictionary) -> void:
+	var rect := _menu_panel(st["pos"], 224.0, 20.0 + GameState.RECIPES.size() * 16.0)
+	draw_string(_font, rect.position + Vector2(8, 13),
+		"WORKBENCH · CANISTERS %d/3" % GameState.canisters,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.5, 1.0, 0.6, 0.8))
+	for i in GameState.RECIPES.size():
+		var r: Dictionary = GameState.RECIPES[i]
+		var owned: bool = not r.get("repeat", false) and GameState.crafted.has(r["id"])
+		var req_bits: Array = []
+		for sym in r["req"]:
+			req_bits.append("%d %s" % [r["req"][sym], sym])
+		var label: String = "[%d] %s" % [i + 1, r["name"]]
+		if owned:
+			label += " ✓"
+		draw_string(_font, rect.position + Vector2(8, 28 + i * 16), label,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 10,
+			Color(0.5, 1.0, 0.6) if owned else UITheme.TEXT)
+		draw_string(_font, rect.position + Vector2(0, 28 + i * 16),
+			", ".join(req_bits) + "  ", HORIZONTAL_ALIGNMENT_RIGHT, rect.size.x - 6, 9,
+			UITheme.TEXT_DIM)

@@ -61,11 +61,12 @@ func _apply_tether(delta: float) -> void:
 		return
 	var n := offset / dist
 	var over := dist - max_len
+	var stretch := GameState.tether_stretch()   # dampener craft extends it
 	# absolute end of the line — the elastic is fully stretched
-	if over > TETHER_STRETCH:
-		global_position = tether_anchor + n * (max_len + TETHER_STRETCH)
-		over = TETHER_STRETCH
-	var t := over / TETHER_STRETCH   # 0..1 how deep into the bungee zone
+	if over > stretch:
+		global_position = tether_anchor + n * (max_len + stretch)
+		over = stretch
+	var t := over / stretch   # 0..1 how deep into the bungee zone
 	# bleed outward speed progressively — no wall, just thickening resistance
 	var radial := velocity.dot(n)
 	if radial > 0.0:
@@ -106,9 +107,15 @@ func _update_laser(delta: float) -> void:
 func _update_oxygen(delta: float) -> void:
 	if in_dock:
 		GameState.refill_oxygen(REFILL_RATE * delta)
-	else:
-		if GameState.drain_oxygen(OXYGEN_DRAIN * delta):
-			_black_out()
+		return
+	# crafted emergency canister kicks in before you fade
+	if GameState.canisters > 0 \
+			and GameState.oxygen < GameState.max_oxygen * 0.15:
+		GameState.canisters -= 1
+		GameState.refill_oxygen(40.0)
+		GameState.say("Emergency O2 canister discharged. (%d left)" % GameState.canisters)
+	if GameState.drain_oxygen(OXYGEN_DRAIN * delta):
+		_black_out()
 
 
 func _black_out() -> void:
@@ -144,7 +151,7 @@ func _draw_tether() -> void:
 		p.y += sin(t * PI) * sag
 		pts.append(p)
 	# strain shows: gold when easy, hot red-orange and thin at full stretch
-	var strain := clampf((dist - GameState.tether_length) / TETHER_STRETCH, 0.0, 1.0)
+	var strain := clampf((dist - GameState.tether_length) / GameState.tether_stretch(), 0.0, 1.0)
 	var col := Color(1.0, 0.85, 0.3, 0.9).lerp(Color(1.0, 0.35, 0.2, 1.0), strain)
 	draw_polyline(pts, col, 2.0 - strain * 0.8)
 

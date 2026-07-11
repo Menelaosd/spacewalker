@@ -7,6 +7,7 @@ signal cargo_changed(carried: int, banked: int)
 signal inventory_changed()
 signal gear_changed()
 signal notify(text: String)
+signal quest_changed()
 
 const SAVE_DIR := "user://saves"
 const SAVE_VERSION := 3
@@ -117,11 +118,59 @@ var _scoop_accum := 0.0
 # Where the ship is parked in open space. ZERO = home station.
 var sector := Vector2.ZERO
 
+# ==================================================================
+# THE LONG WAY HOME — story quest. Rebuild the jump drive from real
+# elements. Each part needs metals you mine, salvage, trade or earn.
+# ==================================================================
+const QUEST_PARTS := [
+	{"name": "Plasma Conduits", "req": {"Fe": 12, "Si": 8}, "ore": 20,
+		"log": "Conduits seated. The drive hums for the first time in years."},
+	{"name": "Coolant Loop", "req": {"Mg": 10, "Al": 6}, "ore": 30,
+		"log": "Coolant cycling. She runs cold and quiet now."},
+	{"name": "Field Coils", "req": {"Ni": 8, "Ti": 6, "Cu": 4}, "ore": 40,
+		"log": "Coils wound. Blue jump-field light flickers across the hull."},
+	{"name": "Ignition Lattice", "req": {"Ag": 3, "Pt": 2, "Au": 1}, "ore": 50,
+		"log": "Lattice aligned. One spark left to find — the heart."},
+	{"name": "Fuel Core", "req": {"U": 1, "Th": 1}, "ore": 60,
+		"log": "The core burns steady. Course locked: HOME."},
+]
+var quest_stage := 0          # part being built; QUEST_PARTS.size() = done
+var game_complete := false
+
+# --- Contracts: rotating element requests, delivered at the cargo board
+const CONTRACT_POOL := ["O", "C", "Mg", "Si", "Fe", "S", "Al", "Ca", "Na",
+	"Ni", "Ti", "Cu", "Zn", "Cr", "Mn"]
+var contracts: Array = []     # [{sym, qty, reward}]
+var reputation := 0
+
+# --- Vesna's market: buy elements with ore; rep unlocks rarer stock
+const TRADER_T1 := ["V", "Co", "Ga", "Zr", "Sr"]     # rep >= 3
+const TRADER_T2 := ["Ag", "Pd", "Pt", "Au", "W"]     # rep >= 6
+const TRADER_T3 := ["Th", "U"]                       # rep >= 10
+var trader_stock: Array = []  # [{sym, price}]
+
+# --- Workbench: element-cost crafting at the Upgrade Bay
+const RECIPES := [
+	{"id": "canister", "name": "O2 Canister", "req": {"O": 4, "Fe": 2},
+		"desc": "auto +40 O2 when low (max 3)", "repeat": true},
+	{"id": "magnet", "name": "Magnet Coil", "req": {"Cu": 6, "Ni": 4},
+		"desc": "+60% pickup reach"},
+	{"id": "lens", "name": "Gold Lens", "req": {"Au": 1, "Si": 4},
+		"desc": "+20 laser power"},
+	{"id": "dampener", "name": "Tether Dampener", "req": {"Ti": 3, "Al": 5},
+		"desc": "+60 line stretch"},
+]
+var crafted := {}             # id -> true (permanent mods)
+var canisters := 0
+
+var shift := 0                # a "day": increments each return to the ship
+
 # --- Session (not saved) ---
 var slot: int = -1          # active save slot, -1 = none
 var in_game := false        # false on the title screen
 var wake_on_bunk := false   # set by a blackout; interior spawns you in bed
 var last_lost: int = 0      # ore lost in the last blackout
+var flare_phase := ""       # "", "warn", "burn" — set by the dive scene
 
 
 # ------------------------------------------------------------------
@@ -340,6 +389,14 @@ func save_game() -> void:
 		"elements": elements,
 		"discovered": discovered.keys(),
 		"rooms": _rooms_to_json(),
+		"quest_stage": quest_stage,
+		"game_complete": game_complete,
+		"reputation": reputation,
+		"shift": shift,
+		"canisters": canisters,
+		"crafted": crafted.keys(),
+		"contracts": contracts,
+		"trader_stock": trader_stock,
 		"sector": [sector.x, sector.y],
 		"saved_at": Time.get_date_string_from_system(),
 	}
@@ -391,6 +448,21 @@ func load_game(s: int) -> bool:
 				and rj[k] is String and ROOM_TYPES.has(rj[k]) \
 				and ROOM_TYPES[rj[k]].get("buildable", false):
 			rooms[cell] = rj[k]
+	quest_stage = int(data.get("quest_stage", 0))
+	game_complete = bool(data.get("game_complete", false))
+	reputation = int(data.get("reputation", 0))
+	shift = int(data.get("shift", 0))
+	canisters = int(data.get("canisters", 0))
+	crafted = {}
+	for id in data.get("crafted", []):
+		crafted[id] = true
+	contracts = []
+	for c in data.get("contracts", []):
+		contracts.append({"sym": str(c["sym"]), "qty": int(c["qty"]),
+			"reward": int(c["reward"])})
+	trader_stock = []
+	for o in data.get("trader_stock", []):
+		trader_stock.append({"sym": str(o["sym"]), "price": int(o["price"])})
 	var sec: Array = data.get("sector", [0.0, 0.0])
 	sector = Vector2(sec[0], sec[1])
 	carried = 0
@@ -424,6 +496,14 @@ func new_game(s: int) -> void:
 	carried_veins = {}
 	discovered = {}
 	rooms = DEFAULT_ROOMS.duplicate()
+	quest_stage = 0
+	game_complete = false
+	reputation = 0
+	shift = 0
+	canisters = 0
+	crafted = {}
+	contracts = []
+	trader_stock = []
 	sector = Vector2.ZERO
 	wake_on_bunk = false
 	in_game = true
@@ -432,6 +512,204 @@ func new_game(s: int) -> void:
 	inventory_changed.emit()
 	gear_changed.emit()
 	save_game()
+
+
+# ------------------------------------------------------------------
+# Quest
+# ------------------------------------------------------------------
+func quest_part() -> Dictionary:
+	return QUEST_PARTS[quest_stage] if quest_stage < QUEST_PARTS.size() else {}
+
+
+func quest_progress_text() -> String:
+	if quest_stage >= QUEST_PARTS.size():
+		return "JUMP DRIVE COMPLETE"
+	var part: Dictionary = QUEST_PARTS[quest_stage]
+	var bits: Array = []
+	for sym in part["req"]:
+		bits.append("%s %d/%d" % [sym, mini(int(elements.get(sym, 0)), part["req"][sym]),
+			part["req"][sym]])
+	bits.append("ore %d/%d" % [mini(banked, part["ore"]), part["ore"]])
+	return " · ".join(bits)
+
+
+func quest_can_install() -> bool:
+	if quest_stage >= QUEST_PARTS.size():
+		return false
+	var part: Dictionary = QUEST_PARTS[quest_stage]
+	for sym in part["req"]:
+		if int(elements.get(sym, 0)) < int(part["req"][sym]):
+			return false
+	return banked >= int(part["ore"])
+
+
+func quest_install() -> bool:
+	if not quest_can_install():
+		return false
+	var part: Dictionary = QUEST_PARTS[quest_stage]
+	for sym in part["req"]:
+		elements[sym] = int(elements[sym]) - int(part["req"][sym])
+	banked -= int(part["ore"])
+	quest_stage += 1
+	if quest_stage >= QUEST_PARTS.size():
+		game_complete = true
+	cargo_changed.emit(carried, banked)
+	inventory_changed.emit()
+	quest_changed.emit()
+	save_game()
+	return true
+
+
+# ------------------------------------------------------------------
+# Element pricing — rarity is the price tag (log-scale on abundance)
+# ------------------------------------------------------------------
+func price_of(sym: String) -> int:
+	var pct: float = 0.0001
+	for e in Elements.TABLE:
+		if e[0] == sym:
+			pct = e[3]
+			break
+	var frac := pct / 100.0
+	var p := 2 + int(pow(maxf(-log(frac) / log(10.0) - 3.0, 0.0), 2.0) * 0.8)
+	return clampi(p, 2, 90)
+
+
+# ------------------------------------------------------------------
+# Contracts — rotate per shift, deliver at the cargo board
+# ------------------------------------------------------------------
+func roll_contracts() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = shift * 7919 + slot * 131 + 17
+	contracts = []
+	var pool := CONTRACT_POOL.duplicate()
+	for i in 3:
+		var sym: String = pool[rng.randi_range(0, pool.size() - 1)]
+		pool.erase(sym)
+		var price := price_of(sym)
+		var qty := clampi(9 - int(price / 8.0), 1, 9)
+		contracts.append({"sym": sym, "qty": qty,
+			"reward": qty * price + 8 + rng.randi_range(0, 6)})
+
+
+func deliver_contracts() -> int:
+	var done := 0
+	var remaining: Array = []
+	for c in contracts:
+		if int(elements.get(c["sym"], 0)) >= int(c["qty"]):
+			elements[c["sym"]] = int(elements[c["sym"]]) - int(c["qty"])
+			banked += int(c["reward"])
+			reputation += 1
+			done += 1
+		else:
+			remaining.append(c)
+	contracts = remaining
+	if done > 0:
+		cargo_changed.emit(carried, banked)
+		inventory_changed.emit()
+		save_game()
+	return done
+
+
+func contracts_ready() -> int:
+	var n := 0
+	for c in contracts:
+		if int(elements.get(c["sym"], 0)) >= int(c["qty"]):
+			n += 1
+	return n
+
+
+# ------------------------------------------------------------------
+# Vesna's market
+# ------------------------------------------------------------------
+func roll_trader() -> void:
+	var pool := CONTRACT_POOL.duplicate()
+	if reputation >= 3:
+		pool.append_array(TRADER_T1)
+	if reputation >= 6:
+		pool.append_array(TRADER_T2)
+	if reputation >= 10:
+		pool.append_array(TRADER_T3)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = shift * 6113 + slot * 977 + 5
+	trader_stock = []
+	for i in 3:
+		var sym: String = pool[rng.randi_range(0, pool.size() - 1)]
+		pool.erase(sym)
+		trader_stock.append({"sym": sym, "price": price_of(sym)})
+
+
+func buy_from_trader(i: int) -> bool:
+	if i < 0 or i >= trader_stock.size():
+		return false
+	var offer: Dictionary = trader_stock[i]
+	if banked < int(offer["price"]):
+		return false
+	banked -= int(offer["price"])
+	elements[offer["sym"]] = mini(int(elements.get(offer["sym"], 0)) + 1, ELEMENT_CAP)
+	discovered[offer["sym"]] = true
+	cargo_changed.emit(carried, banked)
+	inventory_changed.emit()
+	return true
+
+
+# ------------------------------------------------------------------
+# Workbench crafting
+# ------------------------------------------------------------------
+func craft(i: int) -> bool:
+	if i < 0 or i >= RECIPES.size():
+		return false
+	var r: Dictionary = RECIPES[i]
+	if not r.get("repeat", false) and crafted.has(r["id"]):
+		return false
+	if r["id"] == "canister" and canisters >= 3:
+		return false
+	for sym in r["req"]:
+		if int(elements.get(sym, 0)) < int(r["req"][sym]):
+			return false
+	for sym in r["req"]:
+		elements[sym] = int(elements[sym]) - int(r["req"][sym])
+	match r["id"]:
+		"canister":
+			canisters += 1
+		"lens":
+			crafted["lens"] = true
+			laser_dps += 20.0
+		_:
+			crafted[r["id"]] = true
+	inventory_changed.emit()
+	gear_changed.emit()
+	save_game()
+	return true
+
+
+func tether_stretch() -> float:
+	return 90.0 + (60.0 if crafted.has("dampener") else 0.0)
+
+
+func pickup_reach() -> float:
+	return 130.0 * (1.6 if crafted.has("magnet") else 1.0)
+
+
+# ------------------------------------------------------------------
+# Shifts — a "day" ticks each time you come home to the ship
+# ------------------------------------------------------------------
+func begin_shift() -> String:
+	## Returns an optional radio line for flavor.
+	shift += 1
+	roll_contracts()
+	roll_trader()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = shift * 3571 + slot
+	if rng.randf() < 0.45:
+		var lines := [
+			"VESNA: Still breathing out there? Good. Check my stock.",
+			"VESNA: Belt rock's running rich this cycle. You didn't hear it from me.",
+			"VESNA: I pay honest ore for honest elements. Board's updated.",
+			"VESNA: That drive of yours... my scanner felt it hum from here.",
+			"VESNA: The Expanse eats miners. Bring canisters.",
+		]
+		return lines[rng.randi_range(0, lines.size() - 1)]
+	return ""
 
 
 func _rooms_to_json() -> Dictionary:
