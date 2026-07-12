@@ -311,7 +311,7 @@ var canisters := 0
 # feet, same depth trick as the fixed props).
 const Craftables := preload("res://scripts/craftables.gd")
 const FURN_COLS := 6
-const FURN_ROWS := 2
+const FURN_ROWS := 4   # depth rows across the floor — staggered like the core rooms
 signal recipes_changed
 signal furniture_changed
 var recipes_unlocked := {}    # craftable id -> true (STARTERS seed a new game)
@@ -745,7 +745,7 @@ func load_game(s: int) -> bool:
 			var id := str(p["id"])
 			var col := int(p.get("col", -1))
 			var row := int(p.get("row", 0))
-			if furniture_fits(cell, id, col, row):
+			if furniture_fits(cell, id, col, row, true):
 				if not furniture.has(cell):
 					furniture[cell] = []
 				furniture[cell].append({"id": id, "col": col, "row": row})
@@ -1148,7 +1148,7 @@ func furniture_at(cell: int) -> Array:
 	return furniture.get(cell, [])
 
 
-func furniture_fits(cell: int, id: String, col: int, row: int) -> bool:
+func furniture_fits(cell: int, id: String, col: int, row: int, loading := false) -> bool:
 	if not can_furnish_room(cell) or not Craftables.ITEMS.has(id):
 		return false
 	var size := int(Craftables.ITEMS[id]["size"])
@@ -1158,15 +1158,24 @@ func furniture_fits(cell: int, id: String, col: int, row: int) -> bool:
 	if Craftables.ITEMS[id].get("back", false) and row != 0:
 		return false
 	# flat pieces (rugs) live under everything — they only collide with
-	# other flat pieces; solid pieces only with solid ones on the same row
+	# other flat pieces; solid pieces collide same-row, and TALL pieces
+	# also refuse column-overlapping neighbors one row away (stops a table
+	# being jammed halfway inside a bed). The adjacent-row rule is
+	# placement-only (`loading` relaxes it so older saves keep their rooms).
 	var flat: bool = Craftables.ITEMS[id].get("flat", false)
+	var my_tall: bool = not flat and Craftables.dims_of(id).y > 38.0
 	for p in furniture_at(cell):
-		if int(p["row"]) != row:
+		var pid: String = p["id"]
+		var pflat: bool = Craftables.ITEMS[pid].get("flat", false)
+		var ps := int(Craftables.ITEMS[pid]["size"])
+		var col_overlap: bool = col < int(p["col"]) + ps and int(p["col"]) < col + size
+		if not col_overlap:
 			continue
-		if bool(Craftables.ITEMS[p["id"]].get("flat", false)) != flat:
-			continue
-		var ps := int(Craftables.ITEMS[p["id"]]["size"])
-		if col < int(p["col"]) + ps and int(p["col"]) < col + size:
+		var drow := absi(int(p["row"]) - row)
+		if drow == 0 and pflat == flat:
+			return false
+		if not loading and drow == 1 and not flat and not pflat \
+				and (my_tall or Craftables.dims_of(pid).y > 38.0):
 			return false
 	return true
 

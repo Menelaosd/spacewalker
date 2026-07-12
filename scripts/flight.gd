@@ -37,6 +37,7 @@ const TRASH_COLLECT_RADIUS := 70.0
 # fabricator recipe; medical ships and dead stations carry the fancy ones.
 const Craftables := preload("res://scripts/craftables.gd")
 const RECIPE_BANNER := preload("res://scripts/recipe_banner.gd")
+const DIALOG_SCENE := preload("res://scripts/dialog_scene.gd")
 const WRECK_COLLECT_RADIUS := 120.0
 const WRECK_CHANCE := 0.07
 const WRECK_SCALE := 0.42
@@ -60,6 +61,8 @@ var _field_cache := {}
 var _trash_cache := {}
 var _wreck_cache := {}
 var _recipe_banner: Control
+var _dialog: Control        # first-meeting conversation overlay
+var _in_dialog := false     # helm frozen while the meeting plays
 var _comets: Array = []          # {pos, vel, size, life}
 var _comet_timer := 6.0
 var _near_beacon := false        # in reach of the current distress beacon
@@ -88,6 +91,10 @@ func _ready() -> void:
 	_build_hud()
 	GameState.notify.connect(_on_notify)
 	GameState.say("You have the helm. Fields get richer the farther you fly.")
+	# debug: SW_DIALOG=JUNO opens that crew member's first-meeting dialog
+	if OS.get_environment("SW_DIALOG") != "":
+		_in_dialog = true
+		_dialog.start(OS.get_environment("SW_DIALOG"))
 	# debug: SW_WRECK=1 parks a rare derelict beside the ship and pops the
 	# recipe banner, for screenshots
 	if OS.get_environment("SW_WRECK") != "":
@@ -100,6 +107,10 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	if _in_dialog:
+		_t += delta
+		queue_redraw()   # the wreck keeps drifting behind the dialog dim
+		return
 	# helm controls: A/D yaw the ship, W burns the main drive, S retro-burns
 	_turn = Input.get_axis("move_left", "move_right")
 	_thr = Input.get_axis("move_down", "move_up")
@@ -143,6 +154,15 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 
+func _on_rescue_dialog_done() -> void:
+	## The screen is solid black under the dialog's fade — bring them aboard
+	## and cut to the ship interior, where they now live at their spot.
+	var r: Dictionary = GameState.do_rescue()
+	GameState.sector = ship_pos
+	GameState.say("%s is aboard — %s." % [r.get("name", ""), r.get("perk", "")])
+	get_tree().change_scene_to_file("res://scenes/ship_interior.tscn")
+
+
 func _exit_tree() -> void:
 	Sfx.stop_loops()
 
@@ -174,6 +194,8 @@ func _update_comets(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if _in_dialog:
+		return   # the dialog overlay owns all input
 	if not (event is InputEventKey and event.pressed and not event.echo):
 		return
 	match event.physical_keycode:
@@ -185,12 +207,11 @@ func _unhandled_input(event: InputEvent) -> void:
 				GameState.say("Docked at home.")
 				get_tree().change_scene_to_file("res://scenes/main.tscn")
 			elif _near_beacon:
-				GameState.sector = GameState.rescue_beacon()
-				GameState.save_game()
+				# board the broken ship — meet them face to face
+				_in_dialog = true
+				vel = Vector2.ZERO
 				Sfx.play("radio", -4.0)
-				GameState.say("Beacon locked. %s is out there — suit up." % \
-					GameState.rescue_target()["name"])
-				get_tree().change_scene_to_file("res://scenes/main.tscn")
+				_dialog.start(str(GameState.rescue_target()["name"]))
 			elif not _near_field.is_empty():
 				GameState.sector = _near_field["center"]
 				GameState.save_game()
@@ -495,6 +516,12 @@ func _build_hud() -> void:
 	_recipe_banner = RECIPE_BANNER.new()
 	root.add_child(_recipe_banner)
 
+	# first-meeting dialog — boarding a survivor's broken ship plays this,
+	# then fades to black and brings them aboard
+	_dialog = DIALOG_SCENE.new()
+	root.add_child(_dialog)
+	_dialog.finished.connect(_on_rescue_dialog_done)
+
 
 func _update_hud() -> void:
 	var km := ship_pos.length() / 100.0
@@ -509,7 +536,7 @@ func _update_hud() -> void:
 	_pos_label.text = line
 	_cargo_label.text = "Banked ore: %d" % GameState.banked
 	if _near_beacon:
-		_prompt_label.set_prompt("E    Answer the distress beacon — %s, %s" % [
+		_prompt_label.set_prompt("E    Board the wreck — %s, %s" % [
 			GameState.rescue_target()["name"], GameState.rescue_target()["role"]])
 		_prompt_label.modulate.a = 0.95
 	elif _near_home:
@@ -520,7 +547,7 @@ func _update_hud() -> void:
 			_near_field["rich"] * 100.0))
 		_prompt_label.modulate.a = 0.95
 	elif _scooping:
-		_prompt_label.set_prompt("◌  Scooping nebula gas — H ×%d · He ×%d" % [
+		_prompt_label.set_prompt("Scooping nebula gas — H ×%d, He ×%d" % [
 			int(GameState.elements.get("H", 0)),
 			int(GameState.elements.get("He", 0))])
 		_prompt_label.modulate.a = 0.75
@@ -737,24 +764,45 @@ func _draw_fields(center: Vector2, half: Vector2) -> void:
 
 
 func _draw_beacon(center: Vector2) -> void:
-	## The current survivor's dead lifeboat — strobing distress light.
+	## The current survivor's BROKEN SHIP — their own hull, dead in the black,
+	## distress strobe still blinking. Board it (E) to meet them.
 	if not GameState.rescue_available():
 		return
 	var bp := GameState.rescue_beacon()
 	if (bp - center).length() > 1600.0:
 		return
 	var pulse := 0.5 + 0.5 * sin(_t * 4.0)
-	draw_set_transform(bp, 0.35, Vector2.ONE)
-	draw_rect(Rect2(-16, -7, 32, 14), Color(0.45, 0.48, 0.55))
-	draw_rect(Rect2(-16, -7, 32, 14), Color(0.2, 0.22, 0.28), false, 2.0)
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	var tname := str(GameState.rescue_target().get("name", ""))
+	var tex := _crew_wreck_tex(tname)
+	if tex != null:
+		# player-ship scale (~156px hull) — their craft, not a mothership
+		var s := 160.0 / tex.get_size().x
+		draw_set_transform(bp, 0.18, Vector2(s, s))
+		draw_texture(tex, -tex.get_size() * 0.5, Color(0.85, 0.88, 0.95))
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	else:
+		draw_set_transform(bp, 0.35, Vector2.ONE)
+		draw_rect(Rect2(-16, -7, 32, 14), Color(0.45, 0.48, 0.55))
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	draw_circle(bp + Vector2(0, -12), 3.0, Color(1.0, 0.85, 0.3, 0.4 + 0.6 * pulse))
-	draw_arc(bp, 40.0 + pulse * 14.0, 0.0, TAU, 40,
-		Color(1.0, 0.85, 0.3, 0.5 - 0.3 * pulse), 2.0)
+	draw_arc(bp, 90.0 + pulse * 14.0, 0.0, TAU, 40,
+		Color(1.0, 0.85, 0.3, 0.4 - 0.25 * pulse), 2.0)
 	draw_arc(bp, 300.0, 0.0, TAU, 64, Color(1.0, 0.85, 0.3, 0.14), 2.0)
-	draw_string(_font, bp + Vector2(-70, -30), "DISTRESS BEACON",
-		HORIZONTAL_ALIGNMENT_CENTER, 140, 11,
+	draw_string(_font, bp + Vector2(-90, -84), "%s'S SHIP — NO POWER" % tname,
+		HORIZONTAL_ALIGNMENT_CENTER, 180, 11,
 		Color(1.0, 0.85, 0.3, 0.5 + 0.4 * pulse))
+
+
+var _crew_wreck_cache := {}
+
+
+func _crew_wreck_tex(tname: String) -> Texture2D:
+	if tname == "":
+		return null
+	if not _crew_wreck_cache.has(tname):
+		_crew_wreck_cache[tname] = load(
+			"res://assets/sprites/crew/%s_wreck.png" % tname.to_lower())
+	return _crew_wreck_cache[tname]
 
 
 func _draw_home() -> void:

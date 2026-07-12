@@ -69,16 +69,14 @@ func _ready() -> void:
 			GameState.region_at(GameState.sector)["name"],
 			int(GameState.sector_richness() * 100.0)])
 
-	# a lost friend drifts somewhere near the wreck
-	_rescue_active = GameState.at_rescue_site()
-	if _rescue_active:
-		var rrng := RandomNumberGenerator.new()
-		rrng.seed = GameState.rescued_count() * 991 + 55
-		_npc_pos = Vector2.from_angle(rrng.randf() * TAU) \
-			* rrng.randf_range(380.0, 520.0)
+	# rescues happen at the HELM now — you board their broken ship and meet
+	# them face to face (dialog_scene). Spacewalking near the site just
+	# points the player back to the cockpit.
+	_rescue_active = false
+	if GameState.at_rescue_site():
 		Sfx.play("radio", -6.0)
-		GameState.say("Short-range ping... %s is HERE. Find them, %s." % [
-			GameState.rescue_target()["name"], GameState.pilot_name()])
+		GameState.say("That's %s's ship out there, dead in the black. Take the helm and board it." % \
+			GameState.rescue_target()["name"])
 
 	# hazard clocks — flares come sooner in Ember Reach and The Expanse
 	GameState.flare_phase = ""

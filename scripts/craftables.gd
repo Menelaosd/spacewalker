@@ -445,6 +445,70 @@ const WRECKS := [
 const RARE_WRECKS := [12, 13, 14, 15, 17, 18, 19]
 
 
+# ==================================================================
+# Display widths — hand-tuned px per object, SAME SCALE as the core
+# rooms' ROOM_PROPS (crew ≈ 34px tall; kit locker 28, bunk 62). The
+# slot count above is the placement FOOTPRINT; this is how big the
+# art actually draws, so a nightstand stays small and a bed reads as
+# a bed instead of both being stretched to their slot span.
+# ==================================================================
+const WIDTHS := {
+	# quarters — anchor points from ROOM_PROPS: bunk 62, nightstand 34, locker 28
+	"bed_single": 48, "bed_double": 58, "bunk_bed": 44, "sleep_pod": 30,
+	"locker": 28, "wardrobe": 42, "dresser": 40, "nightstand": 30,
+	"desk_terminal": 50, "desk_chair": 26, "bookshelf": 30, "rug_round": 46,
+	"floor_lamp": 20, "pet_bed": 28, "vanity_mirror": 42, "standing_mirror": 22,
+	"ottoman": 24, "footlocker": 28, "folding_screen": 38, "painting": 26,
+	"bench_seat": 40, "side_table": 26, "wall_shelf": 30, "luggage": 28,
+	# galley
+	"kitchen_counter": 50, "sink_unit": 46, "stove": 46, "fridge": 30,
+	"microwave_station": 42, "coffee_bar": 42, "prep_station": 44, "pantry": 30,
+	"dining_table": 70, "cafe_table": 50, "bar_counter": 64, "vending_machine": 28,
+	"water_cooler": 22, "recycler": 42, "espresso_machine": 24,
+	"popcorn_machine": 26, "dish_rack": 42, "freezer": 46, "produce_rack": 44,
+	"booth_table": 52, "brew_urn": 22, "stand_mixer": 22, "rice_cooker": 22,
+	"serving_cart": 28,
+	# science
+	"med_bed": 50, "body_scanner": 62, "medicine_cabinet": 28, "surgery_light": 28,
+	"lab_bench": 48, "microscope_desk": 46, "holo_table": 46, "server_rack": 28,
+	"stasis_tube": 28, "specimen_tank": 28, "hydroponic_tray": 46, "grow_rack": 30,
+	"terrarium_dome": 42, "algae_tank": 28, "centrifuge": 42, "sample_fridge": 28,
+	"uv_light": 42, "seedling_table": 44, "water_purifier": 42, "robot_arm": 44,
+	"lab_console": 48, "ecg_monitor": 42, "culture_cylinder": 26, "herb_cabinet": 28,
+	# engineering
+	"cargo_crate": 28, "crate_stack": 44, "storage_shelf": 42, "tool_wall": 42,
+	"generator": 46, "reactor_core": 48, "battery_bank": 28, "fuel_tank": 46,
+	"gas_rack": 26, "smelter": 46, "laser_cutter": 48, "workbench_arm": 48,
+	"conveyor": 64, "coolant_tank": 26, "forklift": 46, "winch": 28,
+	"pipe_valve": 42, "fan_unit": 28, "tesla_coil": 26, "barrier": 28,
+	"gear_press": 42, "lathe": 48, "gantry_crane": 56, "fuel_canister": 20,
+	# lounge
+	"sofa": 58, "armchair": 30, "bean_bag": 30, "coffee_table": 44,
+	"arcade_cabinet": 28, "jukebox": 28, "pool_table": 62, "foosball": 50,
+	"holo_chess": 46, "telescope": 28, "aquarium": 46, "bonsai": 26,
+	"fountain": 40, "fireplace": 46, "potted_plant": 24, "alien_plant": 26,
+	"crystal_planter": 26, "trophy_case": 42, "gold_bust": 22, "armillary": 24,
+	"dance_pad": 42, "poker_table": 54, "dartboard": 26, "synth_keyboard": 42,
+	"turntable": 26, "planetarium": 28, "hedge_wall": 42, "gem_case": 26,
+	"star_chart": 28, "banner": 18,
+}
+
+
+const H_CAP := 52.0   # display height cap — nothing towers over the ~34px crew
+
+
+static func width_of(id: String) -> float:
+	return float(WIDTHS.get(id, int(ITEMS[id]["size"]) * 24))
+
+
+static func dims_of(id: String) -> Vector2:
+	## final DISPLAY size: box-fit of hand-tuned width + universal height cap
+	var tex: Texture2D = ITEMS[id]["tex"]
+	var ts := tex.get_size()
+	var s := minf(width_of(id) / ts.x, H_CAP / ts.y)
+	return ts * s
+
+
 static func ids_in_category(cat: String) -> Array:
 	## catalogue order is authoring order — stable for the modal grid
 	var out: Array = []

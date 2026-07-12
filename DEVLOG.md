@@ -5,6 +5,83 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 13/07/2026 — v1.36: the captain in dialogs, crew art aboard, print-in FX, size pass 2
+
+- **The PILOT is in the conversation.** The captain's new back-view figure
+  (conditioned by tools/prep_player.gd — border flood key, crop, feather) now
+  stands on the LEFT of every meeting, gesturing toward the survivor; the
+  ACTIVE speaker draws bright while the listener dims. HALE and MIRA's art
+  faced away from the conversation — mirrored via transform (`FLIP` const;
+  negative-size rects don't reposition in Godot, learned the hard way).
+- **Crew art aboard the ship**: rescued crewmates now render with their OWN
+  `_token` sprites (crew-scale ~40px, name overhead, walk-flip kept) instead
+  of the generic tinted kit astronaut. Their wrecked ship at the rescue site
+  shrank 240 → 160px — their craft, not a mothership.
+- **Fabricator PRINT-IN effect** (captain's ask): a placed object materializes
+  BOTTOM-UP over 0.9s — only the printed portion exists, glowing fab-blue and
+  cooling to true color, with a bright print line at the build edge. And
+  printing no longer bounces back to the catalogue: you STAY in placement to
+  print more; Esc returns to the modal. The whole grid (all 4 rows × 6 slots)
+  stays visible while building, targeted row brightest.
+- **Size pass 2 (captain's live feedback):** composite-set art (café table
+  with its chairs, dining table, booths, poker/foosball) got bigger widths so
+  the table itself reads right. Collision is now a BASE box (bottom ~55% of
+  the sprite) — deep enough to stop walking through, shallow enough that two
+  water coolers no longer wall off a corridor. **Anti-overlap rule:** a tall
+  piece (>38px) refuses column-overlapping neighbors one depth-row away —
+  no more tables jammed halfway inside beds; placement-only (saves load
+  relaxed so nobody's rooms get purged). Same-cell pieces draw sorted by
+  depth row. All rules sim-verified (FITS3 PASS).
+- **Multi-keycap prompts**: KeyPrompt now renders every `KEY  text` segment
+  (split on ·) as a real keycap — "E Talk · I check ID" shows two keycaps
+  (the I was plain text before, captain caught it).
+
+## 13/07/2026 — v1.35: CREW MEETINGS — board their wreck, talk, check IDs
+
+The rescue moment is now a scene, not a pickup (captain's spec):
+- **You find their BROKEN SHIP, not a beacon.** The rescue site in flight mode
+  renders the character's own wrecked hull (crew `_wreck` art, strobe still
+  blinking, "HALE'S SHIP — NO POWER"). `E` boards it.
+- **First-meeting dialog** (`scripts/dialog_scene.gd` + `scripts/crew_dialogs.gd`):
+  full-screen conversation — the character's large figure on the RIGHT, waist-up
+  above the dialog panel, typewriter text, Space/click advances, Esc skips.
+  9 exchanges per character, written in-voice (HALE insults you mid-rescue,
+  JUNO is already fixing things, MIRA apologizes about her ferns, SOLA trails
+  off, VEGA is perfectly literal) — one HELIOS reference each, no pep talks.
+- **Fade to black → aboard.** The dialog ends under a solid-black fade, the
+  rescue applies (perk + save), and you fade into the ship interior where they
+  now stand at their spot.
+- **Talk to them aboard**: walking up to a rescued crewmate offers
+  `E Talk · I check ID`. E says a random personality quote (5 per character);
+  I opens the **CREW ID modal** (`scripts/id_modal.gd`) — their actual ID card
+  art, "CREW REGISTRY — HELIOS EXILE MANIFEST". The old spacewalk drifting-
+  survivor pickup is retired (spacewalking the site points you to the helm).
+- Debug: SW_DIALOG=<NAME> (flight) opens the meeting, SW_ID=<NAME> (interior)
+  opens the ID. All five characters' dialog data + all 30 crew assets verified
+  by sim. The captain's new player-back figure will slot into the dialog's
+  left side when it lands in the assets folder.
+
+## 13/07/2026 — v1.34: furniture scale normalized + 4-row placement grid
+
+Captain's audit after live play: "the bed and the sink are extremely huge…
+I can go far behind the objects."
+- **Root cause:** furniture drew at slot-span width with height from source
+  aspect — portrait art (top-down beds) blew up to ~90px against a 34px crew,
+  while 1-slot items shrank to ~20px. **Fix:** every craftable now has a
+  hand-tuned display width (`Craftables.WIDTHS`, same scale as the core
+  rooms' ROOM_PROPS — kit nightstand 34, bunk 62) plus a universal 52px
+  height cap (box-fit). Slots are now only the placement footprint.
+- **Walking behind objects:** collision was a thin 14px strip at the base
+  line, so the crew could slide in behind a bed and vanish. Furniture now
+  gets the SAME deep collision box as the fixed props (full sprite box,
+  ~12% shrink).
+- **Placement grid 2 → 4 depth rows** (floor lines at 58/86/114/142 px),
+  so player rooms can stagger furniture organically like the core rooms.
+  Placement overlay redrawn: faint floor lines, slots only on the targeted
+  row. Old saves' row 0/1 furniture stays valid (rows shift up slightly).
+- "R rename" under the room name is now a real keycap (KeyPrompt gained a
+  from_top anchor), replacing the plain-text suffix.
+
 ## 13/07/2026 — v1.33: full-project audit — recipe economy, recycle, input fixes
 
 Three parallel audits (crafting/save logic, UI/input, gameplay/assets) swept the

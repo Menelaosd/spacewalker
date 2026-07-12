@@ -11,6 +11,8 @@ const INVENTORY_SCREEN := preload("res://scripts/inventory_screen.gd")
 const UPGRADE_MODAL := preload("res://scripts/upgrade_modal.gd")
 const FABRICATOR_MODAL := preload("res://scripts/fabricator_modal.gd")
 const Craftables := preload("res://scripts/craftables.gd")
+const ID_MODAL := preload("res://scripts/id_modal.gd")
+const CrewDialogs := preload("res://scripts/crew_dialogs.gd")
 const HintBar := preload("res://scripts/hint_bar.gd")
 const Keymap := preload("res://scripts/keymap.gd")
 const KeyPrompt := preload("res://scripts/key_prompt.gd")
@@ -169,9 +171,11 @@ var _msg_label: Label
 var _msg_tween: Tween
 var _upgrade_modal: Control
 var _fab_modal: Control
+var _id_modal: Control
 var _inventory: Control
 var _rename_box: Control
 var _rename_edit: LineEdit
+var _rename_hint: Control
 var _ending_t := 0.0   # > 0 while the going-home sequence plays
 
 # fabricator placement mode: a chosen object follows the mouse across the
@@ -182,6 +186,8 @@ var _place_col := 0
 var _place_row := 0
 var _place_ok := false
 var _hover_furn := -1   # placed piece under the mouse — right-click recycles it
+const PRINT_TIME := 0.9
+var _prints := {}       # "cell:col:row" -> seconds since printed (reveal effect)
 
 
 # ------------------------------------------------------------------
@@ -295,17 +301,19 @@ func _build_obstacles() -> void:
 		var h2: float = w2 * tex2.get_size().y / tex2.get_size().x
 		_obstacles.append(Rect2((st["pos"] as Vector2) - Vector2(w2, h2) * 0.5,
 			Vector2(w2, h2)).grow_individual(-1.0, -w2 * 0.15, -1.0, -w2 * 0.15))
-	# printed furniture — a slim base box at each piece's floor line, so the
-	# crew walks BEHIND tall pieces but never through them (rugs stay walkable)
+	# printed furniture — a BASE box (bottom ~55% of the sprite): deep enough
+	# that the crew can't slip in behind a bed and vanish, shallow enough
+	# that two water coolers don't wall off a corridor; rugs stay walkable
 	for cell in GameState.furniture:
 		for p in GameState.furniture_at(cell):
 			var it: Dictionary = Craftables.ITEMS[p["id"]]
 			if it.get("flat", false):
 				continue
-			var fw := _furn_w(int(it["size"]))
+			var fd := _furn_dims(p["id"])
+			var bh := maxf(fd.y * 0.55, 14.0)
 			_obstacles.append(Rect2(
-				_furn_cx(cell, int(p["col"]), int(it["size"])) - fw * 0.5 + 1.0,
-				_furn_base_y(cell, int(p["row"])) - 16.0, fw - 2.0, 14.0))
+				_furn_cx(cell, int(p["col"]), int(it["size"])) - fd.x * 0.5 + 1.0,
+				_furn_base_y(cell, int(p["row"])) - bh, fd.x - 2.0, bh))
 
 
 # ------------------------------------------------------------------
@@ -313,14 +321,19 @@ func _build_obstacles() -> void:
 # placement grid (row 0 hugs the back wall, row 1 the front)
 # ------------------------------------------------------------------
 const FURN_MARGIN_X := 18.0
+# floor lines of the four depth rows — staggered down the room the way the
+# fixed props are, so player rooms can look as organic as the core ones
+const FURN_ROW_Y := [58.0, 86.0, 114.0, 142.0]
 
 
 func _furn_slot_w() -> float:
 	return (CELL_W - FURN_MARGIN_X * 2.0) / GameState.FURN_COLS
 
 
-func _furn_w(size: int) -> float:
-	return size * _furn_slot_w() - 6.0
+func _furn_dims(id: String) -> Vector2:
+	## DISPLAY size — box-fit of hand-tuned width + height cap (shared with
+	## GameState's placement rules via Craftables.dims_of)
+	return Craftables.dims_of(id)
 
 
 func _furn_cx(cell: int, col: int, size: int) -> float:
@@ -329,7 +342,13 @@ func _furn_cx(cell: int, col: int, size: int) -> float:
 
 func _furn_base_y(cell: int, row: int) -> float:
 	## the piece's floor line (sprite bottom) for its depth row
-	return cell_rect(cell).position.y + (66.0 if row == 0 else 122.0)
+	return cell_rect(cell).position.y + FURN_ROW_Y[clampi(row, 0, FURN_ROW_Y.size() - 1)]
+
+
+func _furn_row_at(cell: int, my: float) -> int:
+	## which depth row the mouse y falls into (band midpoints between rows)
+	return clampi(int((my - cell_rect(cell).position.y - 44.0) / 28.0),
+		0, GameState.FURN_ROWS - 1)
 
 
 func _find_cell(type: String) -> int:
@@ -438,15 +457,22 @@ func _ready() -> void:
 			_begin_placement(fab)
 		else:
 			_fab_modal.open()
+	# SW_ID=JUNO: rescue them and open their ID card, for screenshots
+	if OS.get_environment("SW_ID") != "":
+		var idn := OS.get_environment("SW_ID")
+		GameState.rescued[idn] = true
+		_define_stations()
+		crew.set_process(false)
+		_id_modal.open(idn)
 	# SW_FURN=1: pre-place a furnished room for screenshots
 	if OS.get_environment("SW_FURN") != "":
 		var rc := _debug_build_room()
 		if rc >= 0:
 			for sym in ["Fe", "C", "Al", "Cu", "Si", "Ar", "W"]:
 				GameState.elements[sym] = maxi(int(GameState.elements.get(sym, 0)), 99)
-			for pick in [["rug_round", 2, 1], ["bed_single", 0, 0], ["locker", 2, 0],
-					["bookshelf", 3, 0], ["sofa", 0, 1], ["floor_lamp", 5, 0],
-					["potted_plant", 4, 1]]:
+			for pick in [["rug_round", 1, 2], ["bed_single", 0, 0], ["locker", 2, 0],
+					["bookshelf", 3, 0], ["floor_lamp", 5, 0], ["nightstand", 4, 1],
+					["sofa", 0, 3], ["potted_plant", 4, 2]]:
 				GameState.recipes_unlocked[pick[0]] = true
 				GameState.place_furniture(rc, pick[0], pick[1], pick[2])
 
@@ -488,6 +514,13 @@ func _define_stations() -> void:
 			"cargo":
 				_stations.append({"pos": c + Vector2(-56, -44), "kind": "board"})
 				_stations.append({"pos": c + Vector2(16, -46), "kind": "fabricator"})
+	# the rescued crew are people, not consoles — walk up and talk to them
+	for nname in NPC_SPOTS:
+		if not GameState.rescued.has(nname):
+			continue
+		var spot: Array = NPC_SPOTS[nname]
+		_stations.append({"pos": cell_rect(_find_cell(spot[0])).get_center()
+			+ (spot[1] as Vector2), "kind": "npc", "name": nname})
 	# expansion bays: for every built-room edge that faces bare hull, put an
 	# expand prompt JUST INSIDE the built room at that edge — so you can
 	# reach it from whichever room you're standing in (no dead corners).
@@ -590,15 +623,26 @@ func _process(delta: float) -> void:
 		return
 	if _placing_id != "":
 		_update_placement()
+	# tick the fabricator print-in reveals
+	if not _prints.is_empty():
+		var done: Array = []
+		for k in _prints:
+			_prints[k] = float(_prints[k]) + delta
+			if float(_prints[k]) >= PRINT_TIME:
+				done.append(k)
+		for k in done:
+			_prints.erase(k)
 	_update_active_station()
 	var rn := _room_at(crew.position)
 	# match the cell _open_rename() actually edits (the feet cell) so the hint
 	# and the R action never disagree near a cell boundary
-	if rn != "—" and GameState.can_rename_room(cell_at(crew.position + Vector2(0, 12))) \
-			and not _rename_box.visible and _placing_id == "" \
-			and not (_upgrade_modal != null and _upgrade_modal.visible) \
-			and not (_fab_modal != null and _fab_modal.visible):
-		rn += "      R  rename"
+	var show_rename: bool = rn != "—" \
+		and GameState.can_rename_room(cell_at(crew.position + Vector2(0, 12))) \
+		and not _rename_box.visible and _placing_id == "" \
+		and not (_upgrade_modal != null and _upgrade_modal.visible) \
+		and not (_fab_modal != null and _fab_modal.visible) \
+		and not (_inventory != null and _inventory.visible)
+	_rename_hint.modulate.a = 0.85 if show_rename else 0.0
 	_room_label.text = rn
 	_banked_label.text = "BANKED ORE   %d" % GameState.banked
 	if _active >= 0 and _placing_id == "" \
@@ -655,6 +699,8 @@ func _station_label(st: Dictionary) -> String:
 			return "1-4    Craft at the workbench"
 		"fabricator":
 			return "E    Fabricator — print room objects"
+		"npc":
+			return "E    Talk to %s   ·   I  check ID" % st["name"]
 	return ""
 
 
@@ -698,6 +744,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		return   # the modal owns input while it's up
 	if _fab_modal != null and _fab_modal.visible:
 		return
+	if _id_modal != null and _id_modal.visible:
+		return
 	if _inventory != null and _inventory.visible:
 		return   # no station/rename actions under the full-screen inventory
 	# R renames the room you're standing in — no station needed
@@ -710,6 +758,11 @@ func _unhandled_input(event: InputEvent) -> void:
 	var st: Dictionary = _stations[_active]
 	if event.physical_keycode == KEY_E:
 		_interact(st)
+	elif st["kind"] == "npc" and event.physical_keycode == KEY_I:
+		# their exile papers — HELIOS filed us all before it threw us out
+		crew.set_process(false)
+		_id_modal.open(st["name"])
+		get_viewport().set_input_as_handled()
 	elif st["kind"] == "comms" and event.physical_keycode in [KEY_1, KEY_2, KEY_3]:
 		var i: int = event.physical_keycode - KEY_1
 		if i < GameState.trader_stock.size():
@@ -787,6 +840,12 @@ func _interact(st: Dictionary) -> void:
 		"fabricator":
 			crew.set_process(false)
 			_fab_modal.open()
+		"npc":
+			# a line in their own voice — random, personality-true
+			var quotes: Array = CrewDialogs.QUOTES.get(st["name"], [])
+			if quotes.size() > 0:
+				Sfx.play("radio", -14.0)
+				GameState.say("%s: %s" % [st["name"], quotes[randi() % quotes.size()]])
 
 
 # ==================================================================
@@ -822,7 +881,7 @@ func _update_placement() -> void:
 	_place_cell = cell
 	_place_col = clampi(int(floor((m.x - r.position.x - FURN_MARGIN_X) / _furn_slot_w()
 		- (size - 1) * 0.5)), 0, GameState.FURN_COLS - size)
-	_place_row = 0 if m.y < r.position.y + 94.0 else 1
+	_place_row = _furn_row_at(cell, m.y)
 	# wall pieces only hang on the back wall — snap the ghost there
 	if it.get("back", false):
 		_place_row = 0
@@ -831,7 +890,7 @@ func _update_placement() -> void:
 	# is an already-printed piece under the mouse? (right-click recycles it)
 	_hover_furn = -1
 	var mcol := int(floor((m.x - r.position.x - FURN_MARGIN_X) / _furn_slot_w()))
-	var mrow := 0 if m.y < r.position.y + 94.0 else 1
+	var mrow := _furn_row_at(cell, m.y)
 	var list: Array = GameState.furniture_at(cell)
 	for i in list.size():
 		var pit: Dictionary = Craftables.ITEMS[list[i]["id"]]
@@ -850,14 +909,13 @@ func _confirm_placement() -> void:
 	var it: Dictionary = Craftables.ITEMS[id]
 	if GameState.place_furniture(_place_cell, id, _place_col, _place_row):
 		Sfx.play("upgrade", -6.0)
-		var w := _furn_w(int(it["size"]))
-		var h: float = w * (it["tex"] as Texture2D).get_size().y \
-			/ (it["tex"] as Texture2D).get_size().x
+		var d := _furn_dims(id)
 		Vfx.sparkle(self, Vector2(_furn_cx(_place_cell, _place_col, int(it["size"])),
-			_furn_base_y(_place_cell, _place_row) - h * 0.5), Color(0.45, 0.9, 1.0))
+			_furn_base_y(_place_cell, _place_row) - d.y * 0.5), Color(0.45, 0.9, 1.0))
+		# the print-in reveal: the piece materializes bottom-up in fab blue
+		_prints["%d:%d:%d" % [_place_cell, _place_col, _place_row]] = 0.0001
 		GameState.say("%s printed." % it["name"])
-		_placing_id = ""
-		_fab_modal.open()   # straight back to the catalogue
+		# STAY in placement — print more, or Esc back to the catalogue
 	else:
 		Sfx.play("deny", -12.0)
 
@@ -895,22 +953,27 @@ func _draw_placement() -> void:
 		_ci.draw_rect(r.grow(-6.0), Color(0.35, 0.85, 1.0, 0.06 if hot else 0.03))
 		_ci.draw_rect(r.grow(-6.0),
 			Color(0.35, 0.85, 1.0, (0.7 if hot else 0.35) + 0.15 * pulse), false, 2.0)
+		# the WHOLE grid stays visible while building — every row's floor line
+		# and slots; the targeted row burns brightest
 		for row in GameState.FURN_ROWS:
 			var by := _furn_base_y(cell, row)
+			var rhot: bool = hot and row == _place_row
+			_ci.draw_line(Vector2(r.position.x + FURN_MARGIN_X, by),
+				Vector2(r.end.x - FURN_MARGIN_X, by),
+				Color(0.35, 0.85, 1.0, (0.5 if rhot else 0.18) + 0.08 * pulse), 1.0)
 			for col in GameState.FURN_COLS:
 				var sx := r.position.x + FURN_MARGIN_X + col * _furn_slot_w()
-				var sr := Rect2(sx + 1.0, by - 22.0, _furn_slot_w() - 2.0, 22.0)
-				_ci.draw_rect(sr, Color(0.35, 0.85, 1.0, 0.07 if hot else 0.03))
+				var sr := Rect2(sx + 1.0, by - 14.0, _furn_slot_w() - 2.0, 14.0)
+				_ci.draw_rect(sr, Color(0.35, 0.85, 1.0, 0.07 if rhot else 0.03))
 				_ci.draw_rect(sr, Color(0.35, 0.85, 1.0,
-					(0.55 if hot else 0.25) + 0.10 * pulse), false, 1.0)
+					(0.35 if rhot else 0.14) + 0.08 * pulse), false, 1.0)
 	if _place_cell >= 0:
 		var it: Dictionary = Craftables.ITEMS[_placing_id]
 		var size := int(it["size"])
 		var tex: Texture2D = it["tex"]
-		var w := _furn_w(size)
-		var h := w * tex.get_size().y / tex.get_size().x
+		var d := _furn_dims(_placing_id)
 		if it.get("flat", false):
-			h *= 0.55
+			d.y *= 0.55
 		var cx := _furn_cx(_place_cell, _place_col, size)
 		var by2 := _furn_base_y(_place_cell, _place_row)
 		var tint := Color(0.55, 1.0, 0.65, 0.72) if _place_ok else Color(1.0, 0.4, 0.35, 0.55)
@@ -919,22 +982,20 @@ func _draw_placement() -> void:
 			+ _place_col * _furn_slot_w()
 		_ci.draw_rect(Rect2(ux + 1.0, by2 - 3.0, size * _furn_slot_w() - 2.0, 4.0),
 			Color(tint.r, tint.g, tint.b, 0.8))
-		_ci.draw_texture_rect(tex, Rect2(cx - w * 0.5, by2 - h, w, h), false, tint)
+		_ci.draw_texture_rect(tex, Rect2(cx - d.x * 0.5, by2 - d.y, d.x, d.y), false, tint)
 	# a printed piece under the mouse glows warm — right-click recycles it
 	if _place_cell >= 0 and _hover_furn >= 0:
 		var list: Array = GameState.furniture_at(_place_cell)
 		if _hover_furn < list.size():
 			var hp: Dictionary = list[_hover_furn]
 			var hit: Dictionary = Craftables.ITEMS[hp["id"]]
-			var hw := _furn_w(int(hit["size"]))
-			var htex: Texture2D = hit["tex"]
-			var hh: float = hw * htex.get_size().y / htex.get_size().x
+			var hd := _furn_dims(hp["id"])
 			if hit.get("flat", false):
-				hh *= 0.55
+				hd.y *= 0.55
 			_ci.draw_rect(Rect2(
-				_furn_cx(_place_cell, int(hp["col"]), int(hit["size"])) - hw * 0.5 - 2.0,
-				_furn_base_y(_place_cell, int(hp["row"])) - hh - 2.0,
-				hw + 4.0, hh + 4.0), Color(1.0, 0.75, 0.3, 0.7), false, 1.5)
+				_furn_cx(_place_cell, int(hp["col"]), int(hit["size"])) - hd.x * 0.5 - 2.0,
+				_furn_base_y(_place_cell, int(hp["row"])) - hd.y - 2.0,
+				hd.x + 4.0, hd.y + 4.0), Color(1.0, 0.75, 0.3, 0.7), false, 1.5)
 	# hint line under the cursor
 	var m := get_global_mouse_position()
 	var hint_txt := "MOVE TO A ROOM YOU BUILT      ESC  back"
@@ -964,7 +1025,9 @@ func _build_hud() -> void:
 		return _placing_id == "" \
 			and not (_upgrade_modal != null and _upgrade_modal.visible) \
 			and not (_fab_modal != null and _fab_modal.visible) \
-			and not (_rename_box != null and _rename_box.visible)
+			and not (_id_modal != null and _id_modal.visible) \
+			and not (_rename_box != null and _rename_box.visible) \
+			and not (_active >= 0 and _stations[_active]["kind"] == "npc")
 	root.add_child(_inventory)
 
 	# gear upgrade modal — opens at a station, freezes the crew while up
@@ -978,6 +1041,11 @@ func _build_hud() -> void:
 	root.add_child(_fab_modal)
 	_fab_modal.closed.connect(func(): if _placing_id == "": crew.set_process(true))
 	_fab_modal.craft_chosen.connect(_begin_placement)
+
+	# crew ID viewer — I beside a rescued crewmate
+	_id_modal = ID_MODAL.new()
+	root.add_child(_id_modal)
+	_id_modal.closed.connect(func(): crew.set_process(true))
 
 	# room-rename box — a clear titled panel, hidden until you press R
 	_rename_box = PanelContainer.new()
@@ -1037,6 +1105,13 @@ func _build_hud() -> void:
 	root.add_child(_room_label)
 	_room_label.set_anchors_and_offsets_preset(
 		Control.PRESET_CENTER_TOP, Control.PRESET_MODE_MINSIZE, 16)
+
+	# "R rename" under the room name — a real keycap, not label text
+	_rename_hint = KeyPrompt.new()
+	_rename_hint.from_top = 46.0
+	_rename_hint.set_prompt("R    rename this room")
+	_rename_hint.modulate = Color(0.6, 0.9, 1.0, 0.0)
+	root.add_child(_rename_hint)
 
 	_prompt_label = KeyPrompt.new()
 	_prompt_label.modulate = Color(0.6, 0.9, 1.0, 0.0)
@@ -1465,8 +1540,8 @@ func _draw_depth(behind: bool) -> void:
 	_draw_furniture(fy, behind, false)
 	for i in _stations.size():
 		var st: Dictionary = _stations[i]
-		if st["kind"] == "expand":
-			continue
+		if st["kind"] == "expand" or st["kind"] == "npc":
+			continue   # npc bodies draw in the crew pass below
 		var sp: Array = STATION_PROP[st["kind"]]
 		var base_y2: float = (st["pos"] as Vector2).y + _prop_h(sp[0], sp[1]) * 0.5 \
 			- (sp[1] as float) * 0.15 - 4.0
@@ -1487,35 +1562,83 @@ func _draw_furniture(fy: float, behind: bool, flats: bool) -> void:
 	## One furniture sub-pass. Flats (rugs) always land in the behind pass,
 	## drawn before solids; solids split across the feet line like props.
 	for cell in GameState.furniture:
-		for p in GameState.furniture_at(cell):
+		var pieces: Array = GameState.furniture_at(cell).duplicate()
+		pieces.sort_custom(func(a, b): return int(a["row"]) < int(b["row"]))
+		for p in pieces:
 			var it: Dictionary = Craftables.ITEMS[p["id"]]
 			if bool(it.get("flat", false)) != flats:
 				continue
 			var base_y := _furn_base_y(cell, int(p["row"]))
-			if not flats and (base_y - 4.0 <= fy) != behind:
+			var d := _furn_dims(p["id"])
+			# depth line = the collision base line
+			if not flats and (base_y - 2.0 <= fy) != behind:
 				continue
 			var tex: Texture2D = it["tex"]
-			var w := _furn_w(int(it["size"]))
-			var h := w * tex.get_size().y / tex.get_size().x
 			var cx := _furn_cx(cell, int(p["col"]), int(it["size"]))
 			if flats:
 				# floor mats lie down: squash to a floor-projected ellipse look
-				h *= 0.55
-			_ci.draw_texture_rect(tex, Rect2(cx - w * 0.5, base_y - h, w, h), false)
+				d.y *= 0.55
+			var pk := "%d:%d:%d" % [cell, int(p["col"]), int(p["row"])]
+			if _prints.has(pk):
+				# FABRICATOR PRINT-IN: the piece materializes bottom-up — only
+				# the printed portion exists yet, glowing fab-blue and cooling
+				# to true color, with a bright print line at the build edge
+				var k := clampf(float(_prints[pk]) / PRINT_TIME, 0.0, 1.0)
+				var reveal := clampf(k * 1.25, 0.0, 1.0)     # height fraction built
+				var ts := tex.get_size()
+				var src_h := ts.y * reveal
+				var dst_h := d.y * reveal
+				var tint := Color(0.5, 0.95, 1.0).lerp(Color.WHITE, k)
+				tint.a = clampf(k * 3.0, 0.35, 1.0)
+				_ci.draw_texture_rect_region(tex,
+					Rect2(cx - d.x * 0.5, base_y - dst_h, d.x, dst_h),
+					Rect2(0, ts.y - src_h, ts.x, src_h), tint)
+				if reveal < 1.0:
+					var ly := base_y - dst_h
+					_ci.draw_rect(Rect2(cx - d.x * 0.5 - 2.0, ly - 1.2, d.x + 4.0, 2.4),
+						Color(0.7, 1.0, 1.0, 0.9))
+					_ci.draw_rect(Rect2(cx - d.x * 0.5 - 6.0, ly - 3.5, d.x + 12.0, 7.0),
+						Color(0.45, 0.9, 1.0, 0.22))
+				continue
+			_ci.draw_texture_rect(tex, Rect2(cx - d.x * 0.5, base_y - d.y, d.x, d.y), false)
+
+
+var _token_cache := {}
+
+
+func _npc_token(nname: String) -> Texture2D:
+	if not _token_cache.has(nname):
+		_token_cache[nname] = load(
+			"res://assets/sprites/crew/%s_token.png" % nname.to_lower())
+	return _token_cache[nname]
 
 
 func _draw_npc(nname: String, pos: Vector2, tint: Color) -> void:
-	var tex: Texture2D = P["crew_npc"]
-	var s := 34.0 / tex.get_size().y
+	## the crew member's OWN conditioned token art — the generic tinted kit
+	## astronaut only remains as a fallback if the art is missing
 	var phase := pos.x * 0.31
 	var bob := sin(_reactor * 1.5 + phase) * 1.4
 	_ci.draw_set_transform(pos + Vector2(0, 12), 0.0, Vector2(1.0, 0.42))
 	_ci.draw_circle(Vector2.ZERO, 9.0, Color(0, 0, 0, 0.25))
-	_ci.draw_set_transform(pos + Vector2(0, bob), 0.0,
-		Vector2(-s if sin(_reactor * 0.23 + phase) > 0.0 else s, s))
-	_ci.draw_texture(tex, -tex.get_size() * 0.5, tint)
 	_ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-	_ci.draw_string(_font, pos + Vector2(-40, -26), nname,
+	var tok := _npc_token(nname)
+	if tok != null:
+		# token canvases are bottom-anchored; feet land at pos + 12 (the
+		# same feet line the shadow sits on). ~40px tall — crew-scale.
+		var s := 40.0 / tok.get_size().y
+		var dw := tok.get_size().x * s
+		var flip: bool = sin(_reactor * 0.23 + phase) > 0.0
+		var rect := Rect2(pos.x + (dw * 0.5 if flip else -dw * 0.5),
+			pos.y + 12.0 - 40.0 + bob, -dw if flip else dw, 40.0)
+		_ci.draw_texture_rect(tok, rect, false)
+	else:
+		var tex: Texture2D = P["crew_npc"]
+		var s2 := 34.0 / tex.get_size().y
+		_ci.draw_set_transform(pos + Vector2(0, bob), 0.0,
+			Vector2(-s2 if sin(_reactor * 0.23 + phase) > 0.0 else s2, s2))
+		_ci.draw_texture(tex, -tex.get_size() * 0.5, tint)
+		_ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	_ci.draw_string(_font, pos + Vector2(-40, -34), nname,
 		HORIZONTAL_ALIGNMENT_CENTER, 80, 9, Color(0.55, 0.9, 1.0, 0.5))
 
 
