@@ -74,8 +74,8 @@ func _ready() -> void:
 			return
 		var vp := _flare_banner.get_viewport_rect().size
 		var col := UITheme.ACCENT_WARM if GameState.flare_phase == "warn" else UITheme.DANGER
-		var label := "⚠ SOLAR FLARE INBOUND — TAKE COVER" \
-			if GameState.flare_phase == "warn" else "☢ FLARE BURN — SHELTER BEHIND ROCK"
+		var label := "⚠ HELIOS PURGE SWEEP — TAKE COVER" \
+			if GameState.flare_phase == "warn" else "☢ SWEEP BURN — SHELTER BEHIND ROCK"
 		UITheme.draw_warning_banner(_flare_banner,
 			Rect2(vp.x * 0.5 - 260, 24, 520, 26), label,
 			ThemeDB.fallback_font, col, 12))

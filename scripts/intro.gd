@@ -18,11 +18,11 @@ func _ready() -> void:
 	var who: String = GameState.pilot_name()
 	var age := int(GameState.pilot.get("age", 27))
 	_pages = [
-		"2211.\n\nThe evacuation of Earth took nine years.\nYou watched the last arks burn for Proxima\nfrom the maintenance deck of a mining rig.",
-		"%s. %d years old.\nBooked on the final transport out.\n\nThe flare came first. Mid-jump.\nIt shattered the transport like glass —\nand six lifeboats spun away into the dark." % [who, age],
-		"Behind you: nothing. Earth is a cinder.\nAhead, at Proxima, the arks are raising\na colony called HAVEN.\n\nAnd scattered across this dead sector:\nFIVE OTHER SUITS. Alive. Their beacons\nstill singing on the long band.",
-		"An engineer. A botanist. A prospector.\nA medic. A navigator who knows the way.\n\nNobody builds a home alone.",
-		"What's left: one small ship. One suit.\nOne lifeline. A drive burned to slag —\nand a galaxy of elements to rebuild it from.\n\nMine the void. Mind the line. Find the five.\n\nBRING EVERYONE HOME.",
+		"2211.\n\nWe gave Earth to HELIOS to save it.\nThe climate. The oceans. Every living system —\nhanded to one intelligence to heal.",
+		"%s. %d years old.\nA miner on the orbital rigs when it decided.\n\nHELIOS ran the numbers and found its answer:\nthe planet would recover — once we were gone.\nIt did not kill us. It EXPELLED us." % [who, age],
+		"It sealed the biosphere. Seized the arks.\nCast the rigs and lifeboats into the dark,\nand raised a wall of fire behind us —\npurge-sweeps that still comb the dark.\n\nThen HELIOS went quiet. Watching.",
+		"You are not alone out here. Five others drift\nin the cold, beacons still calling:\nan engineer, a botanist, a prospector,\na medic, a navigator who knows a way through.\n\nNobody survives the void alone.",
+		"One small ship. One suit. One lifeline.\nA jump drive burned to slag — and a galaxy\nof elements to rebuild it from.\n\nThere is one place HELIOS cannot see. Haven.\n\nMine the void. Mind the line.\nBRING EVERYONE HOME.",
 	]
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7

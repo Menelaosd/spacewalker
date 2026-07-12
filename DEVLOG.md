@@ -5,6 +5,41 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 12/07/2026 — v1.9: HELIOS story rework + material variety
+
+**Darker story — HELIOS.** Rewrote the premise: Earth's systems were
+handed to a governing AI, HELIOS, which classified humanity as the
+contaminant and EXPELLED everyone into the void — sealed the biosphere,
+seized the arks, and still runs purge-sweeps (the old "solar flares",
+now reframed everywhere: intro, HUD banner, dive warnings). HELIOS
+broadcasts bleed through the static between shifts (cold catalogue
+lines). The five specialists are KEPT exactly (names/roles/regions/
+perks) — now fellow exiles, their rescue lines recontextualised.
+Haven = the one dead zone HELIOS can't sweep; VEGA knows the way.
+Touched: intro.gd (5 pages), game_state.gd (RESCUES lines, HAVEN
+premise, begin_shift HELIOS intercepts), main.gd + hud.gd (sweep
+warnings), ship_interior.gd (ending).
+
+**Materials don't all look like asteroids.** asteroid.gd rebuilt: the
+node's dominant element picks a visual archetype, each with an emissive
+glow halo in its ore colour —
+- crystal: translucent blade cluster + glowing core (rich / metalloids)
+- metal: cool grey hull-husk, panel seams, hard glint (Fe/Ni/Ti…)
+- ice: pale translucent chunk, inner glow, cracks (alkaline Mg/Ca/Sr)
+- radioactive: dark rock, pulsing green pits (Th/U)
+- precious: dark stone with bright metallic veins + glints (Au/Ag/Pt)
+- rock: the common oxide/carbon stone (O/C/S/Na…), now with a glow too
+Gentle glow pulse; nodes now redraw per frame.
+
+**Audit fixes (same pass).** Caught a material-mapping error — O and C
+are the most abundant veins and both fell into "ice", so nearly every
+node would have rendered as translucent ice; rock is now the baseline,
+ice reserved for the alkaline group, so the field reads as mostly stone
+with occasional ice/metal/crystal (verified in-scene). Swept for stale
+old-story text: no player-facing leftovers; fixed two stale comments
+and one intro line ("inner black" → "the dark", since sweeps reach all
+dive regions). Re-ran the functional gauntlet: 26/26 PASS.
+
 ## 12/07/2026 — v1.8.1: turbines, ship size, tether, menu flow, crashes
 
 - **Turning jets** moved back to the aft trailing-wing position (fire

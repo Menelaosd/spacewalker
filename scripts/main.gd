@@ -55,7 +55,7 @@ func _ready() -> void:
 	if OS.get_environment("SW_ADRIFT") != "":
 		GameState.adrift = true   # debug hook for screenshots/tests
 	if GameState.adrift:
-		# the opening: the flare threw you clear. No line. Get to the ship.
+		# the opening: HELIOS cast you out, untethered. No line. Get to the ship.
 		player.attached = false
 		player.in_dock = false
 		player.position = Vector2.from_angle(randf_range(-2.4, -0.7)) \
@@ -177,7 +177,7 @@ func _update_flare(delta: float) -> void:
 				GameState.flare_phase = "warn"
 				_flare_t = FLARE_WARN
 				Sfx.klaxon_on(true)
-				GameState.say("⚠ SOLAR FLARE INBOUND — get behind rock or dock!")
+				GameState.say("⚠ HELIOS PURGE SWEEP INBOUND — get behind rock or dock!")
 		"warn":
 			_flare_t -= delta
 			if _flare_t <= 0.0:
@@ -192,7 +192,7 @@ func _update_flare(delta: float) -> void:
 			if _flare_t <= 0.0:
 				GameState.flare_phase = ""
 				_flare_timer = randf_range(80.0, 150.0)
-				GameState.say("Flare passed. Radiation nominal.")
+				GameState.say("Sweep passed. It didn't find you. Radiation nominal.")
 
 
 func _update_debris(delta: float) -> void:

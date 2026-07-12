@@ -947,7 +947,7 @@ func _draw_ending() -> void:
 	if _ending_t > 4.2:
 		var a2 := clampf((_ending_t - 4.2) / 1.5, 0.0, 1.0)
 		_ci.draw_string(_font, center + Vector2(-400, 24),
-			"Shift %d. %d elements discovered. Six souls aboard.\nYou found them all, %s. Welcome home — all of you." % [
+			"Shift %d. %d elements discovered. Six souls aboard.\nHELIOS never saw you go, %s. This is Haven now — home, at last, for all of you." % [
 				GameState.shift, GameState.discovered.size(), GameState.pilot_name()],
 			HORIZONTAL_ALIGNMENT_CENTER, 800, 16, Color(1, 1, 1, a2))
 

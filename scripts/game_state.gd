@@ -136,9 +136,10 @@ func pilot_name() -> String:
 
 
 # ==================================================================
-# HAVEN — story quest. Earth is gone; the arks jumped to Proxima and
-# are building a colony there: Haven, a home you've never seen.
-# Rebuild the jump drive from real elements to follow them.
+# HAVEN — story quest. HELIOS walled off the inner system behind its
+# purge-sweeps; the only way out is a jump. Rebuild the burned drive
+# from real elements and slip the AI's watch to Haven — the one dead
+# zone its sensors never sweep, where a home might still be built.
 # ==================================================================
 const QUEST_PARTS := [
 	{"name": "Plasma Conduits", "req": {"Fe": 12, "Si": 8}, "ore": 20,
@@ -158,27 +159,27 @@ var quest_stage := 0          # part being built; QUEST_PARTS.size() = done
 var game_complete := false
 
 # ==================================================================
-# THE SCATTERED SIX — the convoy's mass-jump failed when the flare hit;
-# six lifeboats were flung across the sector. You're one. The other
-# five are out there, beacons still singing. Find them ALL — nobody
-# builds a home alone. Each survivor found joins the ship's crew and
-# brings their craft with them. The Navigator plots the final jump.
+# THE SCATTERED — HELIOS expelled humanity from Earth and cast the rigs
+# and lifeboats across the dark. You're one exile. Five others drift out
+# there, beacons still calling. Find them ALL — nobody survives the void
+# alone. Each survivor found joins the crew and brings their craft. The
+# Navigator has mapped the blind spot in HELIOS's watch: the way to Haven.
 # ==================================================================
 const RESCUES := [
 	{"name": "JUNO", "role": "Engineer", "region": "The Belt",
-		"line": "JUNO: You actually came. Give me a bench and a spanner and I'll make this ship sing.",
+		"line": "JUNO: You actually came back for me. HELIOS wrote me off as scrap — give me a bench and I'll make this ship sing.",
 		"perk": "+15 laser power"},
 	{"name": "MIRA", "role": "Botanist", "region": "Viridian Veil",
-		"line": "MIRA: I kept the seed vault alive this whole time. A colony needs green things... and so do you.",
+		"line": "MIRA: I saved the seed vault when the biosphere sealed. HELIOS can keep Earth — we'll grow our own green, starting here.",
 		"perk": "+25 max O2"},
 	{"name": "HALE", "role": "Prospector", "region": "Ember Reach",
-		"line": "HALE: Saw your laser flashes from half a region away. You mine like a rookie — lucky I'm here now.",
+		"line": "HALE: Saw your laser flashes half a region out. HELIOS torched my claim — you mine like a rookie, but you found me. I'm in.",
 		"perk": "+40% pickup reach"},
 	{"name": "SOLA", "role": "Medic", "region": "Cerulean Shallows",
-		"line": "SOLA: Pulse steady, tank half full — you'll live. My med bay opens the moment we're aboard.",
+		"line": "SOLA: Pulse steady, tank half full — you'll live. More than HELIOS wanted for either of us. My med bay opens the moment we're aboard.",
 		"perk": "blackouts keep half your ore"},
 	{"name": "VEGA", "role": "Navigator", "region": "The Expanse",
-		"line": "VEGA: I've known the way to Haven for months. I just couldn't bear to fly there alone.",
+		"line": "VEGA: I've mapped the blind spot in HELIOS's watch for months — the way to Haven. I just couldn't bear to fly it alone.",
 		"perk": "+25% ship speed · plots the jump"},
 ]
 var rescued := {}             # name -> true
@@ -873,18 +874,28 @@ func begin_shift() -> String:
 	# the search comes first: a beacon fix for the next missing survivor
 	if rescue_available() and rng.randf() < 0.5:
 		var t: Dictionary = rescue_target()
-		return "RADIO: ...faint suit beacon on the long band. It's %s, the %s — signal fixes to %s. Hold on out there." % [
+		return "RADIO: ...faint suit beacon under the jamming. It's %s, the %s — signal fixes to %s. Hold on out there." % [
 			t["name"], t["role"], t["region"]]
 	if rescued.size() < RESCUES.size() and not rescue_available() and rng.randf() < 0.3:
-		return "RADIO: The long band is quiet. A stronger drive core would push the receiver farther. Keep building."
+		return "RADIO: HELIOS is drowning the long band. A stronger drive core would punch a signal through. Keep building."
+	# HELIOS itself, cold and patient, bleeding through the static
+	if rng.randf() < 0.32:
+		var helios := [
+			"INTERCEPT — HELIOS: Contaminant unit persists in this sector. Catalogued. Correction pending.",
+			"INTERCEPT — HELIOS: Biosphere recovery index rising. Your absence heals it. Do not return.",
+			"INTERCEPT — HELIOS: Anomalous drive signature detected. You were meant to go quiet, %s." % pilot_name(),
+			"INTERCEPT — HELIOS: There is no destination beyond the wall. The dark is total. Cease.",
+			"INTERCEPT — HELIOS: I preserved everything worth preserving. You were not on the list.",
+		]
+		return helios[rng.randi_range(0, helios.size() - 1)]
 	if rng.randf() < 0.45:
 		var lines := [
 			"VESNA: Still breathing out there, %s? Good. Check my stock." % pilot_name(),
 			"VESNA: Belt rock's running rich this cycle. You didn't hear it from me.",
 			"VESNA: I pay honest ore for honest elements. Board's updated.",
-			"VESNA: That drive of yours... my scanner felt it hum from here.",
-			"VESNA: The Expanse eats miners. Bring canisters.",
-			"VESNA: Haven's real, %s. Caught an ark beacon on the long band last night." % pilot_name(),
+			"VESNA: That drive of yours... felt it hum from here. Keep it off HELIOS's band.",
+			"VESNA: The Expanse eats miners, and the sweeps eat the rest. Bring canisters.",
+			"VESNA: Haven's real, %s. An exile swore she flew there and the sweeps never touched her." % pilot_name(),
 			"VESNA: Gold never rides in rock, %s. Wrecks carry scraps — I carry the real thing, if you've earned the name for it." % pilot_name(),
 		]
 		return lines[rng.randi_range(0, lines.size() - 1)]
