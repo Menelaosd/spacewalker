@@ -4,20 +4,23 @@ extends CanvasLayer
 
 const GEAR_PANEL := preload("res://scripts/gear_panel.gd")
 const RADAR_PANEL := preload("res://scripts/radar_panel.gd")
+const HintBar := preload("res://scripts/hint_bar.gd")
+const Keymap := preload("res://scripts/keymap.gd")
+const KeyPrompt := preload("res://scripts/key_prompt.gd")
 const QUEST_LOG := preload("res://scripts/quest_log.gd")
 const INVENTORY_SCREEN := preload("res://scripts/inventory_screen.gd")
 const VITALS := preload("res://scripts/vitals_panel.gd")
 
 var _msg_label: Label
 var _msg_tween: Tween
-var _dock_prompt: Label
+var _dock_prompt: Control
 var _flare_banner: Control
 var _t := 0.0
 
 
 func _ready() -> void:
 	var root := Control.new()
-	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.theme = UITheme.make_theme()
 	add_child(root)
@@ -54,22 +57,15 @@ func _ready() -> void:
 	root.add_child(INVENTORY_SCREEN.new())
 
 	# "enter ship" prompt — only visible while docked
-	_dock_prompt = Label.new()
-	_dock_prompt.text = "E    ENTER SHIP"
-	_dock_prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_dock_prompt.add_theme_font_size_override("font_size", 15)
+	_dock_prompt = KeyPrompt.new()
 	_dock_prompt.modulate = Color(0.6, 0.9, 1.0, 0.0)
 	root.add_child(_dock_prompt)
-	_dock_prompt.set_anchors_and_offsets_preset(
-		Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_MINSIZE, 120)
+	_dock_prompt.set_prompt("E    ENTER SHIP")
+	_dock_prompt.y_from_bottom = 120.0
 
-	var hint := Label.new()
-	hint.text = "WASD thrust · SPACE stabilize · LMB mine · I inventory · Esc menu"
-	hint.add_theme_font_size_override("font_size", 12)
-	hint.modulate = Color(1, 1, 1, 0.4)
+	var hint := HintBar.new()
+	hint.items = Keymap.hint("spacewalk")
 	root.add_child(hint)
-	hint.set_anchors_and_offsets_preset(
-		Control.PRESET_BOTTOM_LEFT, Control.PRESET_MODE_MINSIZE, 16)
 
 	_msg_label = Label.new()
 	_msg_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -80,7 +76,7 @@ func _ready() -> void:
 
 	# flare warning banner, top-center — hazard stripes when it hits
 	_flare_banner = Control.new()
-	_flare_banner.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_flare_banner.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_flare_banner.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_flare_banner.draw.connect(func():
 		if GameState.flare_phase == "":

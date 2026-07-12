@@ -19,7 +19,7 @@ var _panel: Control
 
 
 func _ready() -> void:
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	theme = UITheme.make_theme()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 23
@@ -30,7 +30,7 @@ func _ready() -> void:
 
 	# panel chrome is painted; the interactive widgets sit on top of it
 	_panel = Control.new()
-	_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_panel.draw.connect(_draw_panel)
 	add_child(_panel)

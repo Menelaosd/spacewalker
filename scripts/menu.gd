@@ -29,11 +29,11 @@ func toggle() -> void:
 func _build() -> void:
 	var dim := ColorRect.new()
 	dim.color = Color(0, 0.01, 0.03, 0.65)
-	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(dim)
 
 	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	center.theme = UITheme.make_theme()
 	add_child(center)
 

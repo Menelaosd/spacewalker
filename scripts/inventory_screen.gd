@@ -28,10 +28,15 @@ var _hover := -1
 var _detail := -1
 var _collectible_total := 0
 
+## The host scene can veto opening (e.g. ship_interior while a modal, the
+## rename box or fabricator placement is up) — the inventory is a full-screen
+## layer and must never stack over those.
+var can_open: Callable = func() -> bool: return true
+
 
 func _ready() -> void:
 	visible = OS.get_environment("SW_SHOW_INV") != ""
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	z_index = 100
 	resized.connect(queue_redraw)
@@ -77,6 +82,8 @@ func _process(_delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.physical_keycode in [KEY_I, KEY_TAB]:
+			if not visible and not can_open.call():
+				return   # a modal/placement owns the screen — don't stack
 			visible = not visible
 			if not visible:
 				_detail = -1
@@ -112,7 +119,7 @@ func _draw() -> void:
 	var panel := Rect2((vp.x - PANEL_W) * 0.5, (vp.y - PANEL_H) * 0.5, PANEL_W, PANEL_H)
 	UITheme.draw_sci_panel(self, panel)
 	UITheme.draw_headline(self, Rect2(panel.position.x + PANEL_W * 0.5 - 130,
-		panel.position.y - 14, 260, 30), "INVENTORY", _font, 15)
+		panel.position.y - 14, 260, 30), "INVENTORY", _font, 13)
 	_draw_suit_column(Rect2(panel.position + Vector2(20, 28), Vector2(LEFT_W, PANEL_H - 48)))
 	_draw_elements_area(Rect2(panel.position + Vector2(LEFT_W + 40, 28),
 		Vector2(PANEL_W - LEFT_W - 60, PANEL_H - 48)))
@@ -171,8 +178,8 @@ func _draw_detail(vp: Vector2, e: Array) -> void:
 		status = "FOUND — reactor salvage" if GameState.discovered.has(sym) else "NOT YET FOUND — salvage old wrecks"
 	draw_string(_font, Vector2(tx, p.end.y - 34), status,
 		HORIZONTAL_ALIGNMENT_LEFT, pw - 200, 11, Color(acc.r, acc.g, acc.b, 0.8))
-	draw_string(_font, Vector2(p.position.x, p.end.y - 16),
-		"click anywhere / Esc to close", HORIZONTAL_ALIGNMENT_CENTER, pw, 10, UITheme.TEXT_DIM)
+	UITheme.draw_hints(self, Vector2(p.position.x + pw * 0.5, p.end.y - 11),
+		[["Esc", "close"]], _font, 9)
 
 
 # ------------------------------------------------------------------
@@ -180,7 +187,7 @@ func _draw_detail(vp: Vector2, e: Array) -> void:
 # ------------------------------------------------------------------
 func _draw_suit_column(rect: Rect2) -> void:
 	UITheme.draw_header(self, rect.position + Vector2(0, 18), "EXOSUIT", _font,
-		17, UITheme.ACCENT, rect.size.x)
+		13, UITheme.ACCENT, rect.size.x)
 	var cx := rect.position.x + rect.size.x * 0.5
 	draw_texture_rect(SUIT_TEX, Rect2(cx - 52, rect.position.y + 44, 104, 104), false)
 
@@ -211,7 +218,7 @@ func _draw_suit_column(rect: Rect2) -> void:
 	UITheme.draw_ring_gauge(self, Vector2(cx - 54, y + 54), 30.0,
 		float(owned) / float(maxi(_sorted.size(), 1)), UITheme.ACCENT, _font)
 	draw_string(_font, Vector2(cx - 14, y + 46), "%d / %d" % [owned, _sorted.size()],
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 15, UITheme.TEXT)
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 13, UITheme.TEXT)
 	draw_string(_font, Vector2(cx - 14, y + 62), "ELEMENTS",
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 10, UITheme.TEXT_DIM)
 	draw_string(_font, Vector2(cx - 14, y + 74), "DISCOVERED",
@@ -229,7 +236,7 @@ func _draw_elements_area(rect: Rect2) -> void:
 	if samples > 0:
 		held_note = "   ·   %d SAMPLES ON SUIT — DOCK TO REFINE" % samples
 	UITheme.draw_header(self, rect.position + Vector2(0, 18), "ELEMENTS", _font,
-		17, UITheme.ACCENT, rect.size.x)
+		13, UITheme.ACCENT, rect.size.x)
 	draw_string(_font, rect.position + Vector2(0, 42),
 		"REAL SOLAR ABUNDANCE%s" % held_note,
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 10, UITheme.TEXT_DIM)
@@ -254,8 +261,9 @@ func _draw_elements_area(rect: Rect2) -> void:
 	draw_rect(Rect2(track.position.x, thumb_y, 4.0, thumb_h),
 		Color(UITheme.ACCENT.r, UITheme.ACCENT.g, UITheme.ACCENT.b, 0.5))
 
-	# detail footer
-	var fy := rect.end.y - 30.0
+	# detail footer — anchored just below the grid (not the panel edge) so it
+	# never crowds the last card row
+	var fy := _grid_origin.y + VISIBLE_ROWS * (CARD_H + CARD_GAP) - CARD_GAP + 8.0
 	if _hover >= 0:
 		var he: Array = _sorted[_hover]
 		if not he[4]:
@@ -277,9 +285,13 @@ func _draw_elements_area(rect: Rect2) -> void:
 					String.num_scientific(he[3]), status],
 				HORIZONTAL_ALIGNMENT_LEFT, -1, 11, UITheme.TEXT)
 	else:
-		draw_string(_font, Vector2(rect.position.x + 8, fy + 11),
-			"hover a card for details · mouse wheel to scroll · Esc to close",
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(1, 1, 1, 0.3))
+		var gx := rect.position.x + 8.0
+		draw_string(_font, Vector2(gx, fy + 13), "hover a card for details",
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(1, 1, 1, 0.3))
+		gx += _font.get_string_size("hover a card for details",
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 10).x + 18.0
+		UITheme.draw_hints_at(self, Vector2(gx, fy), [["Wheel", "scroll"], ["Esc", "close"]],
+			_font, 10, Color(1, 1, 1, 0.4))
 
 
 func _draw_card(e: Array, r: Rect2, hovered: bool) -> void:
@@ -311,51 +323,52 @@ func _draw_card(e: Array, r: Rect2, hovered: bool) -> void:
 	draw_rect(Rect2(r.position + Vector2(1, 6), Vector2(3, r.size.y - 12)),
 		Color(strip.r, strip.g, strip.b, 0.9 if have else 0.25))
 
-	# element icon — full colour when discovered, dim until then
+	# element icon — full colour when discovered, dim until then. Top-aligned so
+	# the bottom name-plate never covers it.
 	var icon: Texture2D = Elements.icon_for_z(z)
-	var text_x := 10.0
+	var text_x := 8.0
 	if icon != null:
-		var box := 34.0
+		var box := 28.0
 		var isz := icon.get_size()
 		var s := box / maxf(isz.x, isz.y)
 		var draw_sz := isz * s
 		var ipos := r.position + Vector2(5.0 + (box - draw_sz.x) * 0.5,
-			(r.size.y - draw_sz.y) * 0.5)
+			3.0 + (box - draw_sz.y) * 0.5)
 		draw_texture_rect(icon, Rect2(ipos, draw_sz), false,
 			Color(1, 1, 1, 1) if have else Color(0.5, 0.5, 0.55, 0.28))
-		text_x = 44.0
+		text_x = 40.0
 
 	# atomic number top-right — makes the periodic ordering obvious
 	draw_string(_font, r.position + Vector2(0, 12), str(z),
 		HORIZONTAL_ALIGNMENT_RIGHT, r.size.x - 7, 9,
 		Color(0.55, 0.9, 1.0, 0.55 if have else 0.28))
-	# symbol, count, name
+	# symbol + count, kept in the upper band clear of the name-plate
 	var sym_col := ecol if have else Color(1, 1, 1, 0.25)
-	draw_string(_font, r.position + Vector2(text_x, 24), sym,
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 15, sym_col)
+	draw_string(_font, r.position + Vector2(text_x, 21), sym,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 13, sym_col)
 	if amount > 0:
-		draw_string(_font, r.position + Vector2(0, 27), "×%d" % amount,
+		draw_string(_font, r.position + Vector2(0, 20), "×%d" % amount,
 			HORIZONTAL_ALIGNMENT_RIGHT, r.size.x - 7, 11, UITheme.TEXT)
 	elif have and not craftable:
-		draw_string(_font, r.position + Vector2(0, 27), "SYN",
+		draw_string(_font, r.position + Vector2(0, 20), "SYN",
 			HORIZONTAL_ALIGNMENT_RIGHT, r.size.x - 7, 8, Color(0.85, 0.4, 0.85, 0.7))
-	draw_string(_font, r.position + Vector2(text_x, 40), str(e[1]),
-		HORIZONTAL_ALIGNMENT_LEFT, r.size.x - text_x - 6, 8,
-		UITheme.TEXT_DIM if have else Color(1, 1, 1, 0.15))
 
-	# capacity bar
+	# bottom name-plate — a dark strip that doubles as the capacity bar, so the
+	# WHOLE element name always fits (centred across the full card width)
+	var plate := Rect2(r.position + Vector2(2, r.size.y - 13), Vector2(r.size.x - 4, 12))
+	draw_rect(plate, Color(0, 0, 0, 0.5))
 	if amount > 0:
-		var frac := float(amount) / float(GameState.ELEMENT_CAP)
-		draw_rect(Rect2(r.position + Vector2(text_x, r.size.y - 6),
-			Vector2(r.size.x - text_x - 12, 2)), Color(1, 1, 1, 0.07))
-		draw_rect(Rect2(r.position + Vector2(text_x, r.size.y - 6),
-			Vector2((r.size.x - text_x - 12) * clampf(frac, 0.01, 1.0), 2)),
-			Color(ecol.r, ecol.g, ecol.b, 0.85))
+		# faint element tint across the plate = "you're holding some" (the ×N
+		# count carries the number; a fill bar would be meaningless vs the huge cap)
+		draw_rect(plate, Color(ecol.r, ecol.g, ecol.b, 0.18))
+	draw_string(_font, r.position + Vector2(0, r.size.y - 4), str(e[1]),
+		HORIZONTAL_ALIGNMENT_CENTER, r.size.x, 9,
+		UITheme.TEXT if have else Color(1, 1, 1, 0.30))
 
-	# on-suit badge
+	# on-suit badge — kept in the upper band, clear of the name-plate
 	var held: int = GameState.carried_veins.get(sym, 0)
 	if held > 0:
-		draw_string(_font, r.position + Vector2(0, 38), "+%d" % held,
+		draw_string(_font, r.position + Vector2(0, 30), "+%d" % held,
 			HORIZONTAL_ALIGNMENT_RIGHT, r.size.x - 10, 10, UITheme.ACCENT_WARM)
 		draw_rect(r, Color(UITheme.ACCENT_WARM.r, UITheme.ACCENT_WARM.g,
 			UITheme.ACCENT_WARM.b, 0.5), false, 1.0)

@@ -9,6 +9,11 @@ const INTERACT_RADIUS := 72.0
 const GEAR_PANEL := preload("res://scripts/gear_panel.gd")
 const INVENTORY_SCREEN := preload("res://scripts/inventory_screen.gd")
 const UPGRADE_MODAL := preload("res://scripts/upgrade_modal.gd")
+const FABRICATOR_MODAL := preload("res://scripts/fabricator_modal.gd")
+const Craftables := preload("res://scripts/craftables.gd")
+const HintBar := preload("res://scripts/hint_bar.gd")
+const Keymap := preload("res://scripts/keymap.gd")
+const KeyPrompt := preload("res://scripts/key_prompt.gd")
 
 # roomy cells — objects get distance between them and stay accessible
 const CELL_W := 190.0
@@ -76,6 +81,9 @@ const P := {
 	"barrel": preload("res://assets/props/s8_07.png"),
 	"cylinders": preload("res://assets/props/s8_08.png"),
 	"toolbox": preload("res://assets/props/s8_12.png"),
+	# the fabricator — a 3D printer in the cargo hold (craft sheet 6;
+	# its art is a STATION, never offered as a craftable)
+	"fabricator": preload("res://assets/craft/fabricator.png"),
 }
 
 # per-room floor tile + furniture: [tex key, offset from cell center, width px]
@@ -143,6 +151,7 @@ const GLOWS := {
 	"medkit": [Color(1.0, 0.5, 0.5), 12.0],
 	"cylinders": [Color(0.5, 0.8, 1.0), 16.0],
 	"hatch": [Color(0.9, 0.75, 0.3), 20.0],
+	"fabricator": [Color(0.35, 0.85, 1.0), 24.0],
 }
 
 @onready var crew: Node2D = $Crew
@@ -155,13 +164,24 @@ var _reactor := 0.0
 # interior HUD
 var _banked_label: Label
 var _room_label: Label
-var _prompt_label: Label
+var _prompt_label: Control
 var _msg_label: Label
 var _msg_tween: Tween
 var _upgrade_modal: Control
+var _fab_modal: Control
+var _inventory: Control
 var _rename_box: Control
 var _rename_edit: LineEdit
 var _ending_t := 0.0   # > 0 while the going-home sequence plays
+
+# fabricator placement mode: a chosen object follows the mouse across the
+# rooms YOU built, snapping to each room's floor grid; click / E to print
+var _placing_id := ""
+var _place_cell := -1
+var _place_col := 0
+var _place_row := 0
+var _place_ok := false
+var _hover_furn := -1   # placed piece under the mouse — right-click recycles it
 
 
 # ------------------------------------------------------------------
@@ -229,6 +249,7 @@ const STATION_PROP := {
 	"workbench": ["workbench", 62.0], "exit": ["hatch", 58.0],
 	"suit": ["locker", 28.0], "o2": ["pedestal", 26.0],
 	"tether": ["pedestal", 26.0], "laser": ["pedestal", 26.0],
+	"fabricator": ["fabricator", 54.0],
 }
 
 
@@ -274,6 +295,41 @@ func _build_obstacles() -> void:
 		var h2: float = w2 * tex2.get_size().y / tex2.get_size().x
 		_obstacles.append(Rect2((st["pos"] as Vector2) - Vector2(w2, h2) * 0.5,
 			Vector2(w2, h2)).grow_individual(-1.0, -w2 * 0.15, -1.0, -w2 * 0.15))
+	# printed furniture — a slim base box at each piece's floor line, so the
+	# crew walks BEHIND tall pieces but never through them (rugs stay walkable)
+	for cell in GameState.furniture:
+		for p in GameState.furniture_at(cell):
+			var it: Dictionary = Craftables.ITEMS[p["id"]]
+			if it.get("flat", false):
+				continue
+			var fw := _furn_w(int(it["size"]))
+			_obstacles.append(Rect2(
+				_furn_cx(cell, int(p["col"]), int(it["size"])) - fw * 0.5 + 1.0,
+				_furn_base_y(cell, int(p["row"])) - 16.0, fw - 2.0, 14.0))
+
+
+# ------------------------------------------------------------------
+# Furniture geometry — each built room's floor is a FURN_COLS x FURN_ROWS
+# placement grid (row 0 hugs the back wall, row 1 the front)
+# ------------------------------------------------------------------
+const FURN_MARGIN_X := 18.0
+
+
+func _furn_slot_w() -> float:
+	return (CELL_W - FURN_MARGIN_X * 2.0) / GameState.FURN_COLS
+
+
+func _furn_w(size: int) -> float:
+	return size * _furn_slot_w() - 6.0
+
+
+func _furn_cx(cell: int, col: int, size: int) -> float:
+	return cell_rect(cell).position.x + FURN_MARGIN_X + (col + size * 0.5) * _furn_slot_w()
+
+
+func _furn_base_y(cell: int, row: int) -> float:
+	## the piece's floor line (sprite bottom) for its depth row
+	return cell_rect(cell).position.y + (66.0 if row == 0 else 122.0)
 
 
 func _find_cell(type: String) -> int:
@@ -311,6 +367,8 @@ func _ready() -> void:
 	GameState.refill_oxygen(GameState.max_oxygen)
 	_build_hud()
 	GameState.notify.connect(_on_notify)
+	# printed furniture is solid — rebuild collision whenever it changes
+	GameState.furniture_changed.connect(_build_obstacles)
 
 	# boarding by ANY door ends the adrift opening — you're home now
 	var was_adrift: bool = GameState.adrift
@@ -367,6 +425,46 @@ func _ready() -> void:
 		_upgrade_modal.open(OS.get_environment("SW_MODAL"))
 	if OS.get_environment("SW_RENAME") != "":
 		_open_rename()
+	# SW_FAB=1 opens the fabricator catalogue; SW_FAB=<id> jumps straight
+	# into placement with that object in hand
+	var fab := OS.get_environment("SW_FAB")
+	if fab != "":
+		crew.set_process(false)
+		if Craftables.ITEMS.has(fab):
+			_debug_build_room()
+			for sym in Craftables.ITEMS[fab]["cost"]:
+				GameState.elements[sym] = maxi(int(GameState.elements.get(sym, 0)), 99)
+			GameState.recipes_unlocked[fab] = true
+			_begin_placement(fab)
+		else:
+			_fab_modal.open()
+	# SW_FURN=1: pre-place a furnished room for screenshots
+	if OS.get_environment("SW_FURN") != "":
+		var rc := _debug_build_room()
+		if rc >= 0:
+			for sym in ["Fe", "C", "Al", "Cu", "Si", "Ar", "W"]:
+				GameState.elements[sym] = maxi(int(GameState.elements.get(sym, 0)), 99)
+			for pick in [["rug_round", 2, 1], ["bed_single", 0, 0], ["locker", 2, 0],
+					["bookshelf", 3, 0], ["sofa", 0, 1], ["floor_lamp", 5, 0],
+					["potted_plant", 4, 1]]:
+				GameState.recipes_unlocked[pick[0]] = true
+				GameState.place_furniture(rc, pick[0], pick[1], pick[2])
+
+
+func _debug_build_room() -> int:
+	## screenshots need a player-built room; force one next to the cluster
+	for cell in GameState.rooms:
+		if GameState.can_furnish_room(cell):
+			return cell
+	for cell in GameState.SHIP_COLS * GameState.SHIP_ROWS:
+		if GameState.cell_in_hull(cell) and not GameState.rooms.has(cell):
+			for n in GameState.cell_neighbors(cell):
+				if GameState.rooms.has(n):
+					GameState.rooms[cell] = "room"
+					_define_stations()
+					_spawn_lights()
+					return cell
+	return -1
 
 
 func _define_stations() -> void:
@@ -389,6 +487,7 @@ func _define_stations() -> void:
 				_stations.append({"pos": c + Vector2(0, -56), "kind": "drive"})
 			"cargo":
 				_stations.append({"pos": c + Vector2(-56, -44), "kind": "board"})
+				_stations.append({"pos": c + Vector2(16, -46), "kind": "fabricator"})
 	# expansion bays: for every built-room edge that faces bare hull, put an
 	# expand prompt JUST INSIDE the built room at that edge — so you can
 	# reach it from whichever room you're standing in (no dead corners).
@@ -489,15 +588,23 @@ func _process(delta: float) -> void:
 		queue_redraw()
 		_overlay.queue_redraw()
 		return
+	if _placing_id != "":
+		_update_placement()
 	_update_active_station()
 	var rn := _room_at(crew.position)
-	if rn != "—" and not _rename_box.visible \
-			and not (_upgrade_modal != null and _upgrade_modal.visible):
+	# match the cell _open_rename() actually edits (the feet cell) so the hint
+	# and the R action never disagree near a cell boundary
+	if rn != "—" and GameState.can_rename_room(cell_at(crew.position + Vector2(0, 12))) \
+			and not _rename_box.visible and _placing_id == "" \
+			and not (_upgrade_modal != null and _upgrade_modal.visible) \
+			and not (_fab_modal != null and _fab_modal.visible):
 		rn += "      R  rename"
 	_room_label.text = rn
 	_banked_label.text = "BANKED ORE   %d" % GameState.banked
-	if _active >= 0:
-		_prompt_label.text = _station_label(_stations[_active])
+	if _active >= 0 and _placing_id == "" \
+			and not (_fab_modal != null and _fab_modal.visible) \
+			and not (_upgrade_modal != null and _upgrade_modal.visible):
+		_prompt_label.set_prompt(_station_label(_stations[_active]))
 		_prompt_label.modulate.a = 0.95
 	else:
 		_prompt_label.modulate.a = 0.0
@@ -536,16 +643,18 @@ func _station_label(st: Dictionary) -> String:
 						(GameState.RESCUES.size() - GameState.rescued_count())
 				return "E    ALL ABOARD — SET COURSE FOR HAVEN"
 			var part: Dictionary = GameState.quest_part()
-			return "JUMP DRIVE · %s  —  %s%s" % [part["name"],
-				GameState.quest_progress_text(),
-				"   ·   E INSTALL" if GameState.quest_can_install() else ""]
+			if GameState.quest_can_install():
+				return "E    Install the jump drive — %s" % part["name"]
+			return "JUMP DRIVE · %s  —  %s" % [part["name"], GameState.quest_progress_text()]
 		"board":
 			var deliverable := GameState.contracts_ready()
-			return "CONTRACTS BOARD — E deliver (%d ready)" % deliverable
+			return "E    Deliver to the board   (%d ready)" % deliverable
 		"comms":
-			return "VESNA'S MARKET — press 1-3 to buy"
+			return "1-3    Buy from Vesna's market"
 		"workbench":
-			return "WORKBENCH — press 1-4 to craft"
+			return "1-4    Craft at the workbench"
+		"fabricator":
+			return "E    Fabricator — print room objects"
 	return ""
 
 
@@ -557,6 +666,24 @@ func _room_at(p: Vector2) -> String:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	# fabricator placement mode owns ALL input while an object is in hand
+	if _placing_id != "":
+		if event is InputEventMouseButton and event.pressed \
+				and event.button_index == MOUSE_BUTTON_LEFT:
+			_confirm_placement()
+			get_viewport().set_input_as_handled()
+		elif event is InputEventMouseButton and event.pressed \
+				and event.button_index == MOUSE_BUTTON_RIGHT:
+			_recycle_hovered()
+			get_viewport().set_input_as_handled()
+		elif event is InputEventKey and event.pressed and not event.echo:
+			match event.physical_keycode:
+				KEY_ESCAPE:
+					_cancel_placement()
+				KEY_E, KEY_ENTER, KEY_KP_ENTER:
+					_confirm_placement()
+			get_viewport().set_input_as_handled()
+		return
 	if not (event is InputEventKey and event.pressed and not event.echo):
 		return
 	# rename box open: Esc cancels it (Enter submits via the LineEdit)
@@ -569,6 +696,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if _upgrade_modal != null and _upgrade_modal.visible:
 		return   # the modal owns input while it's up
+	if _fab_modal != null and _fab_modal.visible:
+		return
+	if _inventory != null and _inventory.visible:
+		return   # no station/rename actions under the full-screen inventory
 	# R renames the room you're standing in — no station needed
 	if event.physical_keycode == KEY_R:
 		_open_rename()
@@ -653,6 +784,166 @@ func _interact(st: Dictionary) -> void:
 			# open the requirements modal instead of upgrading blind
 			crew.set_process(false)
 			_upgrade_modal.open(st["kind"])
+		"fabricator":
+			crew.set_process(false)
+			_fab_modal.open()
+
+
+# ==================================================================
+# Fabricator placement — the printed object follows the mouse across
+# the rooms YOU built, snapping into each room's floor grid
+# ==================================================================
+func _begin_placement(id: String) -> void:
+	var any := false
+	for cell in GameState.rooms:
+		if GameState.can_furnish_room(cell):
+			any = true
+			break
+	if not any:
+		Sfx.play("deny", -12.0)
+		GameState.say("The fabricator only prints for rooms YOU built — expand the hull first.")
+		return
+	_placing_id = id       # set BEFORE closing so the crew stays frozen
+	_place_cell = -1
+	_fab_modal.close()
+
+
+func _update_placement() -> void:
+	var m := get_global_mouse_position()
+	var cell := cell_at(m)
+	if not GameState.can_furnish_room(cell):
+		_place_cell = -1
+		_place_ok = false
+		_hover_furn = -1
+		return
+	var it: Dictionary = Craftables.ITEMS[_placing_id]
+	var size := int(it["size"])
+	var r := cell_rect(cell)
+	_place_cell = cell
+	_place_col = clampi(int(floor((m.x - r.position.x - FURN_MARGIN_X) / _furn_slot_w()
+		- (size - 1) * 0.5)), 0, GameState.FURN_COLS - size)
+	_place_row = 0 if m.y < r.position.y + 94.0 else 1
+	# wall pieces only hang on the back wall — snap the ghost there
+	if it.get("back", false):
+		_place_row = 0
+	_place_ok = GameState.furniture_fits(cell, _placing_id, _place_col, _place_row) \
+		and GameState.can_afford(it["cost"])
+	# is an already-printed piece under the mouse? (right-click recycles it)
+	_hover_furn = -1
+	var mcol := int(floor((m.x - r.position.x - FURN_MARGIN_X) / _furn_slot_w()))
+	var mrow := 0 if m.y < r.position.y + 94.0 else 1
+	var list: Array = GameState.furniture_at(cell)
+	for i in list.size():
+		var pit: Dictionary = Craftables.ITEMS[list[i]["id"]]
+		if int(list[i]["row"]) == mrow and mcol >= int(list[i]["col"]) \
+				and mcol < int(list[i]["col"]) + int(pit["size"]):
+			# prefer solid pieces over the rug beneath them
+			if _hover_furn < 0 or not pit.get("flat", false):
+				_hover_furn = i
+
+
+func _confirm_placement() -> void:
+	if _place_cell < 0 or not _place_ok:
+		Sfx.play("deny", -12.0)
+		return
+	var id := _placing_id
+	var it: Dictionary = Craftables.ITEMS[id]
+	if GameState.place_furniture(_place_cell, id, _place_col, _place_row):
+		Sfx.play("upgrade", -6.0)
+		var w := _furn_w(int(it["size"]))
+		var h: float = w * (it["tex"] as Texture2D).get_size().y \
+			/ (it["tex"] as Texture2D).get_size().x
+		Vfx.sparkle(self, Vector2(_furn_cx(_place_cell, _place_col, int(it["size"])),
+			_furn_base_y(_place_cell, _place_row) - h * 0.5), Color(0.45, 0.9, 1.0))
+		GameState.say("%s printed." % it["name"])
+		_placing_id = ""
+		_fab_modal.open()   # straight back to the catalogue
+	else:
+		Sfx.play("deny", -12.0)
+
+
+func _cancel_placement() -> void:
+	_placing_id = ""
+	_fab_modal.open()
+
+
+func _recycle_hovered() -> void:
+	## right-click on a printed piece: un-print it, full material refund
+	if _place_cell < 0 or _hover_furn < 0:
+		Sfx.play("deny", -14.0)
+		return
+	var list: Array = GameState.furniture_at(_place_cell)
+	if _hover_furn >= list.size():
+		return
+	var rid: String = list[_hover_furn]["id"]
+	if GameState.remove_furniture(_place_cell, _hover_furn):
+		Sfx.play("bank", -8.0)
+		GameState.say("%s recycled — materials refunded." % Craftables.ITEMS[rid]["name"])
+		_hover_furn = -1
+
+
+func _draw_placement() -> void:
+	## Placement overlay: every furnishable room shows its floor grid;
+	## the object in hand ghosts at the snapped slot, green when it fits.
+	var pulse := 0.5 + 0.5 * sin(_reactor * 3.0)
+	for cell in GameState.rooms:
+		if not GameState.can_furnish_room(cell):
+			continue
+		var r := cell_rect(cell)
+		var hot: bool = cell == _place_cell
+		# the room lights up as a build canvas — hot room glows brighter
+		_ci.draw_rect(r.grow(-6.0), Color(0.35, 0.85, 1.0, 0.06 if hot else 0.03))
+		_ci.draw_rect(r.grow(-6.0),
+			Color(0.35, 0.85, 1.0, (0.7 if hot else 0.35) + 0.15 * pulse), false, 2.0)
+		for row in GameState.FURN_ROWS:
+			var by := _furn_base_y(cell, row)
+			for col in GameState.FURN_COLS:
+				var sx := r.position.x + FURN_MARGIN_X + col * _furn_slot_w()
+				var sr := Rect2(sx + 1.0, by - 22.0, _furn_slot_w() - 2.0, 22.0)
+				_ci.draw_rect(sr, Color(0.35, 0.85, 1.0, 0.07 if hot else 0.03))
+				_ci.draw_rect(sr, Color(0.35, 0.85, 1.0,
+					(0.55 if hot else 0.25) + 0.10 * pulse), false, 1.0)
+	if _place_cell >= 0:
+		var it: Dictionary = Craftables.ITEMS[_placing_id]
+		var size := int(it["size"])
+		var tex: Texture2D = it["tex"]
+		var w := _furn_w(size)
+		var h := w * tex.get_size().y / tex.get_size().x
+		if it.get("flat", false):
+			h *= 0.55
+		var cx := _furn_cx(_place_cell, _place_col, size)
+		var by2 := _furn_base_y(_place_cell, _place_row)
+		var tint := Color(0.55, 1.0, 0.65, 0.72) if _place_ok else Color(1.0, 0.4, 0.35, 0.55)
+		# claimed slots underline
+		var ux := cell_rect(_place_cell).position.x + FURN_MARGIN_X \
+			+ _place_col * _furn_slot_w()
+		_ci.draw_rect(Rect2(ux + 1.0, by2 - 3.0, size * _furn_slot_w() - 2.0, 4.0),
+			Color(tint.r, tint.g, tint.b, 0.8))
+		_ci.draw_texture_rect(tex, Rect2(cx - w * 0.5, by2 - h, w, h), false, tint)
+	# a printed piece under the mouse glows warm — right-click recycles it
+	if _place_cell >= 0 and _hover_furn >= 0:
+		var list: Array = GameState.furniture_at(_place_cell)
+		if _hover_furn < list.size():
+			var hp: Dictionary = list[_hover_furn]
+			var hit: Dictionary = Craftables.ITEMS[hp["id"]]
+			var hw := _furn_w(int(hit["size"]))
+			var htex: Texture2D = hit["tex"]
+			var hh: float = hw * htex.get_size().y / htex.get_size().x
+			if hit.get("flat", false):
+				hh *= 0.55
+			_ci.draw_rect(Rect2(
+				_furn_cx(_place_cell, int(hp["col"]), int(hit["size"])) - hw * 0.5 - 2.0,
+				_furn_base_y(_place_cell, int(hp["row"])) - hh - 2.0,
+				hw + 4.0, hh + 4.0), Color(1.0, 0.75, 0.3, 0.7), false, 1.5)
+	# hint line under the cursor
+	var m := get_global_mouse_position()
+	var hint_txt := "MOVE TO A ROOM YOU BUILT      ESC  back"
+	if _place_cell >= 0:
+		hint_txt = "CLICK / E  print      ESC  back"
+		if _hover_furn >= 0:
+			hint_txt = "R-CLICK  recycle      CLICK / E  print      ESC  back"
+	_ci.draw_string(_font, m + Vector2(-120, 26), hint_txt,
+		HORIZONTAL_ALIGNMENT_CENTER, 280, 9, Color(0.8, 0.95, 1.0, 0.8))
 
 
 # ==================================================================
@@ -662,17 +953,31 @@ func _build_hud() -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
 	var root := Control.new()
-	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.theme = UITheme.make_theme()
 	layer.add_child(root)
-	root.add_child(INVENTORY_SCREEN.new())
+	_inventory = INVENTORY_SCREEN.new()
+	# the inventory is a full-screen layer — never let it stack over a modal,
+	# the rename box or fabricator placement
+	_inventory.can_open = func() -> bool:
+		return _placing_id == "" \
+			and not (_upgrade_modal != null and _upgrade_modal.visible) \
+			and not (_fab_modal != null and _fab_modal.visible) \
+			and not (_rename_box != null and _rename_box.visible)
+	root.add_child(_inventory)
 
 	# gear upgrade modal — opens at a station, freezes the crew while up
 	_upgrade_modal = UPGRADE_MODAL.new()
 	root.add_child(_upgrade_modal)
 	_upgrade_modal.closed.connect(func(): crew.set_process(true))
 	_upgrade_modal.upgraded.connect(_on_upgraded)
+
+	# fabricator catalogue — choosing an object drops into placement mode
+	_fab_modal = FABRICATOR_MODAL.new()
+	root.add_child(_fab_modal)
+	_fab_modal.closed.connect(func(): if _placing_id == "": crew.set_process(true))
+	_fab_modal.craft_chosen.connect(_begin_placement)
 
 	# room-rename box — a clear titled panel, hidden until you press R
 	_rename_box = PanelContainer.new()
@@ -703,6 +1008,15 @@ func _build_hud() -> void:
 	_rename_box.set_anchors_and_offsets_preset(
 		Control.PRESET_CENTER, Control.PRESET_MODE_MINSIZE)
 	_rename_edit.text_submitted.connect(_on_rename_submitted)
+	# a focused LineEdit eats the first Esc (releases focus) before our
+	# _unhandled_input sees it — catch it here so ONE Esc always cancels
+	_rename_edit.gui_input.connect(func(ev: InputEvent):
+		if ev is InputEventKey and ev.pressed \
+				and ev.physical_keycode == KEY_ESCAPE:
+			_rename_box.visible = false
+			_rename_edit.release_focus()
+			crew.set_process(true)
+			get_viewport().set_input_as_handled())
 
 	var info := PanelContainer.new()
 	info.position = Vector2(18, 18)
@@ -724,12 +1038,9 @@ func _build_hud() -> void:
 	_room_label.set_anchors_and_offsets_preset(
 		Control.PRESET_CENTER_TOP, Control.PRESET_MODE_MINSIZE, 16)
 
-	_prompt_label = Label.new()
-	_prompt_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_prompt_label = KeyPrompt.new()
 	_prompt_label.modulate = Color(0.6, 0.9, 1.0, 0.0)
 	root.add_child(_prompt_label)
-	_prompt_label.set_anchors_and_offsets_preset(
-		Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_MINSIZE, 110)
 
 	_msg_label = Label.new()
 	_msg_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -738,13 +1049,9 @@ func _build_hud() -> void:
 	_msg_label.set_anchors_and_offsets_preset(
 		Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_MINSIZE, 70)
 
-	var hint := Label.new()
-	hint.text = "WASD walk · E interact / expand · R rename room · I inventory · Esc menu"
-	hint.add_theme_font_size_override("font_size", 12)
-	hint.modulate = Color(1, 1, 1, 0.4)
+	var hint := HintBar.new()
+	hint.items = Keymap.hint("interior")
 	root.add_child(hint)
-	hint.set_anchors_and_offsets_preset(
-		Control.PRESET_BOTTOM_LEFT, Control.PRESET_MODE_MINSIZE, 16)
 
 
 func _on_notify(text: String) -> void:
@@ -774,6 +1081,9 @@ func _on_upgraded(kind: String) -> void:
 func _open_rename() -> void:
 	var cell := cell_at(crew.position + Vector2(0, 12))
 	if not _built(cell):
+		return
+	if not GameState.can_rename_room(cell):
+		GameState.say("Core rooms keep their names — only rooms you built can be renamed.")
 		return
 	_rename_edit.set_meta("cell", cell)
 	_rename_edit.text = GameState.room_display_name(cell)
@@ -1148,6 +1458,11 @@ func _draw_depth(behind: bool) -> void:
 				_prop(f[0], pos, f[2])
 				if GLOWS.has(f[0]):
 					_glow(pos, (GLOWS[f[0]][0] as Color), GLOWS[f[0]][1])
+	# printed furniture — flats (rugs) first so they sit under everything,
+	# then solids by the same feet-line depth rule as the fixed props
+	if behind:
+		_draw_furniture(fy, true, true)
+	_draw_furniture(fy, behind, false)
 	for i in _stations.size():
 		var st: Dictionary = _stations[i]
 		if st["kind"] == "expand":
@@ -1166,6 +1481,27 @@ func _draw_depth(behind: bool) -> void:
 		var npos: Vector2 = cell_rect(home).get_center() + (spot[1] as Vector2)
 		if (npos.y + 16.0 <= fy) == behind:
 			_draw_npc(nname, npos, spot[2])
+
+
+func _draw_furniture(fy: float, behind: bool, flats: bool) -> void:
+	## One furniture sub-pass. Flats (rugs) always land in the behind pass,
+	## drawn before solids; solids split across the feet line like props.
+	for cell in GameState.furniture:
+		for p in GameState.furniture_at(cell):
+			var it: Dictionary = Craftables.ITEMS[p["id"]]
+			if bool(it.get("flat", false)) != flats:
+				continue
+			var base_y := _furn_base_y(cell, int(p["row"]))
+			if not flats and (base_y - 4.0 <= fy) != behind:
+				continue
+			var tex: Texture2D = it["tex"]
+			var w := _furn_w(int(it["size"]))
+			var h := w * tex.get_size().y / tex.get_size().x
+			var cx := _furn_cx(cell, int(p["col"]), int(it["size"]))
+			if flats:
+				# floor mats lie down: squash to a floor-projected ellipse look
+				h *= 0.55
+			_ci.draw_texture_rect(tex, Rect2(cx - w * 0.5, base_y - h, w, h), false)
 
 
 func _draw_npc(nname: String, pos: Vector2, tint: Color) -> void:
@@ -1250,6 +1586,14 @@ func _draw_station_visual(st: Dictionary, on: bool) -> void:
 			_prop("workbench", p, 62.0)
 			if on:
 				_ci.draw_arc(p, 36.0, 0.0, TAU, 32, Color(0.5, 1.0, 0.6, 0.6), 2.0)
+		"fabricator":
+			_prop("fabricator", p, 54.0)
+			# the print head's working shimmer — a live machine, not a prop
+			var fp := 0.5 + 0.5 * sin(_reactor * 3.1)
+			_ci.draw_rect(Rect2(p.x - 11, p.y - 2 - fp * 3.0, 22, 1.6),
+				Color(0.45, 0.9, 1.0, 0.25 + 0.35 * fp))
+			if on:
+				_ci.draw_arc(p, 34.0, 0.0, TAU, 32, Color(0.35, 0.85, 1.0, 0.7), 2.0)
 		_:
 			# the upgrade consoles: kit pedestal, tinted per system
 			var tint := Color.WHITE
@@ -1275,7 +1619,9 @@ func _draw_overlay() -> void:
 	## feet line, the active station's info panel, and the ending fade.
 	_ci = _overlay
 	_draw_depth(false)
-	if _active >= 0:
+	if _placing_id != "":
+		_draw_placement()
+	if _active >= 0 and _placing_id == "":
 		var st: Dictionary = _stations[_active]
 		match st["kind"]:
 			"board":
@@ -1314,7 +1660,8 @@ func _draw_board_panel(st: Dictionary) -> void:
 
 
 func _draw_comms_panel(st: Dictionary) -> void:
-	var rect := _menu_panel(st["pos"], 188.0, 20.0 + GameState.trader_stock.size() * 16.0)
+	# wide enough that the longest element name never runs under the price column
+	var rect := _menu_panel(st["pos"], 224.0, 20.0 + GameState.trader_stock.size() * 16.0)
 	_ci.draw_string(_font, rect.position + Vector2(8, 13), "VESNA'S STOCK · SHIFT %d" % GameState.shift,
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(1.0, 0.75, 0.3, 0.8))
 	for i in GameState.trader_stock.size():

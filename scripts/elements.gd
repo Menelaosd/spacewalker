@@ -303,9 +303,13 @@ static func glow_for(sym: String) -> Color:
 	return col
 
 
-static func _sample(fractions: Dictionary) -> String:
+static func _sample(fractions: Dictionary, roll := -1.0) -> String:
 	## Weighted random element — real abundance IS the drop table.
-	var roll := randf()
+	## Pass `roll` (0..1) for a DETERMINISTIC pick (e.g. seeded per rock so a
+	## dive site's veins can't be re-rolled by leaving and coming back);
+	## omit it for true random.
+	if roll < 0.0:
+		roll = randf()
 	var acc := 0.0
 	for sym in fractions:
 		acc += fractions[sym]
@@ -314,16 +318,16 @@ static func _sample(fractions: Dictionary) -> String:
 	return "Fe"
 
 
-static func sample_rock_element() -> String:
-	return _sample(rock_fractions())
+static func sample_rock_element(roll := -1.0) -> String:
+	return _sample(rock_fractions(), roll)
 
 
-static func sample_crystal_element() -> String:
-	return _sample(crystal_fractions())
+static func sample_crystal_element(roll := -1.0) -> String:
+	return _sample(crystal_fractions(), roll)
 
 
-static func sample_gas_element() -> String:
-	return _sample(gas_fractions())
+static func sample_gas_element(roll := -1.0) -> String:
+	return _sample(gas_fractions(), roll)
 
 
 static func _normalized(weight_fn: Callable) -> Dictionary:
@@ -359,9 +363,15 @@ static func crystal_fractions() -> Dictionary:
 
 
 static func gas_fractions() -> Dictionary:
-	## What a nebula scoop collects — the gases, real ratios (mostly H, He).
+	## What a nebula scoop collects. Like the crystal 10x heavy-boost, this is
+	## a DROP-TABLE transform (the real abundances in TABLE stay untouched):
+	## raw solar ratios put Xe at 1 unit per ~6.5 BILLION scoops, so trace
+	## gases would never exist in play. The 4th root compresses the orders of
+	## magnitude — H/He still dominate every scoop (~86%), but N/Ne land every
+	## couple of minutes and even Xe/Kr arrive within a patient session.
 	if _gas.is_empty():
-		_gas = _normalized(func(e): return float(e[3]) if e[0] in GASES else 0.0)
+		_gas = _normalized(func(e):
+			return pow(float(e[3]), 0.25) if e[0] in GASES else 0.0)
 	return _gas
 
 

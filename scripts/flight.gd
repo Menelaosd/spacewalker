@@ -6,6 +6,9 @@ extends Node2D
 ## spacewalk it. Q hands back the helm and returns inside.
 ## All visuals are placeholder _draw() shapes.
 
+const HintBar := preload("res://scripts/hint_bar.gd")
+const Keymap := preload("res://scripts/keymap.gd")
+const KeyPrompt := preload("res://scripts/key_prompt.gd")
 const THRUST := 560.0
 const THRUST_REV := 260.0
 const TURN_RATE := 2.6          # rad/s — A/D yaw
@@ -29,6 +32,22 @@ const SCRAP_METALS := [
 ]
 const TRASH_COLLECT_RADIUS := 70.0
 
+# Derelict WRECKS — whole dead ships (salvage-sheet art), much rarer than
+# loose junk. Stripping one pays a real scrap haul and can recover a lost
+# fabricator recipe; medical ships and dead stations carry the fancy ones.
+const Craftables := preload("res://scripts/craftables.gd")
+const RECIPE_BANNER := preload("res://scripts/recipe_banner.gd")
+const WRECK_COLLECT_RADIUS := 120.0
+const WRECK_CHANCE := 0.07
+const WRECK_SCALE := 0.42
+# Tech salvage — dead ships carry what ships are MADE of, not what rock is:
+# lithium battery banks, neodymium motor magnets, tungsten tooling, food and
+# fertilizer stores (P), signage neon and welding argon. This is the primary
+# source for the recipe elements that mining can't realistically supply.
+const WRECK_TECH := [
+	["Li", 25], ["Nd", 20], ["W", 20], ["P", 15], ["Ne", 12], ["Ar", 8],
+]
+
 @onready var cam: Camera2D = $Camera
 
 var ship_pos := Vector2.ZERO
@@ -39,6 +58,8 @@ var _turn := 0.0    # -1..1  A / D
 
 var _field_cache := {}
 var _trash_cache := {}
+var _wreck_cache := {}
+var _recipe_banner: Control
 var _comets: Array = []          # {pos, vel, size, life}
 var _comet_timer := 6.0
 var _near_beacon := false        # in reach of the current distress beacon
@@ -50,7 +71,7 @@ var _font: Font = ThemeDB.fallback_font
 
 var _pos_label: Label
 var _cargo_label: Label
-var _prompt_label: Label
+var _prompt_label: Control
 var _msg_label: Label
 var _msg_tween: Tween
 
@@ -67,6 +88,15 @@ func _ready() -> void:
 	_build_hud()
 	GameState.notify.connect(_on_notify)
 	GameState.say("You have the helm. Fields get richer the farther you fly.")
+	# debug: SW_WRECK=1 parks a rare derelict beside the ship and pops the
+	# recipe banner, for screenshots
+	if OS.get_environment("SW_WRECK") != "":
+		var cc := Vector2i((ship_pos / FIELD_CHUNK).floor())
+		_wreck_cache[cc] = {
+			"pos": ship_pos + Vector2(420, -160), "idx": 13, "rot": 0.3,
+			"rare": true, "key": "w:debug", "taken": false,
+		}
+		_recipe_banner.show_recipe("jukebox")
 
 
 func _process(delta: float) -> void:
@@ -106,6 +136,7 @@ func _process(delta: float) -> void:
 		GameState.scoop_gas(delta)
 
 	_collect_trash()
+	_collect_wrecks()
 	_update_comets(delta)
 	_update_hud()
 	Sfx.thrust_on(absf(_thr) > 0.05 or absf(_turn) > 0.05)
@@ -256,8 +287,116 @@ func _trash_in_chunk(cx: int, cy: int) -> Array:
 	return pieces
 
 
+func _wreck_in_chunk(cx: int, cy: int) -> Dictionary:
+	## At most one derelict per chunk, deterministic, much rarer than junk.
+	## The hull index decides the art AND the loot class (RARE_WRECKS =
+	## medical ships / dead stations = bigger haul, fancier recipe).
+	var key := Vector2i(cx, cy)
+	if _wreck_cache.has(key):
+		return _wreck_cache[key]
+	if _wreck_cache.size() > 512:
+		_wreck_cache.clear()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = _chunk_seed(cx, cy, 7)
+	var wreck := {}
+	if not (cx == 0 and cy == 0) and rng.randf() < WRECK_CHANCE:
+		var idx: int
+		if rng.randf() < 0.2:   # rare hulls stay rare
+			idx = Craftables.RARE_WRECKS[rng.randi_range(0, Craftables.RARE_WRECKS.size() - 1)]
+		else:
+			idx = rng.randi_range(0, Craftables.WRECKS.size() - 1)
+			while idx in Craftables.RARE_WRECKS:
+				idx = rng.randi_range(0, Craftables.WRECKS.size() - 1)
+		var wkey := "w:%d:%d" % [cx, cy]
+		wreck = {
+			"pos": Vector2(cx, cy) * FIELD_CHUNK + Vector2(
+				rng.randf_range(160, FIELD_CHUNK - 160),
+				rng.randf_range(160, FIELD_CHUNK - 160)),
+			"idx": idx,
+			"rot": rng.randf_range(-0.5, 0.5),
+			"rare": idx in Craftables.RARE_WRECKS,
+			"key": wkey,
+			"taken": GameState.salvage_taken.has(wkey),
+		}
+	_wreck_cache[key] = wreck
+	return wreck
+
+
+func _collect_wrecks() -> void:
+	var cc := Vector2i((ship_pos / FIELD_CHUNK).floor())
+	for dy in range(-1, 2):
+		for dx in range(-1, 2):
+			var w := _wreck_in_chunk(cc.x + dx, cc.y + dy)
+			if w.is_empty() or w["taken"]:
+				continue
+			if ship_pos.distance_to(w["pos"]) > WRECK_COLLECT_RADIUS:
+				continue
+			w["taken"] = true
+			GameState.salvage_taken[w["key"]] = true
+			# the scrap haul — several metals, doubled for rare hulls
+			var rng := RandomNumberGenerator.new()
+			rng.seed = hash(str(w["key"], ":loot"))
+			var kinds := 3 if w["rare"] else 2
+			var y := -20.0
+			for i in kinds:
+				var total := 0
+				for m in SCRAP_METALS:
+					total += m[1]
+				var roll := rng.randi_range(1, total)
+				var metal := "Fe"
+				for m in SCRAP_METALS:
+					roll -= m[1]
+					if roll <= 0:
+						metal = m[0]
+						break
+				var units := rng.randi_range(2, 5) * (2 if w["rare"] else 1)
+				GameState.elements[metal] = mini(
+					int(GameState.elements.get(metal, 0)) + units, GameState.ELEMENT_CAP)
+				GameState.discovered[metal] = true
+				var ft := FLOAT_TEXT.new()
+				ft.text = "+%d %s  (wreck)" % [units, Elements.name_of(metal)]
+				ft.color = Elements.hue_of(metal)
+				ft.position = w["pos"] + Vector2(0, y)
+				add_child(ft)
+				y -= 18.0
+			# every hull also gives up one TECH find — battery lithium, magnet
+			# neodymium, tungsten tooling... the recipe chemistry's lifeline
+			var ttotal := 0
+			for t in WRECK_TECH:
+				ttotal += t[1]
+			var troll := rng.randi_range(1, ttotal)
+			var tech := "Li"
+			for t in WRECK_TECH:
+				troll -= t[1]
+				if troll <= 0:
+					tech = t[0]
+					break
+			var tunits := rng.randi_range(1, 2) * (2 if w["rare"] else 1)
+			GameState.elements[tech] = mini(
+				int(GameState.elements.get(tech, 0)) + tunits, GameState.ELEMENT_CAP)
+			GameState.discovered[tech] = true
+			var tft := FLOAT_TEXT.new()
+			tft.text = "+%d %s  (tech salvage)" % [tunits, Elements.name_of(tech)]
+			tft.color = Elements.hue_of(tech)
+			tft.position = w["pos"] + Vector2(0, y)
+			add_child(tft)
+			GameState.inventory_changed.emit()
+			# the real prize: a lost fabricator blueprint
+			var rid := GameState.unlock_random_recipe(bool(w["rare"]))
+			if rid != "":
+				_recipe_banner.show_recipe(rid)
+			else:
+				var ft2 := FLOAT_TEXT.new()
+				ft2.text = "hull stripped — no new recipes left aboard"
+				ft2.color = Color(0.7, 0.8, 0.9)
+				ft2.position = w["pos"] + Vector2(0, y)
+				add_child(ft2)
+			GameState.save_game()
+
+
 func _collect_trash() -> void:
 	var cc := Vector2i((ship_pos / FIELD_CHUNK).floor())
+	var got_any := false
 	for dy in range(-1, 2):
 		for dx in range(-1, 2):
 			for piece in _trash_in_chunk(cc.x + dx, cc.y + dy):
@@ -272,11 +411,14 @@ func _collect_trash() -> void:
 						GameState.ELEMENT_CAP)
 					GameState.discovered[sym] = true
 					GameState.inventory_changed.emit()
+					got_any = true
 					var ft := FLOAT_TEXT.new()
 					ft.text = "+%d %s  (salvage)" % [piece["units"], Elements.name_of(sym)]
 					ft.color = Elements.hue_of(sym)
 					ft.position = piece["pos"] + Vector2(0, -20)
 					add_child(ft)
+	if got_any:
+		GameState.save_game()   # commit like wrecks do — a crash can't lose it
 
 
 func _find_near_field() -> Dictionary:
@@ -298,7 +440,7 @@ func _build_hud() -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
 	var root := Control.new()
-	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.theme = UITheme.make_theme()
 	layer.add_child(root)
@@ -334,12 +476,9 @@ func _build_hud() -> void:
 	_cargo_label.modulate = Color(1, 1, 1, 0.75)
 	box.add_child(_cargo_label)
 
-	_prompt_label = Label.new()
-	_prompt_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_prompt_label = KeyPrompt.new()
 	_prompt_label.modulate = Color(0.6, 0.9, 1.0, 0.0)
 	root.add_child(_prompt_label)
-	_prompt_label.set_anchors_and_offsets_preset(
-		Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_MINSIZE, 110)
 
 	_msg_label = Label.new()
 	_msg_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -348,12 +487,13 @@ func _build_hud() -> void:
 	_msg_label.set_anchors_and_offsets_preset(
 		Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_MINSIZE, 70)
 
-	var hint := Label.new()
-	hint.text = "W/S thrust · A/D turn · E park / dock · Q leave the helm · Esc menu"
-	hint.modulate = Color(1, 1, 1, 0.55)
+	var hint := HintBar.new()
+	hint.items = Keymap.hint("flight")
 	root.add_child(hint)
-	hint.set_anchors_and_offsets_preset(
-		Control.PRESET_BOTTOM_LEFT, Control.PRESET_MODE_MINSIZE, 16)
+
+	# "RECIPE RECOVERED" reveal — the payoff for stripping a derelict
+	_recipe_banner = RECIPE_BANNER.new()
+	root.add_child(_recipe_banner)
 
 
 func _update_hud() -> void:
@@ -369,20 +509,20 @@ func _update_hud() -> void:
 	_pos_label.text = line
 	_cargo_label.text = "Banked ore: %d" % GameState.banked
 	if _near_beacon:
-		_prompt_label.text = "E    Answer the distress beacon — %s, %s" % [
-			GameState.rescue_target()["name"], GameState.rescue_target()["role"]]
+		_prompt_label.set_prompt("E    Answer the distress beacon — %s, %s" % [
+			GameState.rescue_target()["name"], GameState.rescue_target()["role"]])
 		_prompt_label.modulate.a = 0.95
 	elif _near_home:
-		_prompt_label.text = "E    Dock at home"
+		_prompt_label.set_prompt("E    Dock at home")
 		_prompt_label.modulate.a = 0.95
 	elif not _near_field.is_empty():
-		_prompt_label.text = "E    Park & spacewalk this field  (~%d%% rich)" % int(
-			_near_field["rich"] * 100.0)
+		_prompt_label.set_prompt("E    Park & spacewalk this field  (~%d%% rich)" % int(
+			_near_field["rich"] * 100.0))
 		_prompt_label.modulate.a = 0.95
 	elif _scooping:
-		_prompt_label.text = "◌  Scooping nebula gas — H ×%d · He ×%d" % [
+		_prompt_label.set_prompt("◌  Scooping nebula gas — H ×%d · He ×%d" % [
 			int(GameState.elements.get("H", 0)),
-			int(GameState.elements.get("He", 0))]
+			int(GameState.elements.get("He", 0))])
 		_prompt_label.modulate.a = 0.75
 	else:
 		_prompt_label.modulate.a = 0.0
@@ -407,6 +547,7 @@ func _draw() -> void:
 	_draw_nebulae(center, half)
 	_draw_stars(center, half)
 	_draw_fields(center, half)
+	_draw_wrecks(center, half)
 	_draw_trash(center, half)
 	_draw_beacon(center)
 	_draw_home()
@@ -414,6 +555,32 @@ func _draw() -> void:
 	for c in _comets:
 		SpaceDressing.draw_comet(self, c, _t)
 	_draw_ship()
+
+
+func _draw_wrecks(center: Vector2, half: Vector2) -> void:
+	## Whole derelict hulls, ship-sized, slowly tumbling nowhere. A faint
+	## salvage ring marks the ones still worth boarding.
+	for cy in range(floori((center.y - half.y) / FIELD_CHUNK), floori((center.y + half.y) / FIELD_CHUNK) + 1):
+		for cx in range(floori((center.x - half.x) / FIELD_CHUNK), floori((center.x + half.x) / FIELD_CHUNK) + 1):
+			var w := _wreck_in_chunk(cx, cy)
+			if w.is_empty() or w["taken"]:
+				continue
+			var p: Vector2 = w["pos"]
+			var tex: Texture2D = Craftables.WRECKS[w["idx"]]
+			var sz := tex.get_size()
+			# barely-alive drift so it reads as adrift, not parked
+			var rot: float = w["rot"] + sin(_t * 0.08 + p.x * 0.01) * 0.04
+			draw_set_transform(p, rot, Vector2(WRECK_SCALE, WRECK_SCALE))
+			draw_texture(tex, -sz * 0.5, Color(0.82, 0.85, 0.9))
+			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+			# salvage ring — warm for rare hulls, teal for common
+			var ring := Color(1.0, 0.8, 0.35) if w["rare"] else Color(0.4, 0.85, 1.0)
+			var pulse := 0.5 + 0.5 * sin(_t * 2.0 + p.y * 0.02)
+			draw_arc(p, WRECK_COLLECT_RADIUS, 0.0, TAU, 48,
+				Color(ring.r, ring.g, ring.b, 0.08 + 0.10 * pulse), 1.5)
+			draw_string(_font, p + Vector2(-80, WRECK_COLLECT_RADIUS + 16),
+				"DERELICT — fly close to salvage", HORIZONTAL_ALIGNMENT_CENTER,
+				160, 9, Color(ring.r, ring.g, ring.b, 0.25 + 0.25 * pulse))
 
 
 func _draw_trash(center: Vector2, half: Vector2) -> void:
@@ -619,7 +786,7 @@ func _draw_home_compass() -> void:
 
 ## The captain's ship, bow facing +X (see tools/process_ship_art.gd).
 const SHIP_TEX := preload("res://assets/sprites/ship_hd.png")
-const SHIP_SCALE := 0.6
+const SHIP_SCALE := 0.46
 
 
 func _draw_ship() -> void:

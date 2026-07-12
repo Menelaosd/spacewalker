@@ -31,7 +31,7 @@ var _armed := -1               # slot index armed for overwrite confirm
 
 
 func _ready() -> void:
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	texture_filter = TEXTURE_FILTER_LINEAR
 	theme = UITheme.make_theme()

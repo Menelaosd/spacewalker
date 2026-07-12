@@ -39,6 +39,8 @@ func _on_body_entered(body: Node) -> void:
 		return
 	# the element sample always goes in the collection; the ore may not fit
 	var ore_full := GameState.add_carried(kind, value, element)
+	var spark_col: Color = Elements.glow_for(element) if element != "" else Color(1.0, 0.85, 0.4)
+	Vfx.sparkle(get_parent(), global_position, spark_col)
 	Sfx.play("pickup", -12.0, randf_range(0.9, 1.15))
 	if element != "":
 		var ft := FLOAT_TEXT.new()

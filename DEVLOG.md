@@ -5,6 +5,319 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 13/07/2026 — v1.33: full-project audit — recipe economy, recycle, input fixes
+
+Three parallel audits (crafting/save logic, UI/input, gameplay/assets) swept the
+whole project after the crafting drop. Verified clean: save round-trips, wreck
+re-salvage/reroll exploits, placement boundary math, crew-freeze pairs, pause
+interplay, all 147 asset preloads. What they caught got fixed:
+
+- **THE BIG ONE — 39 recipes were mathematically uncraftable.** Costs used
+  honest chemistry, but the sources didn't exist: raw solar ratios put Xe at
+  1 unit per ~6.5 BILLION nebula scoops (~4 million hours), Kr ~500k hours,
+  and Li/Nd/P/W had no source below the rep-12 trader wildcard — including six
+  STARTER recipes (battery bank's lithium, tool wall's tungsten…). Fixes, with
+  the sacred 83-element abundance TABLE untouched:
+  - **Gas scooping drop-table compression** (4th root, same philosophy as the
+    crystal 10× heavy-boost): H/He still dominate (~86% of scoops), but now
+    N ≈ 0.7 min/unit, Ne ≈ 0.6, Ar ≈ 1.7, and even Kr/Xe land in 11-18 min of
+    patient scooping instead of never.
+  - **Wreck TECH SALVAGE**: every stripped hull now also yields 1-2 units from
+    what ships are MADE of — Li batteries, Nd motor magnets, W tooling, P food
+    stores, Ne signage, Ar welding gas (doubled on rare hulls). This is the
+    primary faucet for the strays.
+  - **Trader tiers**: P joins rep-3 stock; Li and Nd join rep-6.
+- **Recycling was dead code** — `remove_furniture()` existed but nothing called
+  it. Now: in placement mode, hovering a printed piece glows warm and
+  RIGHT-CLICK un-prints it with a full material refund (hint line updates).
+- **Wall pieces enforced**: `back: true` items (tool wall, wall shelf, star
+  chart, banner) now refuse the front row and their ghost snaps to the back
+  wall — previously the flag was decorative and a shelf could float mid-room.
+- **Input hardening**: the inventory can no longer open OVER the fabricator
+  modal/placement/rename box (host-scene veto), station/rename keys are dead
+  under the open inventory, ONE Esc now cancels the rename box even while the
+  LineEdit has focus, stale hover no longer carries across fabricator tab
+  switches, and printing by mouse needs a DOUBLE-click (single click only
+  selects — no more surprise prints after a tab switch).
+- SW_RICH now also applies to brand-new games (was: only boot + load); trash
+  pickups commit to the save immediately, matching wreck salvage.
+- Housekeeping: orphan `.uid` files of deleted temp tools removed. Known lows,
+  deliberately left: chargen ignores numpad-Enter, pause menu is mouse-first
+  (no initial button focus), SW_RICH writes 4000s into any slot you save on
+  (documented; it's a dev cheat).
+
+## 13/07/2026 — v1.32: FIX — mouse clicks were dead in modals + 126 craftables
+
+- **THE BUG (captain report: "can't click tabs or objects"):** every code-built
+  full-screen Control used `set_anchors_preset(PRESET_FULL_RECT)` — which
+  preserves the control's CURRENT rect via offsets. Added before the parent laid
+  out, that rect was 0×0 and stayed 0×0 forever. `_draw()` is unclipped, so the
+  modals RENDERED full-screen while being invisible to mouse hit-testing —
+  `_gui_input` never fired. The fabricator modal was unclickable; the upgrade
+  modal had the same latent bug since it shipped. Proven with an injected Win32
+  click + console print (`size=(0,0)`), fixed with
+  `set_anchors_and_offsets_preset` and swept across ALL scripts (10 files).
+  Verified end-to-end: injected click on GALLEY/LOUNGE switches tabs on screen.
+- **Catalogue grown 108 → 126** (wave 3, contact-sheet-verified picks): padded
+  bench, side table, wall shelf, luggage · brew urn, stand mixer, rice cooker,
+  serving cart · lab console, vitals monitor, culture cylinder, herb cabinet ·
+  gear press, lathe, gantry crane, fuel canister · star chart, ship banner.
+  Tabs now 24/24/24/24/30 — LOUNGE's 5 rows still fit the 720p panel.
+- **Hover feedback** on tabs and cards so the mouse path is obvious; grid is
+  6 columns.
+- **SW_RICH=1 (TESTING ONLY):** 4000 of every element + 4000 banked ore, also
+  re-applied after loading a save. One env var, three code spots, each marked
+  `TESTING ONLY — DELETE BEFORE SHIPPING`; grep SW_RICH to strip for release.
+  Note: saving while rich writes the 4000s into that save slot — use a
+  throwaway slot.
+- Starter recipes also seed in GameState._ready, so debug scene launches and
+  every legacy path start with the 26 essentials instead of a locked catalogue.
+
+## 12/07/2026 — v1.31: CRAFTING — fabricator, room furniture, derelict wrecks
+
+- **The fabricator.** A 3D-printer station (craft-sheet art, its graphic is
+  never itself craftable) now hums in the Cargo Hold. `E` opens a catalogue
+  modal: 5 category tabs (QUARTERS / GALLEY / SCIENCE / ENGINEERING / LOUNGE),
+  a 6-column card grid, hover + click everywhere (tabs, cards, print button;
+  click the backdrop to close), keyboard too (1-5 tabs, arrows browse, E print).
+  Locked items show ghosted with "no recipe yet" — you can always see what's
+  left to find.
+- **108 craftables, curated from the captain's craft sheets** (extracted by the
+  new `tools/extract_craft.gd`: strict-distance chroma key so plant foliage
+  survives, connected components, contact-sheet verification of every pick).
+  Costs are real chemistry in mined/scooped/traded elements: Nd magnets in the
+  body scanner and laser cutter, Ne in the jukebox, Ar in the plasma fireplace,
+  Li in battery banks, W crucibles in the smelter, Au on the gold bust, N+P
+  fertilizer under everything green, U in the reactor core. 26 starter recipes;
+  the other 82 are lost blueprints.
+- **Placement: rooms YOU built only** (same rule as renaming — core rooms keep
+  their fixed stations). Each built room becomes a 6×2 floor grid; the chosen
+  object follows the mouse, snaps to slots, green/red ghost, click/E prints
+  (elements are spent at that moment, modal reopens for the next print).
+  Furniture draws through the same feet-line depth passes as the fixed props
+  (front row covers the crew, rugs lie flat under everything) and lands in the
+  collision map, so you walk around your sofa, not through it. Placed pieces
+  persist in the save (validated on load — corrupt/overlapping entries are
+  dropped) and can be recycled for a full refund.
+- **Derelict wrecks (salvage-sheet art, 20 hulls).** Rare whole ships now
+  drift in flight mode — freighters, gunships, and rarer medical ships and
+  dead stations (dome, torus, C-ring) with a warm gold salvage ring. Fly close
+  to strip one: a multi-metal scrap haul (doubled on rare hulls) plus the real
+  prize — a lost recipe, revealed by a "RECIPE RECOVERED" banner with the item's
+  art. Rare hulls draw from the fancy end of the catalogue. Wreck state lives in
+  `salvage_taken`, so a stripped hull stays stripped.
+- Save format v6 (`recipes`, `furniture`); starter recipes seed on every path
+  into the game, including legacy saves. Debug hooks: `SW_FAB=1` (catalogue),
+  `SW_FAB=<id>` (placement in hand), `SW_FURN=1` (pre-furnished room),
+  `SW_WRECK=1` (derelict + banner). Round-trip sim passed: costs deduct,
+  overlap/out-of-bounds/locked refused, refunds exact, unlocks unique,
+  corrupted saves sanitized.
+
+## 12/07/2026 — v1.30: FIX — dive-site elements re-rolled on every visit (exploit)
+
+- **The bug:** the field LAYOUT was deterministic per sector (seeded rng +
+  `GameState.mined` keeps mined rocks gone), but each rock's ELEMENT was picked
+  in `asteroid._ready()` with the global RNG — so leaving and re-entering a dive
+  site re-rolled every remaining rock's vein. Exploit: hop in/out until gold or
+  uranium spawns next to you.
+- **The fix:** veins are now deterministic per rock. `Elements._sample` (and the
+  three `sample_*_element` wrappers) accept an optional pre-drawn `roll`;
+  asteroid seeds it from `hash("vein:" + mine_key)`. Same rock, same element,
+  forever. Wreck salvage / gas scooping keep true randomness (param defaults).
+  The abundance TABLE is untouched — same drop odds, just fixed per rock.
+- **Proven** by headless sim: identical veins across two simulated visits with
+  the global RNG scrambled between them; healthy variety across rocks (PASS).
+- Known lesser quirk (bounded, not loopable): upgrading the TETHER changes the
+  layout range, which can remap rock indices once per upgrade level (max 5 per
+  playthrough, costs resources). Not the reported exploit; left as-is for now.
+
+## 12/07/2026 — v1.29: mining reads as WELDING
+
+- **Laser cut = weld spatter** (captain's call). `Vfx.spark_hit` reworked: a
+  white-hot core flash at the contact point, a tight fan of tiny fast pinpricks
+  spraying BACK off the surface (player passes the beam direction), dying
+  through white → yellow → orange-red ember (`_weld_ramp`), plus a very subtle
+  element-tinted afterglow so you still read what you're cutting. Throttle
+  tightened to ~25 bursts/s for a continuous crackle. `_emit` gained optional
+  direction / spread / custom-ramp args (default behaviour unchanged).
+  Verified on-screen — reads as welding at gameplay zoom.
+
+## 12/07/2026 — v1.28: VFX/sound corrections (captain feedback)
+
+- **Sound pulled back out** — the Kenney audio felt wrong; `sfx.gd` is a no-op
+  stub again (API intact, call sites resolve, nothing plays) and `assets/audio/`
+  is deleted. We'll do sound properly later.
+- **Particles retuned** — the real problem was scale: the textures are 512px, so
+  CPUParticles2D was drawing 90–230px flat blobs. Now sized to ~10–30px, drawn
+  ADDITIVELY (glowing, not flat), with round star/glow textures so they radiate
+  cleanly in any direction (CPUParticles2D can't orient to velocity). Shatter =
+  flare flash + star shards + glow puff; sparkle = gold star glints. Verified.
+- **Flight thrusters reverted** to the clean procedural nozzle flames (the flame
+  sprite looked stretched). Ship stays at the smaller SHIP_SCALE 0.46.
+
+## 12/07/2026 — v1.27: launch-prep audit + smaller ship w/ flame thrusters
+
+- **Pre-launch audit** (3 parallel passes: assets, new-code logic, gameplay/save).
+  Result: no broken asset refs, no gameplay/economy/save regressions, win path
+  still reachable. Fixes applied:
+  - **Sound bug (HIGH):** `sfx.gd` set `loop=true` on a shared cached OGG
+    (`forceField_003` = both the klaxon loop AND the "upgrade" one-shot), so
+    every upgrade/craft/install cue droned forever on a pool voice. Fixed —
+    loop players now `duplicate()` the stream, leaving the pooled copy un-looped.
+  - Vfx now receives `global_position` (was local) from asteroid/pickup —
+    correct even if the world node ever gets a transform.
+  - Rename hint now checks the same (feet) cell `_open_rename` edits — no more
+    disagreement near a cell boundary.
+  - Core rooms always show their fixed name (a legacy save can't pin a stuck
+    custom name on them anymore).
+  - Inventory name-plate: dropped the dead ~2% "capacity" sliver (cap is 9999);
+    now a faint full-width element tint = "you're holding some".
+- **Asset cleanup:** removed 7 unused particle textures + never-referenced prop
+  sheets s1/s9 (34 files, ~1.9 MB). Kept crew sprites (dialog feature pending)
+  and `ship_hd.png` (still the flight/dock hull). Note for export: `tools/` +
+  `tools/ship_source.png` will bundle unless excluded by an export filter.
+- **Flight ship smaller** (`SHIP_SCALE` 0.6 → 0.46). Its thruster block already
+  scales with SHIP_SCALE, so nozzle placement is preserved automatically. The
+  twin **main drives now fire Kenney flame sprites** (`flame_06`) from the rear
+  nozzles, aimed aft and flickering with throttle; the reverse/turn RCS stay as
+  the cold-gas blue procedural jets.
+
+## 12/07/2026 — v1.26: sound & particle VFX (Kenney CC0)
+
+- **Sound is back** — `scripts/sfx.gd` restored from stub, now backed by Kenney's
+  CC0 "Sci-Fi Sounds" (public domain, no attribution). 17 curated oggs in
+  `assets/audio/`. A 10-player round-robin pool handles one-shots (bank, clack,
+  deny, hiss, o2low, pickup, radio, shatter ×5 variants, step, thud, upgrade);
+  three dedicated looping players hold the mining/thrust/klaxon beds.
+  Every existing `Sfx.play/laser_on/thrust_on/klaxon_on` call site now sounds —
+  no call sites changed.
+- **Mining laser = a subtle arc-weld** — `Sfx._make_weld()` synthesizes the beam
+  loop from scratch (low mains buzz + flickering crackle band, crossfaded for a
+  seamless loop). No sample, no license, tuned quiet (-18 dB).
+- **Particle VFX** — Kenney's CC0 Particle Pack (curated set in
+  `assets/particles/`) drives a new `Vfx` autoload (`scripts/vfx.gd`) of one-shot
+  CPUParticles2D bursts, tinted to each element's real art colour:
+  - `spark_hit` — sparks flying off the laser cut (throttled ~20/s in player.gd)
+  - `shatter` — the money shot when a rock breaks: flare flash + shard spray +
+    embers + glow puff (asteroid.gd `_shatter`)
+  - `sparkle` — bright pop when you collect a chunk (pickup.gd)
+  - `flash` — reusable radial burst for installs / jumps / discoveries
+  All space-correct (zero gravity), auto-freed after their lifetime.
+- Both packs are CC0 (LICENSE files kept alongside the assets). Assets imported;
+  scenes parse and run clean.
+
+## 12/07/2026 — v1.25: intro art, keycaps, scanlines, rename gate, smaller UI
+
+- **Intro crawl now has cinematic backdrops.** Five captain-provided renders
+  (`assets/sprites/intro/intro_1..5.png`) map to the five pages (mercy · the
+  verdict · the sealing · rebuild · the beacons). `intro.gd` draws each cover-fit
+  with a slow Ken-Burns drift and a per-page fade-in, a navy scrim + text shadow
+  for legibility; the old starfield/ship sprite are gone.
+- **Every key prompt is now a keyboard KEYCAP.** New `UITheme.draw_key` /
+  `draw_hints`, a reusable `HintBar` (bottom control strip) and `KeyPrompt`
+  (in-world "press KEY" prompt that renders a leading key token as a cap).
+  Converted: the three context hint bars, the intro hints, the upgrade-modal
+  button + footer, the inventory footers, and all in-world prompts (dock / enter
+  ship / expand / station actions — reworded to lead with their key).
+- **New `Keymap` registry (scripts/keymap.gd)** — single source of truth for
+  every binding (physical key + placeholder controller glyph + context). Hint
+  bars read from it, so prompts can't drift from the real controls. This is where
+  gamepad support maps in later.
+- **Rooms: only ones you built are renameable.** `GameState.can_rename_room()`
+  gates the six core rooms (DEFAULT_ROOMS) out; the "R rename" hint only shows,
+  and R only opens the box, for expanded rooms.
+- **Subtle CRT scanlines** (`assets/shaders/crt.gdshader` + `CRTOverlay`
+  autoload) — one full-screen GPU pass, STATIC (no warp/motion, motion-sickness
+  safe). Scanlines only per captain (vignette / aberration / grain uniforms are
+  present but default 0). Toggle off with SW_NO_CRT.
+- **Smaller UI text** — inventory headers, symbols, discovery gauge and footers
+  reduced; hint bars now compact keycaps. (Runs at the vsync 60 fps cap; the CRT
+  is effectively free.)
+
+- **Audited all 103 element icons against the 9 source sheets — no atomic-number
+  offset existed** (every icon sits under its correct label, including the
+  irregular last sheet where Lawrencium's centre falls in column 2's strip).
+- **Real bug #1 — green chroma-key ate green-COLOURED elements.** The old
+  `_is_green` removed any green-dominant pixel, gutting Cl(17), Tc(43), Nd(60),
+  Dy(66), Po(84), Ra(88) and degrading F(9), Ac(89), Pa(91) and quest-critical
+  U(92). Replaced with the border flood-fill keyer from `prep_crew.gd`: only the
+  flat screen-green connected to the cell edge is removed, so each element's own
+  green (a different hue/brightness) survives. All ten restored, verified over
+  magenta with clean edges.
+- **Real bug #2 — horizontal neighbour bleed.** The full column-width crop
+  dragged in a neighbour's art when it crossed the column line (e.g. z102
+  Nobelium carried a purple Mendelevium fragment). Added `_keep_central`: after
+  keying, keep only the horizontal blob covering the cell centre. z102 and
+  friends now show a single element.
+- Full 103-icon contact-sheet sweep: every icon complete, correctly keyed, and
+  matching its label.
+
+## 12/07/2026 — v1.24: icon crop/overflow fix + inventory names + UI sweep
+
+- **Icons were cropped when they overflowed their grid column.** On the
+  irregular last sheet Lawrencium (103) sits between columns 2–3, so the rigid
+  column-strip crop sliced its right half off into a phantom "z104" and threw
+  it away; other off-grid icons risked the same. Rewrote the extractor's crop:
+  find the densest content column inside the cell (the icon core) and GROW left
+  and right across the full sheet width, stopping at the green gap to the
+  neighbours. Captures each icon whole, with no neighbour bleed. Re-verified all
+  103 over magenta — z101/102/103 now complete (Lawrencium keeps its full aura,
+  Nobelium has no purple Mendelevium bleed). Replaced the earlier `_keep_central`
+  band-aid, and the content test now treats green-coloured elements as content
+  (not background) so their blobs detect cleanly too.
+- **Inventory element names were truncated** ("Protactiniu", "Mendeleviu") —
+  the name sat in a ~50px slot beside the symbol. Redesigned the card: icon
+  top-aligned, and a full-width bottom name-plate (which doubles as the capacity
+  bar) so every name renders whole and centred. Verified Molybdenum, Phosphorus,
+  Praseodymium, Technetium etc. all fit.
+- **Inventory footer overlapped the last card row** — re-anchored it just below
+  the grid instead of at the panel's bottom edge.
+- **UI overflow sweep** (screenshotted the real game window — fixed the shoot
+  helper to target the "Spacewalker" window, not a stray Project Manager):
+  inventory, element trivia card, flight HUD (status/radar/quest log), spacewalk
+  HUD (vitals/ore-bag/gear), upgrade modal, rename box and ship interior all
+  render clean. Widened Vesna's trader panel (188→224) as a precaution so long
+  element names can't collide with the price column.
+
+## 12/07/2026 — v1.22: crew art conditioned & catalogued
+
+- **All five rescuable crew now have engine-ready art** at
+  `res://assets/sprites/crew/<name>_<type>.png` (30 files: profile, ship,
+  wreck, token, id, figure × HALE/JUNO/MIRA/SOLA/VEGA).
+- **New tool `tools/prep_crew.gd`.** Green-keys the four transparent-bg types
+  via BORDER flood-fill (so it never eats MIRA's greenhouse windows, her green
+  suit, or SOLA's medic cross — only bg green touching the frame edge goes),
+  plus a tight pure-green pass for enclosed pockets between limbs, de-spill and
+  alpha-feathered fringe. Profiles (painted bg) copy through untouched. CREW
+  IDs get their own black-key: border flood-fill knocks out the near-black
+  background with a luminance alpha-ramp (silver frame halts it, notched
+  corners go transparent, photo/text preserved, no dark halo). Each type is
+  autocropped then padded to one shared canvas across all five, so they drop in
+  at identical proportions/anchors. Verified over grey, magenta and
+  checkerboard — no green fringe and no leftover black survive.
+- Character bible (look, ID data, personalities) recorded to memory for the
+  upcoming dialog/rescue work. Dialog portraits (`_figure`) anchor bottom-right,
+  dialog box over the lower half. No gameplay wiring yet — assets only.
+
+## 12/07/2026 — v1.21: intro crawl rewrite
+
+- **Opening narrative polish (scripts/intro.gd).** Tightened the five-page
+  intro on captain feedback, keeping the concept and the "It simply
+  subtracted us" beat intact:
+  - Page 2 no longer names or ages the pilot (you survived — you didn't die,
+    so the crawl shouldn't eulogise you). It now opens on *what you were
+    doing* and *why you were off-world*: "working the ore rigs… high orbit,
+    months from the nearest dirt" — which is also why HELIOS's purge missed
+    you. Removed the now-unused `pilot_name()`/age lookup.
+  - Page 4's rally-cry ending ("Gather enough, and the drive will carry you
+    past the wall") replaced with flat, grim statement of fact: "Enough of
+    it, and the drive wakes. Nothing else crosses the wall."
+  - Page 5: Haven is now a *deliberate* blind spot — "a blind spot we wrote
+    into its code on purpose… in case we ever had to hide from it" — so it
+    reads as humanity's hedged bet against its own creation, paying off the
+    "They called it mercy" opening. Dropped the on-the-nose "Go and find
+    them" command; ends on the theme line "No one crosses this alone."
+
 ## 12/07/2026 — v1.20: economy de-RNG, quest prose, rename discoverable
 
 - **Trader economy fix (game_state.roll_trader).** U and Th are the ONLY

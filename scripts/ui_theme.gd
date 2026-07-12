@@ -246,6 +246,63 @@ static func draw_key_chip(ci: CanvasItem, center: Vector2, key: String,
 		HORIZONTAL_ALIGNMENT_CENTER, r.size.x, 13, TEXT)
 
 
+# ------------------------------------------------------------------
+# Keycaps — every on-screen key prompt renders as a little keyboard cap.
+# One source of truth so controller glyphs can slot in here later.
+# ------------------------------------------------------------------
+static func key_width(label: String, font: Font, size := 11) -> float:
+	var tw := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+	return maxf(tw + 12.0, size + 9.0)
+
+
+static func draw_key(ci: CanvasItem, pos: Vector2, label: String,
+		font: Font, size := 11, accent := ACCENT) -> float:
+	## Draw a keycap with its top-left at `pos`; returns the cap's width.
+	var h := size + 9.0
+	var w := key_width(label, font, size)
+	var r := Rect2(pos, Vector2(w, h))
+	ci.draw_rect(r, Color(0.06, 0.14, 0.19, 0.96))
+	ci.draw_rect(r, Color(accent.r, accent.g, accent.b, 0.85), false, 1.0)
+	# top bevel highlight
+	ci.draw_line(r.position + Vector2(2, 2), Vector2(r.end.x - 2, r.position.y + 2),
+		Color(accent.r, accent.g, accent.b, 0.4), 1.0)
+	ci.draw_string(font, Vector2(pos.x, pos.y + h * 0.5 + size * 0.36), label,
+		HORIZONTAL_ALIGNMENT_CENTER, w, size, TEXT)
+	return w
+
+
+static func hints_width(items: Array, font: Font, size := 11, gap := 15.0) -> float:
+	var total := 0.0
+	for it in items:
+		total += key_width(it[0], font, size) + 5.0 \
+			+ font.get_string_size(it[1], HORIZONTAL_ALIGNMENT_LEFT, -1, size).x + gap
+	return maxf(total - gap, 0.0)
+
+
+static func draw_hints_at(ci: CanvasItem, pos: Vector2, items: Array,
+		font: Font, size := 11, dim := TEXT_DIM) -> float:
+	## Left-aligned row of "[cap] label" pairs starting at pos (row top-left);
+	## returns the total width. items = [[key, label], ...].
+	var gap := 15.0
+	var kh := size + 9.0
+	var x := pos.x
+	for it in items:
+		var kw := draw_key(ci, Vector2(x, pos.y), it[0], font, size)
+		x += kw + 5.0
+		ci.draw_string(font, Vector2(x, pos.y + kh * 0.5 + size * 0.36), it[1],
+			HORIZONTAL_ALIGNMENT_LEFT, -1, size, dim)
+		x += font.get_string_size(it[1], HORIZONTAL_ALIGNMENT_LEFT, -1, size).x + gap
+	return maxf(x - gap - pos.x, 0.0)
+
+
+static func draw_hints(ci: CanvasItem, center: Vector2, items: Array,
+		font: Font, size := 11, dim := TEXT_DIM) -> void:
+	## Centered row of "[cap] label" pairs.
+	var kh := size + 9.0
+	var x := center.x - hints_width(items, font, size) * 0.5
+	draw_hints_at(ci, Vector2(x, center.y - kh * 0.5), items, font, size, dim)
+
+
 static func draw_icon(ci: CanvasItem, tex: Texture2D, center: Vector2,
 		size := 22.0, color := ACCENT) -> void:
 	## SVG icon, tinted. Icons are white-stroke so modulate = color.

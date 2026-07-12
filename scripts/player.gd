@@ -23,6 +23,7 @@ var in_dock := true
 var laser_on := false
 var laser_hit := Vector2.ZERO
 var _hit_color := Color(1.0, 0.7, 0.4)
+var _spark_cd := 0.0
 var aim_dir := Vector2.RIGHT   # body and pistol face the mouse
 var thrust_input := Vector2.ZERO
 
@@ -127,6 +128,11 @@ func _update_laser(delta: float) -> void:
 			# sparks glow in the vein's element color
 			if "vein" in collider and collider.vein != "":
 				_hit_color = Elements.hue_of(collider.vein)
+			# throttled weld spatter flying back off the cut
+			_spark_cd -= delta
+			if _spark_cd <= 0.0:
+				_spark_cd = 0.04
+				Vfx.spark_hit(get_parent(), laser_hit, _hit_color, aim_dir)
 
 
 func _update_oxygen(delta: float) -> void:

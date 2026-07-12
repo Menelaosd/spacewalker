@@ -33,7 +33,14 @@ func setup(r: float, rich: bool, _tint := Color(0.42, 0.4, 0.38)) -> void:
 
 func _ready() -> void:
 	add_to_group("asteroids")
-	vein = Elements.sample_crystal_element() if is_rich else Elements.sample_rock_element()
+	# vein is DETERMINISTIC per rock (seeded from its mine_key), so leaving and
+	# re-entering a dive site can never re-roll the elements — no reroll exploit
+	var roll := -1.0
+	if mine_key != "":
+		var vrng := RandomNumberGenerator.new()
+		vrng.seed = hash("vein:" + mine_key)
+		roll = vrng.randf()
+	vein = Elements.sample_crystal_element(roll) if is_rich else Elements.sample_rock_element(roll)
 	_ore_color = Elements.cpk_color(vein)      # chemistry colour — sparks/label
 	_glow_color = Elements.glow_for(vein)      # matches the art — bubble glow
 	health = radius * 4.0
@@ -69,6 +76,8 @@ func take_damage(dmg: float, at: Vector2) -> void:
 func _shatter() -> void:
 	if mine_key != "":
 		GameState.mined[mine_key] = true   # this rock stays gone on revisit
+	Vfx.shatter(get_parent(), global_position, _glow_color)
+	Sfx.play("shatter", -6.0, randf_range(0.9, 1.15))
 	var count := maxi(int(radius / 9.0), 2)
 	for i in count:
 		var p := PICKUP_SCENE.instantiate()

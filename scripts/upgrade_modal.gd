@@ -24,7 +24,8 @@ const GEAR_ICON := {
 
 
 func _ready() -> void:
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	# anchors AND offsets — anchors alone leave the control 0x0 (unclickable)
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	z_index = 200
 	visible = false
@@ -235,8 +236,17 @@ func _draw_footer(maxed: bool, ready: bool) -> void:
 		sb.set_border_width_all(2)
 		sb.set_corner_radius_all(6)
 		sb.draw(get_canvas_item(), _btn)
-		draw_string(_font, _btn.position + Vector2(0, 17),
-			"E   INSTALL UPGRADE" if ready else "NEED MATERIALS",
-			HORIZONTAL_ALIGNMENT_CENTER, _btn.size.x, 12, col)
-	draw_string(_font, Vector2(_panel.position.x, _panel.end.y - 11),
-		"Esc — close", HORIZONTAL_ALIGNMENT_CENTER, PANEL_W, 9, UITheme.TEXT_DIM)
+		if ready:
+			var kw := UITheme.key_width("E", _font, 12)
+			var lbl := "INSTALL UPGRADE"
+			var tw := _font.get_string_size(lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
+			var sx := _btn.position.x + (_btn.size.x - (kw + 8.0 + tw)) * 0.5
+			UITheme.draw_key(self, Vector2(sx, _btn.position.y + (_btn.size.y - 21.0) * 0.5),
+				"E", _font, 12, col)
+			draw_string(_font, Vector2(sx + kw + 8.0, _btn.position.y + _btn.size.y * 0.5 + 4.0),
+				lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, col)
+		else:
+			draw_string(_font, _btn.position + Vector2(0, 17), "NEED MATERIALS",
+				HORIZONTAL_ALIGNMENT_CENTER, _btn.size.x, 12, col)
+	UITheme.draw_hints(self, Vector2(_panel.position.x + PANEL_W * 0.5, _panel.end.y - 6),
+		[["Esc", "close"]], _font, 9)

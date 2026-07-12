@@ -1,8 +1,7 @@
 extends Node
 ## Audio removed per request. This stub keeps the Sfx autoload API intact
-## so every call site still resolves — nothing is synthesized, nothing
-## plays. Restore the synthesized version from git history to bring sound
-## back.
+## so every call site still resolves — nothing plays. When we do sound properly
+## later, back these methods with real players again.
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS

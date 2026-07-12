@@ -10,7 +10,7 @@ signal notify(text: String)
 signal quest_changed()
 
 const SAVE_DIR := "user://saves"
-const SAVE_VERSION := 5
+const SAVE_VERSION := 6
 const ELEMENT_CAP := 9999      # per-element storage limit
 const SCOOP_INTERVAL := 2.2    # seconds per +1 gas while nebula-flying
 
@@ -286,8 +286,8 @@ var contracts: Array = []     # [{sym, qty, reward}]
 var reputation := 0
 
 # --- Vesna's market: buy elements with ore; rep unlocks rarer stock
-const TRADER_T1 := ["V", "Co", "Ga", "Zr", "Sr"]     # rep >= 3
-const TRADER_T2 := ["Ag", "Pd", "Pt", "Au", "W"]     # rep >= 6
+const TRADER_T1 := ["V", "Co", "Ga", "Zr", "Sr", "P"]        # rep >= 3
+const TRADER_T2 := ["Ag", "Pd", "Pt", "Au", "W", "Li", "Nd"] # rep >= 6
 const TRADER_T3 := ["Th", "U"]                       # rep >= 10
 var trader_stock: Array = []  # [{sym, price}]
 
@@ -304,6 +304,18 @@ const RECIPES := [
 ]
 var crafted := {}             # id -> true (permanent mods)
 var canisters := 0
+
+# --- Fabricator: print furniture for rooms YOU built (never core rooms).
+# Placement grid per room: FURN_COLS floor slots x FURN_ROWS depth rows
+# (row 0 = back wall, row 1 = front — the front row draws over the crew's
+# feet, same depth trick as the fixed props).
+const Craftables := preload("res://scripts/craftables.gd")
+const FURN_COLS := 6
+const FURN_ROWS := 2
+signal recipes_changed
+signal furniture_changed
+var recipes_unlocked := {}    # craftable id -> true (STARTERS seed a new game)
+var furniture := {}           # room cell (int) -> [{id, col, row}, ...]
 
 var shift := 0                # a "day": increments each return to the ship
 
@@ -403,6 +415,25 @@ func sector_richness() -> float:
 
 func _ready() -> void:
 	rooms = DEFAULT_ROOMS.duplicate()
+	# the essentials are never locked — new_game/load_game re-seed these,
+	# but no path into the game (including debug scene launches) starts empty
+	for id in Craftables.STARTERS:
+		recipes_unlocked[id] = true
+	# ============================================================
+	# TESTING ONLY — DELETE THIS BLOCK BEFORE SHIPPING.
+	# SW_RICH=1: 4000 of every element + 4000 banked ore, applied
+	# again after any save is loaded (see load_game).
+	# ============================================================
+	if OS.get_environment("SW_RICH") != "":
+		_apply_rich_cheat()
+
+
+# TESTING ONLY — DELETE BEFORE SHIPPING (called from _ready and load_game)
+func _apply_rich_cheat() -> void:
+	for e in Elements.TABLE:
+		elements[e[0]] = 4000
+		discovered[e[0]] = true
+	banked = 4000
 
 
 func drain_oxygen(amount: float) -> bool:
@@ -614,6 +645,8 @@ func save_game() -> void:
 		"shift": shift,
 		"canisters": canisters,
 		"crafted": crafted.keys(),
+		"recipes": recipes_unlocked.keys(),
+		"furniture": _furniture_to_json(),
 		"contracts": contracts,
 		"trader_stock": trader_stock,
 		"pilot": pilot,
@@ -690,6 +723,32 @@ func load_game(s: int) -> bool:
 	crafted = {}
 	for id in data.get("crafted", []):
 		crafted[id] = true
+	recipes_unlocked = {}
+	if data.has("recipes"):
+		for id in data["recipes"]:
+			if Craftables.ITEMS.has(str(id)):
+				recipes_unlocked[str(id)] = true
+	# pre-fabricator saves (and fresh keys) always know the essentials
+	for id in Craftables.STARTERS:
+		recipes_unlocked[id] = true
+	furniture = {}
+	var fj: Dictionary = data.get("furniture", {})
+	for k in fj:
+		var cell := int(k)
+		if not can_furnish_room(cell) or not fj[k] is Array:
+			continue
+		for p in fj[k]:
+			if not (p is Dictionary and Craftables.ITEMS.has(str(p.get("id", "")))):
+				continue
+			# re-place through the fits check so a stale/hand-edited save
+			# can never load overlapping or out-of-bounds furniture
+			var id := str(p["id"])
+			var col := int(p.get("col", -1))
+			var row := int(p.get("row", 0))
+			if furniture_fits(cell, id, col, row):
+				if not furniture.has(cell):
+					furniture[cell] = []
+				furniture[cell].append({"id": id, "col": col, "row": row})
 	contracts = []
 	for c in data.get("contracts", []):
 		contracts.append({"sym": str(c["sym"]), "qty": int(c["qty"]),
@@ -712,6 +771,9 @@ func load_game(s: int) -> bool:
 		carried_items[k] = 0
 	_reset_session_flags()
 	in_game = true
+	# TESTING ONLY — DELETE BEFORE SHIPPING (keeps SW_RICH active on loads)
+	if OS.get_environment("SW_RICH") != "":
+		_apply_rich_cheat()
 	oxygen_changed.emit(oxygen, max_oxygen)
 	cargo_changed.emit(carried, banked)
 	inventory_changed.emit()
@@ -759,6 +821,10 @@ func new_game(s: int) -> void:
 	shift = 0
 	canisters = 0
 	crafted = {}
+	recipes_unlocked = {}
+	for id in Craftables.STARTERS:
+		recipes_unlocked[id] = true
+	furniture = {}
 	contracts = []
 	trader_stock = []
 	pilot = {"name": "", "gender": "", "age": 27}
@@ -766,6 +832,9 @@ func new_game(s: int) -> void:
 	sector = Vector2.ZERO
 	_reset_session_flags()
 	in_game = true
+	# TESTING ONLY — DELETE BEFORE SHIPPING (SW_RICH covers new games too)
+	if OS.get_environment("SW_RICH") != "":
+		_apply_rich_cheat()
 	oxygen_changed.emit(oxygen, max_oxygen)
 	cargo_changed.emit(carried, banked)
 	inventory_changed.emit()
@@ -1039,21 +1108,148 @@ func has_room(type: String) -> bool:
 
 
 func room_display_name(cell: int) -> String:
-	## The player's custom name if set, else the room type's default.
-	if room_names.has(cell) and str(room_names[cell]) != "":
+	## The player's custom name if set, else the room type's default. Core rooms
+	## (DEFAULT_ROOMS) always show their fixed name — ignore any legacy custom
+	## name a pre-gate save may have pinned on them.
+	if room_names.has(cell) and str(room_names[cell]) != "" and not DEFAULT_ROOMS.has(cell):
 		return str(room_names[cell])
 	if rooms.has(cell):
 		return str(ROOM_TYPES[rooms[cell]]["name"])
 	return ""
 
 
+func can_rename_room(cell: int) -> bool:
+	## Only rooms YOU expanded into are renameable — the six core rooms
+	## (DEFAULT_ROOMS) keep their fixed identities.
+	return rooms.has(cell) and not DEFAULT_ROOMS.has(cell)
+
+
 func rename_room(cell: int, name: String) -> void:
+	if not can_rename_room(cell):
+		return
 	var clean := name.strip_edges().substr(0, 20)
 	if clean == "" or clean == str(ROOM_TYPES.get(rooms.get(cell, ""), {}).get("name", "")):
 		room_names.erase(cell)   # blank / same-as-default → back to default
 	else:
 		room_names[cell] = clean
 	save_game()
+
+
+# ------------------------------------------------------------------
+# Fabricator — furniture in player-built rooms
+# ------------------------------------------------------------------
+func can_furnish_room(cell: int) -> bool:
+	## Same rule as renaming: only rooms YOU expanded into take furniture —
+	## the six core rooms have their fixed stations.
+	return rooms.has(cell) and not DEFAULT_ROOMS.has(cell)
+
+
+func furniture_at(cell: int) -> Array:
+	return furniture.get(cell, [])
+
+
+func furniture_fits(cell: int, id: String, col: int, row: int) -> bool:
+	if not can_furnish_room(cell) or not Craftables.ITEMS.has(id):
+		return false
+	var size := int(Craftables.ITEMS[id]["size"])
+	if row < 0 or row >= FURN_ROWS or col < 0 or col + size > FURN_COLS:
+		return false
+	# wall pieces (shelves, boards, banners) only hang on the back wall
+	if Craftables.ITEMS[id].get("back", false) and row != 0:
+		return false
+	# flat pieces (rugs) live under everything — they only collide with
+	# other flat pieces; solid pieces only with solid ones on the same row
+	var flat: bool = Craftables.ITEMS[id].get("flat", false)
+	for p in furniture_at(cell):
+		if int(p["row"]) != row:
+			continue
+		if bool(Craftables.ITEMS[p["id"]].get("flat", false)) != flat:
+			continue
+		var ps := int(Craftables.ITEMS[p["id"]]["size"])
+		if col < int(p["col"]) + ps and int(p["col"]) < col + size:
+			return false
+	return true
+
+
+func can_afford(cost: Dictionary) -> bool:
+	for sym in cost:
+		if int(elements.get(sym, 0)) < int(cost[sym]):
+			return false
+	return true
+
+
+func place_furniture(cell: int, id: String, col: int, row: int) -> bool:
+	if not recipes_unlocked.has(id) or not furniture_fits(cell, id, col, row):
+		return false
+	var cost: Dictionary = Craftables.ITEMS[id]["cost"]
+	if not can_afford(cost):
+		return false
+	for sym in cost:
+		elements[sym] = int(elements[sym]) - int(cost[sym])
+	if not furniture.has(cell):
+		furniture[cell] = []
+	furniture[cell].append({"id": id, "col": col, "row": row})
+	inventory_changed.emit()
+	furniture_changed.emit()
+	save_game()   # spent elements + placed object commit together
+	return true
+
+
+func remove_furniture(cell: int, index: int) -> bool:
+	## Recycle a placed piece — the fabricator un-prints it, full refund
+	## (it's furniture, not fuel; no dupe possible since cost == refund).
+	var list: Array = furniture.get(cell, [])
+	if index < 0 or index >= list.size():
+		return false
+	var id: String = list[index]["id"]
+	for sym in Craftables.ITEMS[id]["cost"]:
+		elements[sym] = mini(int(elements.get(sym, 0))
+			+ int(Craftables.ITEMS[id]["cost"][sym]), ELEMENT_CAP)
+	list.remove_at(index)
+	if list.is_empty():
+		furniture.erase(cell)
+	inventory_changed.emit()
+	furniture_changed.emit()
+	save_game()
+	return true
+
+
+func unlock_random_recipe(rare := false) -> String:
+	## A salvaged wreck gives up one lost blueprint. Rare hulls (medical
+	## ships, dead stations) draw from the fancy end of the catalogue.
+	var locked: Array = []
+	for id in Craftables.ITEMS:
+		if not recipes_unlocked.has(id):
+			locked.append(id)
+	if locked.is_empty():
+		return ""
+	if rare:
+		var fancy := locked.filter(func(id): return _recipe_fancy(id))
+		if not fancy.is_empty():
+			locked = fancy
+	var id: String = locked[randi_range(0, locked.size() - 1)]
+	recipes_unlocked[id] = true
+	recipes_changed.emit()
+	save_game()
+	return id
+
+
+func _recipe_fancy(id: String) -> bool:
+	## "fancy" = needs precious/rare/noble-gas chemistry or a big bill
+	var cost: Dictionary = Craftables.ITEMS[id]["cost"]
+	var total := 0
+	for sym in cost:
+		if sym in ["Au", "Ag", "Pt", "W", "U", "Nd", "Ga", "Ti", "Xe", "Kr"]:
+			return true
+		total += int(cost[sym])
+	return total >= 10
+
+
+func _furniture_to_json() -> Dictionary:
+	var out := {}
+	for k in furniture:
+		out[str(k)] = furniture[k]
+	return out
 
 
 func build_room(cell: int, type: String) -> bool:
