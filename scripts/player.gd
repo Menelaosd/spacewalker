@@ -26,6 +26,7 @@ var _hit_color := Color(1.0, 0.7, 0.4)
 var _spark_cd := 0.0
 var aim_dir := Vector2.RIGHT   # body and pistol face the mouse
 var thrust_input := Vector2.ZERO
+var _face := 1.0               # latched horizontal facing from last movement
 
 
 func _ready() -> void:
@@ -45,6 +46,12 @@ func _physics_process(delta: float) -> void:
 	_hit_t = maxf(_hit_t - delta, 0.0)
 	_update_aim()
 	thrust_input = Input.get_vector("move_left", "move_right", "move_up", "move_down")
+	# latch facing from actual movement — thrust input first, else drift — so
+	# the suit keeps facing the way it was going when the animation changes
+	if absf(thrust_input.x) > 0.05:
+		_face = signf(thrust_input.x)
+	elif absf(velocity.x) > 20.0:
+		_face = signf(velocity.x)
 	velocity += thrust_input * THRUST * delta
 	braking = Input.is_physical_key_pressed(KEY_SPACE)
 	if braking:
@@ -205,12 +212,14 @@ func _pick_frame() -> int:
 		return 6
 	if laser_on:
 		return 4
+	# SPACE always shows the stabilizer/stop pose — even if a thrust key is
+	# also held (braking wins over the burn, the captain's call)
+	if braking:
+		return 3
 	if not attached and global_position.distance_to(tether_anchor) < 340.0:
 		return 5   # reaching for the line
 	if thrust_input.length() > 0.1:
 		return 2
-	if braking and velocity.length() > 12.0:
-		return 3
 	return 0 if fmod(_anim_t, 1.3) < 0.65 else 1
 
 
@@ -230,11 +239,11 @@ func _suit_state() -> Dictionary:
 		if aim_dir.x < 0.0:
 			sc.y = -ASTRO_SCALE
 	else:
-		var face := aim_dir.x
-		if f == 2 and absf(thrust_input.x) > 0.05:
-			face = thrust_input.x       # thrust pose leans where you burn
-		elif f == 5:
-			face = (tether_anchor - global_position).x   # reach for the line
+		# face the way we're MOVING (latched), not the mouse — so the suit
+		# doesn't flip when the animation changes mid-drift
+		var face := _face
+		if f == 5:
+			face = signf((tether_anchor - global_position).x)   # reach for the line
 		if face < 0.0:
 			sc.x = -ASTRO_SCALE
 	return {"frame": f, "xf": Transform2D(rot, sc, 0.0, Vector2.ZERO)}
@@ -290,7 +299,7 @@ func _draw_suit(st: Dictionary) -> void:
 				base + flame_dir * 5.0]),
 			Color(1.0, 0.9, 0.6, 0.9))
 	# stabilizer puffs — little jets all around while braking
-	if braking and velocity.length() > 12.0:
+	if braking:
 		for i in 4:
 			var a := TAU * float(i) / 4.0 + PI / 4.0
 			draw_circle(Vector2.from_angle(a) * 14.0, 1.6 + randf() * 1.2,

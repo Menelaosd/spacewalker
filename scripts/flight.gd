@@ -354,10 +354,14 @@ func _collect_wrecks() -> void:
 				continue
 			w["taken"] = true
 			GameState.salvage_taken[w["key"]] = true
-			# the scrap haul — several metals, doubled for rare hulls
+			# the scrap haul — several metals, doubled for rare hulls.
+			# NOT every hull still holds a readable blueprint (deterministic
+			# per wreck, so reloading can't reroll it); recipe-less hulls
+			# pay out extra materials instead — their cargo hold is intact.
 			var rng := RandomNumberGenerator.new()
 			rng.seed = hash(str(w["key"], ":loot"))
-			var kinds := 3 if w["rare"] else 2
+			var gives_recipe: bool = w["rare"] or rng.randf() < 0.55
+			var kinds := (3 if w["rare"] else 2) + (0 if gives_recipe else 2)
 			var y := -20.0
 			for i in kinds:
 				var total := 0
@@ -392,7 +396,8 @@ func _collect_wrecks() -> void:
 				if troll <= 0:
 					tech = t[0]
 					break
-			var tunits := rng.randi_range(1, 2) * (2 if w["rare"] else 1)
+			var tunits := rng.randi_range(1, 2) * (2 if w["rare"] else 1) \
+				+ (0 if gives_recipe else 1)   # intact cargo = extra tech find
 			GameState.elements[tech] = mini(
 				int(GameState.elements.get(tech, 0)) + tunits, GameState.ELEMENT_CAP)
 			GameState.discovered[tech] = true
@@ -402,16 +407,23 @@ func _collect_wrecks() -> void:
 			tft.position = w["pos"] + Vector2(0, y)
 			add_child(tft)
 			GameState.inventory_changed.emit()
-			# the real prize: a lost fabricator blueprint
-			var rid := GameState.unlock_random_recipe(bool(w["rare"]))
-			if rid != "":
-				_recipe_banner.show_recipe(rid)
+			# the real prize — IF this hull still holds a readable blueprint
+			if gives_recipe:
+				var rid := GameState.unlock_random_recipe(bool(w["rare"]))
+				if rid != "":
+					_recipe_banner.show_recipe(rid)
+				else:
+					var ft2 := FLOAT_TEXT.new()
+					ft2.text = "hull stripped — no new recipes left aboard"
+					ft2.color = Color(0.7, 0.8, 0.9)
+					ft2.position = w["pos"] + Vector2(0, y)
+					add_child(ft2)
 			else:
-				var ft2 := FLOAT_TEXT.new()
-				ft2.text = "hull stripped — no new recipes left aboard"
-				ft2.color = Color(0.7, 0.8, 0.9)
-				ft2.position = w["pos"] + Vector2(0, y)
-				add_child(ft2)
+				var ft3 := FLOAT_TEXT.new()
+				ft3.text = "data banks fried — but the cargo hold was intact"
+				ft3.color = Color(0.7, 0.8, 0.9)
+				ft3.position = w["pos"] + Vector2(0, y - 18.0)
+				add_child(ft3)
 			GameState.save_game()
 
 

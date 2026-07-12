@@ -5,6 +5,28 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 13/07/2026 — v1.37: CRT actually renders + real VHS, wreck loot rework
+
+- **The CRT overlay never rendered.** Same 0×0-Control family as the
+  unclickable modals: the ColorRect got its anchors preset BEFORE entering
+  the tree and stayed sizeless — the shader pass drew nothing, ever since
+  v1.25 shipped. Now the preset is applied after add_child, the size is
+  pinned explicitly, and viewport resizes re-fit it. (PrintWindow screenshots
+  can't capture the screen-texture pass, which is how it hid from every
+  verification shot — the captain caught it live.)
+- **Stronger scanlines + real VHS** (captain: "stronger, and vhs"): scan
+  strength 0.07 → 0.18, plus RGB phosphor mask triads, VHS chroma bleed
+  (color smears sideways, luma stays sharp), edge color fringe 0.9, static
+  tape grain. Every term is a pure function of pixel position — zero motion,
+  as always. Techniques are the classic public-domain CRT recipes; the
+  implementation is ours (no third-party license).
+- **Wreck loot rework (captain's design):** only rare hulls always carry a
+  blueprint; common hulls have a 55% chance (deterministic per wreck — no
+  reroll by reloading). Recipe-less hulls pay out extra scrap + an extra
+  tech find ("data banks fried — but the cargo hold was intact"). And the
+  tech elements (Li / Nd / P) are now SALVAGE-EXCLUSIVE — pulled back out of
+  Vesna's tiers; wreck-hunting is their only source (gases still scoop).
+
 ## 13/07/2026 — v1.36: the captain in dialogs, crew art aboard, print-in FX, size pass 2
 
 - **The PILOT is in the conversation.** The captain's new back-view figure

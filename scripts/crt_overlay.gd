@@ -16,8 +16,19 @@ func _ready() -> void:
 	_rect = ColorRect.new()
 	_rect.material = mat
 	_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(_rect)
+	# preset AFTER entering the tree, then pin the size explicitly and track
+	# viewport resizes — a preset alone can leave a CanvasLayer-child Control
+	# 0x0 (same family as the unclickable-modal bug)
+	_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_fit()
+	get_viewport().size_changed.connect(_fit)
+
+
+func _fit() -> void:
+	if _rect != null:
+		_rect.position = Vector2.ZERO
+		_rect.size = get_viewport().get_visible_rect().size
 
 
 func set_enabled(on: bool) -> void:

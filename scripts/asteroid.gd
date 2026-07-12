@@ -7,8 +7,10 @@ extends StaticBody2D
 
 const PICKUP_SCENE := preload("res://scenes/pickup.tscn")
 
-const ICON_FILL := 1.6    # intact node is a chunky whole rock — clearly bigger
+const ICON_FILL := 1.35   # intact node is a chunky whole rock — clearly bigger
                           # than the little fragments it shatters into
+const ICON_MAX := 46.0    # absolute half-size cap: even in big-rock regions
+                          # (Expanse size 1.7) a node never dwarfs the ~34px crew
 
 var radius := 28.0
 var health := 100.0
@@ -49,7 +51,9 @@ func _ready() -> void:
 	var draw_half := radius   # half of the visible art's longest axis
 	if _icon != null:
 		var sz := _icon.get_size()
-		_icon_scale = (radius * ICON_FILL) / maxf(sz.x, sz.y)
+		# fit longest axis to ICON_FILL x radius, but never past ICON_MAX
+		var target := minf(radius * ICON_FILL, ICON_MAX)
+		_icon_scale = (target * 2.0) / maxf(sz.x, sz.y)
 		_icon_ofs = -sz * 0.5 * _icon_scale
 		draw_half = maxf(sz.x, sz.y) * 0.5 * _icon_scale
 	_bubble_r = draw_half * 1.18
@@ -112,17 +116,24 @@ func _draw() -> void:
 
 
 func _draw_glow() -> void:
-	## Just a soft, diffuse aura in the art's colour — no rim, no glass edge.
-	## Many faint layers = a smooth radial falloff. Static (redraws only on
-	## the mining flash), so the stack of circles costs nothing per frame.
+	## A crisp CONTAINMENT RING in the element's colour instead of the old
+	## fuzzy bloom — reads as a mineral specimen in a field, not a blurry
+	## orb. A faint dark seat under the rock grounds it; a thin bright ring
+	## traces the bubble; a short arc catches a highlight top-left. Static
+	## (redraws only on the mining flash).
 	var g := _glow_color
-	var boost := _flash * 0.08
-	var layers := 7
-	for i in layers:
-		var t := float(i) / float(layers - 1)          # 0 outer .. 1 inner
-		var rad := _bubble_r * (1.7 - 0.95 * t)
-		var a := (0.02 + 0.05 * t) + boost
-		draw_circle(Vector2.ZERO, rad, Color(g.r, g.g, g.b, a))
+	# soft dark seat — a shadow so the rock sits in space, not floats
+	draw_circle(Vector2.ZERO, _bubble_r * 1.02, Color(0.02, 0.03, 0.05, 0.35))
+	# containment ring: thin, crisp, element-coloured (brightens on a hit)
+	var ring_a := 0.4 + 0.5 * _flash
+	draw_arc(Vector2.ZERO, _bubble_r, 0.0, TAU, 48,
+		Color(g.r, g.g, g.b, ring_a), 1.5, true)
+	# a slim inner seat of colour just inside the ring (no big radial fade)
+	draw_arc(Vector2.ZERO, _bubble_r * 0.94, 0.0, TAU, 48,
+		Color(g.r, g.g, g.b, ring_a * 0.35), 3.0, true)
+	# specular catch, top-left quadrant
+	draw_arc(Vector2.ZERO, _bubble_r, PI * 0.75, PI * 1.25, 16,
+		Color(1, 1, 1, 0.28 + 0.4 * _flash), 1.5, true)
 
 
 func _draw_bite() -> void:

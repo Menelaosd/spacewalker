@@ -286,8 +286,10 @@ var contracts: Array = []     # [{sym, qty, reward}]
 var reputation := 0
 
 # --- Vesna's market: buy elements with ore; rep unlocks rarer stock
-const TRADER_T1 := ["V", "Co", "Ga", "Zr", "Sr", "P"]        # rep >= 3
-const TRADER_T2 := ["Ag", "Pd", "Pt", "Au", "W", "Li", "Nd"] # rep >= 6
+# NOTE: the tech elements (Li/Nd/P + wreck Ne/Ar) are deliberately NOT here —
+# per the captain, those come ONLY from salvaging wrecks (W stays: legacy T2)
+const TRADER_T1 := ["V", "Co", "Ga", "Zr", "Sr"]     # rep >= 3
+const TRADER_T2 := ["Ag", "Pd", "Pt", "Au", "W"]     # rep >= 6
 const TRADER_T3 := ["Th", "U"]                       # rep >= 10
 var trader_stock: Array = []  # [{sym, price}]
 
