@@ -7,6 +7,9 @@ extends StaticBody2D
 
 const PICKUP_SCENE := preload("res://scenes/pickup.tscn")
 
+const ICON_FILL := 1.45   # drawn diameter as a multiple of radius (kept modest
+                          # so the sprites don't dwarf the astronaut)
+
 var radius := 28.0
 var health := 100.0
 var is_rich := false
@@ -16,7 +19,9 @@ var mine_key := ""       # "sx:sy:i" — set by the spawner; marked mined on dea
 var _icon: Texture2D = null
 var _icon_scale := 1.0
 var _icon_ofs := Vector2.ZERO    # centres the (possibly off-centre) art bbox
+var _bubble_r := 28.0            # radius of the containment bubble/glow
 var _ore_color := Color(1.0, 0.72, 0.25)
+var _glow_color := Color(1.0, 0.72, 0.25)
 var _flash := 0.0
 var _hit_local := Vector2.ZERO
 
@@ -29,17 +34,21 @@ func setup(r: float, rich: bool, _tint := Color(0.42, 0.4, 0.38)) -> void:
 func _ready() -> void:
 	add_to_group("asteroids")
 	vein = Elements.sample_crystal_element() if is_rich else Elements.sample_rock_element()
-	_ore_color = Elements.cpk_color(vein)   # the real chemistry colour
+	_ore_color = Elements.cpk_color(vein)      # chemistry colour — sparks/label
+	_glow_color = Elements.glow_for(vein)      # matches the art — bubble glow
 	health = radius * 4.0
 	_icon = Elements.icon_for(vein)
-	# fit the art inside the node's diameter and remember its centre offset
+	# fit the art to ICON_FILL x radius and remember its centre offset
+	var draw_half := radius   # half of the visible art's longest axis
 	if _icon != null:
 		var sz := _icon.get_size()
-		_icon_scale = (radius * 2.0) / maxf(sz.x, sz.y)
+		_icon_scale = (radius * ICON_FILL) / maxf(sz.x, sz.y)
 		_icon_ofs = -sz * 0.5 * _icon_scale
+		draw_half = maxf(sz.x, sz.y) * 0.5 * _icon_scale
+	_bubble_r = draw_half * 1.18
 	var shape := CircleShape2D.new()
-	# collide at ~90% of the drawn art so the beam visibly touches the chunk
-	shape.radius = radius * 0.9
+	# collide at ~90% of the DRAWN art so the beam visibly touches the chunk
+	shape.radius = draw_half * 0.9
 	$Collision.shape = shape
 
 
@@ -77,6 +86,7 @@ func _shatter() -> void:
 # Drawing — the element's pixel-art icon
 # ==================================================================
 func _draw() -> void:
+	_draw_glow()
 	if _icon == null:
 		# fallback: a plain ore blob in the element's colour
 		draw_circle(Vector2.ZERO, radius, _ore_color.darkened(0.3))
@@ -90,6 +100,20 @@ func _draw() -> void:
 			draw_texture(_icon, Vector2.ZERO, Color(1, 1, 1, _flash * 0.7))
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	_draw_bite()
+
+
+func _draw_glow() -> void:
+	## Just a soft, diffuse aura in the art's colour — no rim, no glass edge.
+	## Many faint layers = a smooth radial falloff. Static (redraws only on
+	## the mining flash), so the stack of circles costs nothing per frame.
+	var g := _glow_color
+	var boost := _flash * 0.08
+	var layers := 7
+	for i in layers:
+		var t := float(i) / float(layers - 1)          # 0 outer .. 1 inner
+		var rad := _bubble_r * (1.7 - 0.95 * t)
+		var a := (0.02 + 0.05 * t) + boost
+		draw_circle(Vector2.ZERO, rad, Color(g.r, g.g, g.b, a))
 
 
 func _draw_bite() -> void:

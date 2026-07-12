@@ -5,6 +5,58 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 12/07/2026 — v1.18: ore/element split, gear modal, analytical quest log
+
+A progression + UI pass. **Ore and elements are now two different things.**
+
+- **Economy split (game_state.gd, pickup.gd, vitals_panel.gd).** Breaking a
+  rock drops TWO things: an ELEMENT sample of its vein (your collection —
+  UNLIMITED on the suit) and bulk ORE (the currency). The ORE BAG is capped
+  (`ore_max()` = 25 + 15/suit level) and is now the return-home tension:
+  when it's full you go bank, but samples keep flowing. `add_carried()`
+  returns whether ore overflowed; the magnet always pulls (samples always
+  collectible). Vitals shows a dedicated ORE BAG meter + bag glyph and a
+  separate SAMPLES count.
+- **Gear upgrades reworked (game_state.gd).** Each gear upgrades 5× (was
+  uncapped). Every level costs sensible ELEMENTS that fit the gear —
+  O2←O/N/He + structure, Laser←Si/Cu/Ag/Au/Pt, Line←Al/Ti/C, Ore Bag←
+  Fe/Al/Ti/Ni — plus escalating ore. Late tiers need precious metals and
+  tungsten (trader/wrecks), so it's steep but not grindable from plain rock.
+  `GEAR_REQ` table + `upgrade_req/can_upgrade/gear_maxed`.
+- **Upgrade modal (upgrade_modal.gd).** Pressing E at a gear station opens a
+  styled modal: gear icon, level pips (n › n+1), the stat it buys, and each
+  requirement as an element ICON with have/need + ✔/✘ (green/red rows), the
+  ore row, and an INSTALL button that lights only when affordable. Freezes
+  the crew while open; Esc/click-out closes.
+- **Quest log redesigned (quest_log.gd).** Analytical now: overall campaign
+  %, JUMP DRIVE part X/5 with a per-material breakdown (colour dot · symbol ·
+  mini progress bar · have/need) and a completion bar, then FIND THE
+  SCATTERED with filled survivor pips and the next beacon.
+- **Rooms.** Rename any room — press R inside it, type a name (saved per
+  cell, `room_names` + `rename_room()`). And expansion is reachable from
+  EVERY built-room edge that faces bare hull (was one prompt per bare cell,
+  which left some corners unreachable) — a `+` bay now sits inside each
+  bordering room.
+
+Verified: headless logic test (ore caps @25 while samples hit 40; laser L1
+spends Si8/Cu6/ore15 → 70→95; caps at Lv5; rename + revert). Screenshots of
+the modal, the new vitals, the quest log and the interior all render clean.
+
+- **Smaller UI (all parts).** `UITheme.UI_SCALE` (0.82) + `UITheme.shrink()`
+  scales each corner-anchored HUD panel about its screen-edge corner (stays
+  flush): vitals, radar, quest log, gear rack — in the EVA, flight and
+  interior HUDs. Overlay panels trimmed by constant (upgrade modal 560→470,
+  inventory 1180×664→1010×576 with tighter cards; names no longer truncate).
+- **Completability audit (headless sim).** Drove the whole win path in code:
+  install all 5 drive parts, rescue one survivor after each (JUNO→VEGA), reach
+  `game_complete` + 5/5 rescued = "set course". Confirmed every required
+  element has a farmable source (rock/crystal mining, wreck salvage, Vesna's
+  tiers, or H/He gas-scooping), rep 10 is reachable via contracts, and the
+  trader stocks U/Th at rep 10. **Caught + fixed a real blocker:** the O2-tank
+  upgrade required Nitrogen, which only scoops at ~0.006% — effectively
+  unobtainable, making O2 Lv2+ impossible. Swapped N → Helium (7.5% of scoops,
+  actually farmable). All checks now pass.
+
 ## 12/07/2026 — v1.17: real pixel-art element sprites
 
 Replaced the procedurally-drawn molecules with the artist's dedicated
@@ -29,6 +81,19 @@ green-screened 4-column sheets, 103 icons, atomic number == label).
   both shape and colour.
 - **Inventory (inventory_screen.gd)** — every element card shows its
   icon on the left (full colour when discovered, dimmed until then).
+- **Size tuning (12/07)** — the icons filled the full 2×radius diameter
+  (the old molecules only used the centre ~40%), so they looked huge.
+  Dropped to `ICON_FILL` 1.45×radius, tied the laser collision to the
+  ACTUAL drawn half-size (×0.9) so the beam still lands on the art, and
+  trimmed spawn radii (14–30) + spacing so the field stays full. Now the
+  chunks read as collectibles, in proportion to the astronaut.
+- **Soft glow (12/07)** — each unbroken sample gets a gentle diffuse aura
+  (7 faint layered circles → smooth radial falloff, NO glass rim/specular
+  — an earlier glassy-bubble version was rejected as too hard). The glow
+  colour comes from `Elements.glow_for(sym)` (average of the icon's own
+  pixels, lifted in saturation/value) so the halo MATCHES the art — the
+  blue oxygen bubble glows blue, not CPK-red. Static (redraws only on the
+  mining flash), so no per-frame cost.
 
 Why it matters: elements finally read as distinct, hand-made things —
 gases glow, metals gleam, gold glints — instead of near-identical

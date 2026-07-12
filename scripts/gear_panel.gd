@@ -37,7 +37,7 @@ func _process(delta: float) -> void:
 		queue_redraw()
 
 
-const MK := ["I", "II", "III", "IV", "V"]
+const MK := ["I", "II", "III", "IV", "V", "VI"]
 
 
 func _draw() -> void:
@@ -71,11 +71,14 @@ func _draw_tile(i: int, title: String, value: String, level: int,
 	# value
 	draw_string(_font, Vector2(x, TILE - 2), value, HORIZONTAL_ALIGNMENT_CENTER,
 		TILE, 13, Color(0.7, 0.95, 1.0, 0.95))
-	# level pips
-	for p in 4:
-		var px := x + TILE * 0.5 - 21.0 + p * 12.0
-		draw_rect(Rect2(px, TILE + 6.0, 8.0, 3.0),
-			UITheme.ACCENT if p < level else Color(1, 1, 1, 0.13))
+	# level pips — one per upgrade (5), maxed reads all-lit warm
+	var pips := GameState.MAX_GEAR_LEVEL
+	var maxed := level >= pips
+	for p in pips:
+		var px := x + TILE * 0.5 - float(pips) * 5.0 + p * 10.0
+		var on := p < level
+		draw_rect(Rect2(px, TILE + 6.0, 7.0, 3.0),
+			(UITheme.ACCENT_WARM if maxed else UITheme.ACCENT) if on else Color(1, 1, 1, 0.13))
 
 
 # icons are SVG assets (assets/icons/), tinted via UITheme.draw_icon

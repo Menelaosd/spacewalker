@@ -25,26 +25,30 @@ func _ready() -> void:
 	var vitals := VITALS.new()
 	vitals.position = Vector2(18, 18)
 	root.add_child(vitals)
+	UITheme.shrink(vitals, false, false)
 
 	# holographic resource radar (top-right)
 	var radar := RADAR_PANEL.new()
 	root.add_child(radar)
 	radar.set_anchors_and_offsets_preset(
 		Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_MINSIZE, 18)
+	UITheme.shrink(radar, true, false)
 
-	# quest log, tucked under the radar
+	# quest log, tucked under the radar (offset scaled to match)
 	var qlog := QUEST_LOG.new()
 	root.add_child(qlog)
 	qlog.set_anchors_and_offsets_preset(
 		Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_MINSIZE, 18)
-	qlog.offset_top += 214.0
-	qlog.offset_bottom += 214.0
+	qlog.offset_top += 176.0
+	qlog.offset_bottom += 176.0
+	UITheme.shrink(qlog, true, false)
 
 	# gear rack (bottom-right)
 	var gear := GEAR_PANEL.new()
 	root.add_child(gear)
 	gear.set_anchors_and_offsets_preset(
 		Control.PRESET_BOTTOM_RIGHT, Control.PRESET_MODE_MINSIZE, 18)
+	UITheme.shrink(gear, true, true)
 
 	# full inventory overlay (I / Tab)
 	root.add_child(INVENTORY_SCREEN.new())

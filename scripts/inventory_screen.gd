@@ -10,12 +10,12 @@ const ICON_LINE := preload("res://assets/icons/line.svg")
 const ICON_TANK := preload("res://assets/icons/tank.svg")
 const ICON_LASER := preload("res://assets/icons/laser.svg")
 
-const PANEL_W := 1180.0
-const PANEL_H := 664.0
-const LEFT_W := 280.0
+const PANEL_W := 1010.0
+const PANEL_H := 576.0
+const LEFT_W := 244.0
 const COLS := 6
-const CARD_W := 134.0
-const CARD_H := 54.0
+const CARD_W := 116.0
+const CARD_H := 48.0
 const CARD_GAP := 5.0
 const VISIBLE_ROWS := 8
 
@@ -140,13 +140,16 @@ func _draw_suit_column(rect: Rect2) -> void:
 # ELEMENTS — large cards, scrollable
 # ------------------------------------------------------------------
 func _draw_elements_area(rect: Rect2) -> void:
+	var samples := 0
+	for s in GameState.carried_veins:
+		samples += int(GameState.carried_veins[s])
 	var held_note := ""
-	if GameState.carried > 0:
-		held_note = "   ·   +n ON SUIT — DOCK TO REFINE"
+	if samples > 0:
+		held_note = "   ·   %d SAMPLES ON SUIT — DOCK TO REFINE" % samples
 	UITheme.draw_header(self, rect.position + Vector2(0, 18), "ELEMENTS", _font,
 		17, UITheme.ACCENT, rect.size.x)
 	draw_string(_font, rect.position + Vector2(0, 42),
-		"REAL SOLAR ABUNDANCE · CHUNKS HELD %d%s" % [GameState.carried, held_note],
+		"REAL SOLAR ABUNDANCE%s" % held_note,
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 10, UITheme.TEXT_DIM)
 
 	_grid_origin = rect.position + Vector2(0, 54)
@@ -216,28 +219,28 @@ func _draw_card(e: Array, r: Rect2, hovered: bool) -> void:
 
 	# element icon — the same pixel-art chunk you mine in space
 	var icon: Texture2D = Elements.icon_for(sym)
-	var text_x := 12.0
+	var text_x := 10.0
 	if icon != null:
-		var box := 42.0
+		var box := 34.0
 		var isz := icon.get_size()
 		var s := box / maxf(isz.x, isz.y)
 		var draw_sz := isz * s
-		var ipos := r.position + Vector2(7.0 + (box - draw_sz.x) * 0.5,
+		var ipos := r.position + Vector2(5.0 + (box - draw_sz.x) * 0.5,
 			(r.size.y - draw_sz.y) * 0.5)
 		draw_texture_rect(icon, Rect2(ipos, draw_sz), false,
 			Color(1, 1, 1, 1) if have else Color(0.5, 0.5, 0.55, 0.28))
-		text_x = 54.0
+		text_x = 44.0
 
 	# symbol, count, name
 	var sym_col := ecol if have else Color(1, 1, 1, 0.25)
-	draw_string(_font, r.position + Vector2(text_x, 24), sym,
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 17, sym_col)
-	draw_string(_font, r.position + Vector2(0, 22),
+	draw_string(_font, r.position + Vector2(text_x, 22), sym,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 15, sym_col)
+	draw_string(_font, r.position + Vector2(0, 20),
 		("×%d" % amount) if amount > 0 else "—",
-		HORIZONTAL_ALIGNMENT_RIGHT, r.size.x - 10, 13,
+		HORIZONTAL_ALIGNMENT_RIGHT, r.size.x - 8, 12,
 		UITheme.TEXT if amount > 0 else Color(1, 1, 1, 0.18))
-	draw_string(_font, r.position + Vector2(text_x, 42), str(e[1]),
-		HORIZONTAL_ALIGNMENT_LEFT, r.size.x - text_x - 12, 9,
+	draw_string(_font, r.position + Vector2(text_x, 40), str(e[1]),
+		HORIZONTAL_ALIGNMENT_LEFT, r.size.x - text_x - 6, 8,
 		UITheme.TEXT_DIM if have else Color(1, 1, 1, 0.15))
 
 	# capacity bar

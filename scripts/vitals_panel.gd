@@ -3,7 +3,7 @@ extends Control
 ## and a pulsing low-oxygen warning. Fully custom-drawn, sci-fi styled.
 
 const W := 300.0
-const H := 108.0
+const H := 126.0
 
 var _font: Font = ThemeDB.fallback_font
 var _t := 0.0
@@ -21,6 +21,21 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	_t += delta
 	queue_redraw()
+
+
+func _draw_ore_bag(c: Vector2, full: bool) -> void:
+	## A tiny pouch glyph: cinched neck, rounded belly, an ore fleck.
+	var col := UITheme.ACCENT_WARM if full else Color(0.85, 0.7, 0.45)
+	var body := PackedVector2Array([
+		c + Vector2(-5, -3), c + Vector2(5, -3), c + Vector2(7, 6),
+		c + Vector2(0, 9), c + Vector2(-7, 6)])
+	draw_colored_polygon(body, Color(col.r, col.g, col.b, 0.28))
+	draw_polyline(body + PackedVector2Array([c + Vector2(-5, -3)]), col, 1.4, true)
+	# cinched neck
+	draw_line(c + Vector2(-4, -3), c + Vector2(-3, -6), col, 1.4)
+	draw_line(c + Vector2(4, -3), c + Vector2(3, -6), col, 1.4)
+	draw_line(c + Vector2(-3, -6), c + Vector2(3, -6), col, 1.4)
+	draw_circle(c + Vector2(0, 3), 1.8, col)   # ore fleck
 
 
 func _line_frac() -> float:
@@ -63,15 +78,28 @@ func _draw() -> void:
 	draw_string(_font, Vector2(186, 55), "%d%%" % int(lf * 100.0),
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 12, UITheme.TEXT_DIM)
 
-	# cargo counters — carried shows the suit's capacity limit
-	var full := GameState.carried >= GameState.carry_max()
-	draw_circle(Vector2(22, 82), 4.5, Color(1.0, 0.72, 0.25))
-	draw_string(_font, Vector2(32, 87), "ORE %d/%d" % [GameState.carried,
-		GameState.carry_max()], HORIZONTAL_ALIGNMENT_LEFT, -1, 13,
-		UITheme.ACCENT_WARM if full else UITheme.TEXT)
-	draw_circle(Vector2(126, 82), 4.5, Color(0.55, 0.9, 1.0))
-	draw_string(_font, Vector2(136, 87), "BANKED %d" % GameState.banked,
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 13, UITheme.TEXT)
+	# ORE BAG — the capped, return-home meter (the tension knob)
+	var omax := GameState.ore_max()
+	var ofrac := float(GameState.carried) / float(maxi(omax, 1))
+	var full := GameState.carried >= omax
+	_draw_ore_bag(Vector2(24, 82), full)
+	draw_string(_font, Vector2(38, 78), "ORE BAG", HORIZONTAL_ALIGNMENT_LEFT, -1, 10,
+		UITheme.ACCENT_WARM if full else UITheme.TEXT_DIM)
+	UITheme.draw_meter(self, Rect2(38, 82, 118, 10), ofrac,
+		Color(1.0, 0.72, 0.25), full)
+	draw_string(_font, Vector2(162, 90), "%d/%d" % [GameState.carried, omax],
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 11,
+		UITheme.ACCENT_WARM if full else UITheme.TEXT_DIM)
+
+	# bottom line: element SAMPLES (no limit) · BANKED ore
+	var samples := 0
+	for s in GameState.carried_veins:
+		samples += int(GameState.carried_veins[s])
+	draw_circle(Vector2(20, 106), 4.0, Color(0.55, 0.9, 1.0))
+	draw_string(_font, Vector2(30, 111), "SAMPLES %d" % samples,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 12, UITheme.TEXT)
+	draw_string(_font, Vector2(150, 111), "BANKED %d" % GameState.banked,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 12, UITheme.TEXT_DIM)
 
 	if o2_low:
 		draw_string(_font, Vector2(210, 87), "⚠ O2 LOW",

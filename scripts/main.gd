@@ -302,11 +302,11 @@ func _spawn_asteroids() -> void:
 		# some asteroids sit past the tether limit — upgrade bait
 		var dist := rng.randf_range(280.0, GameState.tether_length + 320.0)
 		var pos := Vector2.from_angle(ang) * dist
-		var r := rng.randf_range(18.0, 40.0) * size_mult
+		var r := rng.randf_range(14.0, 30.0) * size_mult
 		var rich := rng.randf() < rich_chance
 		var ok := true
 		for p in placed:
-			if pos.distance_to(p[0]) < (r + p[1] + 60.0):
+			if pos.distance_to(p[0]) < (r + p[1] + 40.0):
 				ok = false
 				break
 		if not ok:

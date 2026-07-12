@@ -14,6 +14,15 @@ const BG_LIGHT := Color(0.035, 0.125, 0.17, 0.94)
 const TEXT := Color(0.88, 0.99, 1.0)
 const TEXT_DIM := Color(0.88, 0.99, 1.0, 0.6)
 const CUT := 18.0                              # big corner slant
+const UI_SCALE := 0.82                          # global HUD shrink factor
+
+
+static func shrink(c: Control, right: bool, bottom: bool, s := UI_SCALE) -> void:
+	## Scale a corner-anchored HUD panel down about the corner nearest the
+	## screen edge, so it shrinks in place and stays flush to that corner.
+	var ms := c.get_combined_minimum_size()
+	c.pivot_offset = Vector2(ms.x if right else 0.0, ms.y if bottom else 0.0)
+	c.scale = Vector2(s, s)
 
 
 # ------------------------------------------------------------------

@@ -207,6 +207,49 @@ static func icon_for(sym: String) -> Texture2D:
 	return tex
 
 
+## Average colour of an element's icon — used for the containment-bubble glow
+## so the halo always matches the ART (e.g. the blue oxygen bubble glows blue),
+## not the CPK chemistry palette (where oxygen is red). Cached per element.
+static var _glow_cache := {}
+
+
+static func glow_for(sym: String) -> Color:
+	var z := z_of(sym)
+	if _glow_cache.has(z):
+		return _glow_cache[z]
+	var col := cpk_color(sym)   # fallback if the icon can't be read
+	var tex := icon_for(sym)
+	if tex != null:
+		var img := tex.get_image()
+		if img != null:
+			if img.is_compressed():
+				img.decompress()
+			var r := 0.0
+			var g := 0.0
+			var b := 0.0
+			var wsum := 0.0
+			var step := maxi(int(maxf(img.get_width(), img.get_height()) / 48.0), 1)
+			var y := 0
+			while y < img.get_height():
+				var x := 0
+				while x < img.get_width():
+					var c := img.get_pixel(x, y)
+					if c.a > 0.5:
+						r += c.r * c.a
+						g += c.g * c.a
+						b += c.b * c.a
+						wsum += c.a
+					x += step
+				y += step
+			if wsum > 0.0:
+				col = Color(r / wsum, g / wsum, b / wsum)
+				# lift a washed-out average into a lively glow
+				col = Color.from_hsv(col.h, minf(col.s * 1.4 + 0.12, 1.0),
+					clampf(col.v * 1.15 + 0.1, 0.35, 1.0))
+	_glow_cache[z] = col
+	return col
+
+
 static func _sample(fractions: Dictionary) -> String:
 	## Weighted random element — real abundance IS the drop table.
 	var roll := randf()

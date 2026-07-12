@@ -8,6 +8,7 @@ extends Node2D
 const INTERACT_RADIUS := 72.0
 const GEAR_PANEL := preload("res://scripts/gear_panel.gd")
 const INVENTORY_SCREEN := preload("res://scripts/inventory_screen.gd")
+const UPGRADE_MODAL := preload("res://scripts/upgrade_modal.gd")
 
 # roomy cells — objects get distance between them and stay accessible
 const CELL_W := 190.0
@@ -157,6 +158,8 @@ var _room_label: Label
 var _prompt_label: Label
 var _msg_label: Label
 var _msg_tween: Tween
+var _upgrade_modal: Control
+var _rename_edit: LineEdit
 var _ending_t := 0.0   # > 0 while the going-home sequence plays
 
 
@@ -357,6 +360,11 @@ func _ready() -> void:
 
 	GameState.save_game()
 
+	# debug: SW_MODAL=laser opens the upgrade modal at boot for screenshots
+	if OS.get_environment("SW_MODAL") != "":
+		crew.set_process(false)
+		_upgrade_modal.open(OS.get_environment("SW_MODAL"))
+
 
 func _define_stations() -> void:
 	_stations = []
@@ -378,8 +386,9 @@ func _define_stations() -> void:
 				_stations.append({"pos": c + Vector2(0, -56), "kind": "drive"})
 			"cargo":
 				_stations.append({"pos": c + Vector2(-56, -44), "kind": "board"})
-	# expansion bays: bare hull cells touching the built ship — station
-	# sits just inside the built neighbor, at the shared edge
+	# expansion bays: for every built-room edge that faces bare hull, put an
+	# expand prompt JUST INSIDE the built room at that edge — so you can
+	# reach it from whichever room you're standing in (no dead corners).
 	for cell in GameState.SHIP_COLS * GameState.SHIP_ROWS:
 		if _built(cell) or not GameState.cell_in_hull(cell):
 			continue
@@ -387,8 +396,7 @@ func _define_stations() -> void:
 			if _built(n):
 				var edge := (cell_rect(cell).get_center() + cell_rect(n).get_center()) * 0.5
 				var inward := (cell_rect(n).get_center() - edge).normalized()
-				_stations.append({"pos": edge + inward * 32.0, "kind": "expand", "cell": cell})
-				break
+				_stations.append({"pos": edge + inward * 26.0, "kind": "expand", "cell": cell})
 	_build_obstacles()
 
 
@@ -502,15 +510,12 @@ func _update_active_station() -> void:
 
 func _station_label(st: Dictionary) -> String:
 	match st["kind"]:
-		"o2":
-			return "E    Upgrade O2 Tank   (%d ore)" % GameState.upgrade_cost("o2")
-		"tether":
-			return "E    Upgrade Lifeline   (%d ore)" % GameState.upgrade_cost("tether")
-		"laser":
-			return "E    Upgrade Laser   (%d ore)" % GameState.upgrade_cost("laser")
-		"suit":
-			return "E    Upgrade Suit — cargo %d ore  (%d ore)" % [
-				GameState.carry_max(), GameState.upgrade_cost("suit")]
+		"o2", "tether", "laser", "suit":
+			var lbl: String = GameState.UPGRADES[st["kind"]]["label"]
+			if GameState.gear_maxed(st["kind"]):
+				return "%s — MAX (Lv %d)" % [lbl, GameState.MAX_GEAR_LEVEL]
+			return "E    Upgrade %s   (Lv %d › %d)" % [lbl,
+				GameState._level_of(st["kind"]), GameState._level_of(st["kind"]) + 1]
 		"cockpit":
 			return "E    Take the helm — explore space"
 		"exit":
@@ -540,12 +545,27 @@ func _station_label(st: Dictionary) -> String:
 func _room_at(p: Vector2) -> String:
 	var cell := cell_at(p)
 	if _built(cell):
-		return str(GameState.ROOM_TYPES[GameState.rooms[cell]]["name"]).to_upper()
+		return GameState.room_display_name(cell).to_upper()
 	return "—"
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not (event is InputEventKey and event.pressed and not event.echo):
+		return
+	# rename field open: Esc cancels it (Enter submits via the LineEdit)
+	if _rename_edit != null and _rename_edit.visible:
+		if event.physical_keycode == KEY_ESCAPE:
+			_rename_edit.visible = false
+			_rename_edit.release_focus()
+			crew.set_process(true)
+			get_viewport().set_input_as_handled()
+		return
+	if _upgrade_modal != null and _upgrade_modal.visible:
+		return   # the modal owns input while it's up
+	# R renames the room you're standing in — no station needed
+	if event.physical_keycode == KEY_R:
+		_open_rename()
+		get_viewport().set_input_as_handled()
 		return
 	if _active < 0:
 		return
@@ -623,23 +643,9 @@ func _interact(st: Dictionary) -> void:
 		"cockpit":
 			get_tree().change_scene_to_file("res://scenes/flight.tscn")
 		"o2", "tether", "laser", "suit":
-			var kind: String = st["kind"]
-			var cost := GameState.upgrade_cost(kind)
-			if GameState.try_upgrade(kind):
-				Sfx.play("upgrade", -5.0)
-				match kind:
-					"o2":
-						GameState.say("O2 tank upgraded — capacity now %d." % int(GameState.max_oxygen))
-					"tether":
-						GameState.say("Lifeline extended — reach now %dm." % int(GameState.tether_length))
-					"laser":
-						GameState.say("Laser tuned — power now %d." % int(GameState.laser_dps))
-					"suit":
-						GameState.say("Suit reinforced — you can haul %d ore per walk now." %
-							GameState.carry_max())
-			else:
-				Sfx.play("deny", -10.0)
-				GameState.say("Not enough ore — need %d, have %d." % [cost, GameState.banked])
+			# open the requirements modal instead of upgrading blind
+			crew.set_process(false)
+			_upgrade_modal.open(st["kind"])
 
 
 # ==================================================================
@@ -655,6 +661,24 @@ func _build_hud() -> void:
 	layer.add_child(root)
 	root.add_child(INVENTORY_SCREEN.new())
 
+	# gear upgrade modal — opens at a station, freezes the crew while up
+	_upgrade_modal = UPGRADE_MODAL.new()
+	root.add_child(_upgrade_modal)
+	_upgrade_modal.closed.connect(func(): crew.set_process(true))
+	_upgrade_modal.upgraded.connect(_on_upgraded)
+
+	# room-rename field — hidden until you rename at a room's centre
+	_rename_edit = LineEdit.new()
+	_rename_edit.placeholder_text = "room name…"
+	_rename_edit.max_length = 20
+	_rename_edit.custom_minimum_size = Vector2(240, 34)
+	_rename_edit.alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_rename_edit.visible = false
+	root.add_child(_rename_edit)
+	_rename_edit.set_anchors_and_offsets_preset(
+		Control.PRESET_CENTER, Control.PRESET_MODE_MINSIZE)
+	_rename_edit.text_submitted.connect(_on_rename_submitted)
+
 	var info := PanelContainer.new()
 	info.position = Vector2(18, 18)
 	info.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -666,6 +690,7 @@ func _build_hud() -> void:
 	root.add_child(gear)
 	gear.set_anchors_and_offsets_preset(
 		Control.PRESET_BOTTOM_RIGHT, Control.PRESET_MODE_MINSIZE, 18)
+	UITheme.shrink(gear, true, true)
 
 	_room_label = Label.new()
 	_room_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -689,7 +714,7 @@ func _build_hud() -> void:
 		Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_MINSIZE, 70)
 
 	var hint := Label.new()
-	hint.text = "WASD walk · E interact / expand · I inventory · Esc menu"
+	hint.text = "WASD walk · E interact / expand · R rename room · I inventory · Esc menu"
 	hint.add_theme_font_size_override("font_size", 12)
 	hint.modulate = Color(1, 1, 1, 0.4)
 	root.add_child(hint)
@@ -705,6 +730,43 @@ func _on_notify(text: String) -> void:
 	_msg_tween = create_tween()
 	_msg_tween.tween_interval(2.2)
 	_msg_tween.tween_property(_msg_label, "modulate:a", 0.0, 0.8)
+
+
+func _on_upgraded(kind: String) -> void:
+	Sfx.play("upgrade", -5.0)
+	match kind:
+		"o2":
+			GameState.say("O2 tank upgraded — capacity now %d." % int(GameState.max_oxygen))
+		"tether":
+			GameState.say("Lifeline extended — reach now %dm." % int(GameState.tether_length))
+		"laser":
+			GameState.say("Laser tuned — power now %d." % int(GameState.laser_dps))
+		"suit":
+			GameState.say("Ore bag reinforced — holds %d ore per walk now." %
+				GameState.ore_max())
+
+
+func _open_rename() -> void:
+	var cell := cell_at(crew.position + Vector2(0, 12))
+	if not _built(cell):
+		return
+	_rename_edit.set_meta("cell", cell)
+	_rename_edit.text = GameState.room_display_name(cell)
+	_rename_edit.visible = true
+	_rename_edit.grab_focus()
+	_rename_edit.select_all()
+	crew.set_process(false)
+
+
+func _on_rename_submitted(text: String) -> void:
+	var cell: int = _rename_edit.get_meta("cell", -1)
+	if cell >= 0:
+		GameState.rename_room(cell, text)
+		Sfx.play("bank", -10.0)
+		GameState.say("Room renamed “%s”." % GameState.room_display_name(cell))
+	_rename_edit.visible = false
+	_rename_edit.release_focus()
+	crew.set_process(true)
 
 
 # ==================================================================
@@ -955,7 +1017,6 @@ func _draw_ending() -> void:
 func _draw_room_cell(cell: int) -> void:
 	var rect := cell_rect(cell)
 	var type: String = GameState.rooms[cell]
-	var info: Dictionary = GameState.ROOM_TYPES[type]
 	# the kit's floor tiles, 2x2 per cell — each room type has its own deck.
 	# Lifted a touch so rooms read warm against the dark hull.
 	var fkey: String = ROOM_FLOOR.get(type, "fl_plain")
@@ -971,7 +1032,7 @@ func _draw_room_cell(cell: int) -> void:
 	# (furniture draws in the depth passes — see _draw_depth)
 	# name plate bottom-left, where no prop or station covers it
 	draw_string(_font, rect.position + Vector2(8, CELL_H - 8),
-		str(info["name"]).to_upper(),
+		GameState.room_display_name(cell).to_upper(),
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.55, 0.9, 1.0, 0.6))
 
 

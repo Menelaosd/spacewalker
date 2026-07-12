@@ -10,7 +10,7 @@ signal notify(text: String)
 signal quest_changed()
 
 const SAVE_DIR := "user://saves"
-const SAVE_VERSION := 4
+const SAVE_VERSION := 5
 const ELEMENT_CAP := 9999      # per-element storage limit
 const SCOOP_INTERVAL := 2.2    # seconds per +1 gas while nebula-flying
 
@@ -33,19 +33,59 @@ var tether_level: int = 0
 var laser_level: int = 0
 var suit_level: int = 0     # suit = cargo capacity (Dome Keeper tension knob)
 
-# --- Upgrade tuning: [cost_base, gain_per_level] ---
+# --- Upgrade tuning ---
+# Each gear upgrades 5 times. Every level costs sensible ELEMENTS (that fit
+# the gear thematically) plus some ore, scaling up so the late tiers lean on
+# trading and wreck-diving (precious metals, tungsten) — not grindable from
+# plain rock alone. "step" = stat gain applied per level.
+const MAX_GEAR_LEVEL := 5
 const UPGRADES := {
-	"o2":     {"base": 10, "step": 25.0},
-	"tether": {"base": 15, "step": 120.0},
-	"laser":  {"base": 12, "step": 25.0},
-	"suit":   {"base": 12, "step": 15.0},
+	"o2":     {"step": 25.0,  "label": "O2 Tank"},
+	"tether": {"step": 120.0, "label": "Lifeline"},
+	"laser":  {"step": 25.0,  "label": "Laser"},
+	"suit":   {"step": 15.0,  "label": "Ore Bag"},
+}
+# Per-level requirements: GEAR_REQ[kind][level_index] = {req: {sym: n}, ore: n}
+const GEAR_REQ := {
+	"o2": [
+		{"req": {"O": 8, "Fe": 6}, "ore": 15},
+		{"req": {"O": 14, "He": 8, "Al": 8}, "ore": 30},
+		{"req": {"O": 22, "He": 14, "Ti": 6}, "ore": 55},
+		{"req": {"O": 32, "He": 20, "Ti": 12}, "ore": 90},
+		{"req": {"O": 46, "He": 30, "Ni": 14}, "ore": 140},
+	],
+	"tether": [
+		{"req": {"Al": 8, "C": 6}, "ore": 15},
+		{"req": {"Al": 14, "Ti": 6, "C": 10}, "ore": 30},
+		{"req": {"Ti": 12, "Al": 20, "Si": 8}, "ore": 55},
+		{"req": {"Ti": 20, "C": 24, "Ni": 8}, "ore": 90},
+		{"req": {"Ti": 30, "W": 6, "C": 34}, "ore": 140},
+	],
+	"laser": [
+		{"req": {"Si": 8, "Cu": 6}, "ore": 15},
+		{"req": {"Si": 14, "Cu": 10, "Ag": 2}, "ore": 30},
+		{"req": {"Si": 22, "Cu": 16, "Au": 2}, "ore": 55},
+		{"req": {"Si": 32, "Ag": 6, "Au": 4}, "ore": 90},
+		{"req": {"Si": 46, "Au": 8, "Pt": 3}, "ore": 140},
+	],
+	"suit": [
+		{"req": {"Fe": 10, "Al": 6}, "ore": 15},
+		{"req": {"Fe": 18, "Al": 12, "C": 8}, "ore": 30},
+		{"req": {"Fe": 28, "Ti": 10, "Al": 20}, "ore": 55},
+		{"req": {"Fe": 40, "Ti": 20, "C": 24}, "ore": 90},
+		{"req": {"Fe": 56, "Ti": 32, "Ni": 12}, "ore": 140},
+	],
 }
 
-const CARRY_BASE := 25      # ore-value the MK I suit can haul per walk
+const CARRY_BASE := 25      # ore the MK I bag holds per walk; +15 per suit level
 
 
 func carry_max() -> int:
 	return CARRY_BASE + int(UPGRADES["suit"]["step"]) * suit_level
+
+
+func ore_max() -> int:
+	return carry_max()   # the ORE BAG capacity — the return-home tension
 
 # --- Ship rooms: a 4x2 cell grid; some prefixed, the rest built with ore ---
 const ROOM_TYPES := {
@@ -121,6 +161,7 @@ var carried_veins := {}                           # symbol -> units held on the 
 var discovered := {}                              # symbol -> true once a VEIN of it
                                                   # was banked (or gas scooped)
 var rooms := {}                                   # cell (0-7) -> room type ("" = empty)
+var room_names := {}                              # cell -> custom name (overrides default)
 var salvage_taken := {}                           # "cx:cy:i" -> true — wrecks stay looted
 var mined := {}                                   # "sx:sy:i" -> true — mined rocks stay gone
 var _scoop_accum := 0.0
@@ -375,17 +416,21 @@ func refill_oxygen(amount: float) -> void:
 	oxygen_changed.emit(oxygen, max_oxygen)
 
 
-func add_carried(kind: String, value: int, vein := "") -> void:
-	## vein = the chunk's dominant element (rolled at real abundance by
-	## the asteroid it came from) — over half its material is that element.
-	carried += value
+func add_carried(kind: String, value: int, vein := "") -> bool:
+	## A broken chunk yields TWO separate things:
+	##  • an ELEMENT sample of its vein — the collection, UNLIMITED on the suit
+	##  • bulk ORE — the currency, which fills the capped ore bag (the tension)
+	## Returns true if the ore bag couldn't take it all (bag full).
+	if vein != "":
+		carried_veins[vein] = carried_veins.get(vein, 0) + value
 	if carried_items.has(kind):
 		carried_items[kind] += 1
-	if vein != "":
-		# a chunk yields its ore-value in element units (crystal = 2)
-		carried_veins[vein] = carried_veins.get(vein, 0) + value
+	var space := ore_max() - carried
+	var got := clampi(value, 0, space)
+	carried += got
 	cargo_changed.emit(carried, banked)
 	inventory_changed.emit()
+	return got < value   # ore overflowed — bag is full
 
 
 func bank_cargo() -> int:
@@ -469,21 +514,45 @@ func _level_of(kind: String) -> int:
 	return 0
 
 
+func gear_maxed(kind: String) -> bool:
+	return _level_of(kind) >= MAX_GEAR_LEVEL
+
+
+func upgrade_req(kind: String) -> Dictionary:
+	## The full requirement for the NEXT level: {req: {sym: n}, ore: n}.
+	## Empty when the gear is maxed or unknown.
+	if not GEAR_REQ.has(kind) or gear_maxed(kind):
+		return {}
+	return GEAR_REQ[kind][_level_of(kind)]
+
+
 func upgrade_cost(kind: String) -> int:
-	## Cost scales with the current level: base * (level + 1).
-	if not UPGRADES.has(kind):
-		return 0
-	return int(UPGRADES[kind]["base"]) * (_level_of(kind) + 1)
+	## Just the ore portion (kept for older callers / short labels).
+	var r := upgrade_req(kind)
+	return int(r.get("ore", 0))
+
+
+func can_upgrade(kind: String) -> bool:
+	var r := upgrade_req(kind)
+	if r.is_empty():
+		return false
+	if banked < int(r["ore"]):
+		return false
+	for sym in r["req"]:
+		if int(elements.get(sym, 0)) < int(r["req"][sym]):
+			return false
+	return true
 
 
 func try_upgrade(kind: String) -> bool:
-	## Spends banked ore and applies the stat gain. Returns false if too poor.
-	if not UPGRADES.has(kind):
+	## Spends the elements + ore and applies the stat gain. False if maxed
+	## or the materials aren't all there.
+	if not can_upgrade(kind):
 		return false
-	var cost := upgrade_cost(kind)
-	if banked < cost:
-		return false
-	banked -= cost
+	var r := upgrade_req(kind)
+	banked -= int(r["ore"])
+	for sym in r["req"]:
+		elements[sym] = int(elements[sym]) - int(r["req"][sym])
 	var step: float = UPGRADES[kind]["step"]
 	match kind:
 		"o2":
@@ -497,10 +566,11 @@ func try_upgrade(kind: String) -> bool:
 			laser_level += 1
 			laser_dps += step
 		"suit":
-			suit_level += 1     # carry_max() derives from the level
+			suit_level += 1     # carry_max()/ore_max() derive from the level
 	cargo_changed.emit(carried, banked)
+	inventory_changed.emit()
 	gear_changed.emit()
-	save_game()   # spent ore + gained gear commit together
+	save_game()   # spent materials + gained gear commit together
 	return true
 
 
@@ -532,6 +602,7 @@ func save_game() -> void:
 		"elements": elements,
 		"discovered": discovered.keys(),
 		"rooms": _rooms_to_json(),
+		"room_names": _room_names_to_json(),
 		"quest_stage": quest_stage,
 		"game_complete": game_complete,
 		"reputation": reputation,
@@ -600,6 +671,12 @@ func load_game(s: int) -> bool:
 				and rj[k] is String and ROOM_TYPES.has(rj[k]) \
 				and ROOM_TYPES[rj[k]].get("buildable", false):
 			rooms[cell] = rj[k]
+	room_names = {}
+	var rn: Dictionary = data.get("room_names", {})
+	for k in rn:
+		var rc := int(k)
+		if rooms.has(rc) and str(rn[k]) != "":
+			room_names[rc] = str(rn[k])
 	quest_stage = int(data.get("quest_stage", 0))
 	game_complete = bool(data.get("game_complete", false))
 	reputation = int(data.get("reputation", 0))
@@ -670,6 +747,7 @@ func new_game(s: int) -> void:
 	carried_veins = {}
 	discovered = {}
 	rooms = DEFAULT_ROOMS.duplicate()
+	room_names = {}
 	quest_stage = 0
 	game_complete = false
 	reputation = 0
@@ -927,11 +1005,36 @@ func _rooms_to_json() -> Dictionary:
 	return out
 
 
+func _room_names_to_json() -> Dictionary:
+	var out := {}
+	for k in room_names:
+		out[str(k)] = room_names[k]
+	return out
+
+
 func has_room(type: String) -> bool:
 	for cell in rooms:
 		if rooms[cell] == type:
 			return true
 	return false
+
+
+func room_display_name(cell: int) -> String:
+	## The player's custom name if set, else the room type's default.
+	if room_names.has(cell) and str(room_names[cell]) != "":
+		return str(room_names[cell])
+	if rooms.has(cell):
+		return str(ROOM_TYPES[rooms[cell]]["name"])
+	return ""
+
+
+func rename_room(cell: int, name: String) -> void:
+	var clean := name.strip_edges().substr(0, 20)
+	if clean == "" or clean == str(ROOM_TYPES.get(rooms.get(cell, ""), {}).get("name", "")):
+		room_names.erase(cell)   # blank / same-as-default → back to default
+	else:
+		room_names[cell] = clean
+	save_game()
 
 
 func build_room(cell: int, type: String) -> bool:
