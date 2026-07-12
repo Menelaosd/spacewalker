@@ -122,6 +122,7 @@ var discovered := {}                              # symbol -> true once a VEIN o
                                                   # was banked (or gas scooped)
 var rooms := {}                                   # cell (0-7) -> room type ("" = empty)
 var salvage_taken := {}                           # "cx:cy:i" -> true — wrecks stay looted
+var mined := {}                                   # "sx:sy:i" -> true — mined rocks stay gone
 var _scoop_accum := 0.0
 
 # Where the ship is parked in open space. ZERO = home station.
@@ -291,6 +292,18 @@ const NEBULAE := [
 	{"name": "Gilded Drift", "color": Color(0.95, 0.78, 0.42), "radius": 1700.0, "dist": 13800.0},
 	{"name": "Ghostlight Shoal", "color": Color(0.78, 0.88, 0.98), "radius": 1200.0, "dist": 18500.0},
 	{"name": "Tyrian Abyss", "color": Color(0.82, 0.32, 0.92), "radius": 3800.0, "dist": 22500.0},
+	# --- appended (indices 9+): more clouds to fill the void. The first
+	# nine are load-bearing (rescue regions 1/2/3); never reorder those. ---
+	{"name": "Molten Wisp", "color": Color(0.98, 0.5, 0.28), "radius": 1500.0, "dist": 6300.0},
+	{"name": "Sapphire Mist", "color": Color(0.32, 0.55, 0.98), "radius": 2200.0, "dist": 9600.0},
+	{"name": "Verdant Bloom", "color": Color(0.42, 0.9, 0.62), "radius": 1600.0, "dist": 14600.0},
+	{"name": "Coral Expanse", "color": Color(0.98, 0.55, 0.6), "radius": 2900.0, "dist": 19800.0},
+	{"name": "Indigo Veil", "color": Color(0.48, 0.42, 0.92), "radius": 1900.0, "dist": 11300.0},
+	{"name": "Aureate Cloud", "color": Color(0.96, 0.82, 0.42), "radius": 1400.0, "dist": 15900.0},
+	{"name": "Frostlight Reach", "color": Color(0.65, 0.9, 0.98), "radius": 2100.0, "dist": 21200.0},
+	{"name": "Crimson Drift", "color": Color(0.9, 0.28, 0.34), "radius": 1700.0, "dist": 24000.0},
+	{"name": "Halcyon Mote", "color": Color(0.6, 0.95, 0.85), "radius": 1300.0, "dist": 4700.0},
+	{"name": "Obsidian Bloom", "color": Color(0.7, 0.4, 0.85), "radius": 2500.0, "dist": 26500.0},
 ]
 
 
@@ -512,6 +525,7 @@ func save_game() -> void:
 		"laser_level": laser_level,
 		"suit_level": suit_level,
 		"salvage_taken": salvage_taken.keys(),
+		"mined": mined.keys(),
 		"oxygen": oxygen,
 		"banked": banked,
 		"inventory": inventory,
@@ -554,6 +568,9 @@ func load_game(s: int) -> bool:
 	salvage_taken = {}
 	for k in data.get("salvage_taken", []):
 		salvage_taken[str(k)] = true
+	mined = {}
+	for k in data.get("mined", []):
+		mined[str(k)] = true
 	oxygen = data.get("oxygen", max_oxygen)
 	banked = int(data.get("banked", 0))
 	var inv: Dictionary = data.get("inventory", {})
@@ -641,6 +658,7 @@ func new_game(s: int) -> void:
 	laser_level = 0
 	suit_level = 0
 	salvage_taken = {}
+	mined = {}
 	oxygen = max_oxygen
 	banked = 0
 	carried = 0

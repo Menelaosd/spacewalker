@@ -5,6 +5,139 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 12/07/2026 — v1.17: real pixel-art element sprites
+
+Replaced the procedurally-drawn molecules with the artist's dedicated
+pixel-art element icons (game-assets/spacewalker/elements — nine
+green-screened 4-column sheets, 103 icons, atomic number == label).
+
+- **Extraction (tools/extract_elements.gd).** Per column strip we find
+  the vertical content "blobs" and keep the tall icon, dropping the short
+  text label beneath it — so NO text ends up in output. Each icon is
+  green-keyed with de-spill and cropped tight, saved as
+  assets/sprites/elements/z<atomic number>.png. Verified all 103 on a
+  contact sheet: clean crops, no text bleed.
+- **elements.gd** — `icon_for(sym)` lazily loads z<Z>.png as an
+  ImageTexture and caches it (works in editor/export/headless alike).
+- **In space (asteroid.gd)** — a mineable node now draws its element's
+  real icon, fitted to the node diameter; the laser collision surface is
+  sized to the art so the beam lands ON the chunk. Mining flash whitens
+  the icon and throws sparks in the element's colour at the exact hit
+  point. Fallback ore blob if an icon is ever missing.
+- **Broken chunks (pickup.gd)** — a shattered piece is now a MINIATURE
+  of the same element icon, so debris matches the rock it came from in
+  both shape and colour.
+- **Inventory (inventory_screen.gd)** — every element card shows its
+  icon on the left (full colour when discovered, dimmed until then).
+
+Why it matters: elements finally read as distinct, hand-made things —
+gases glow, metals gleam, gold glints — instead of near-identical
+procedural blobs, and the whole loop (see it in space → cut it → catch
+the chunk → find it in the inventory) shows one consistent picture.
+
+## 12/07/2026 — v1.16: intro rewritten as real storytelling
+
+Reworked the intro (intro.gd) from a declarative pep-talk into quiet,
+grounded sci-fi prose over the same scenario: (1) Earth dying, given to
+HELIOS as "mercy"; (2) the AI's arithmetic finding humanity the one
+variable it couldn't fit — "it did not hate us, it simply subtracted
+us"; (3) the bloodless expulsion — biosphere sealed, arks taken, wall
+of fire raised, then silence and watching; (4) what's left and WHY you
+mine — the drive rebuilt only "from the bones of the sky", iron/silicon/
+heavy+fissile metals chipped fragment by fragment, until it can carry
+you past the wall; (5) Haven, the blind spot, and the five faint
+beacons — "no one crosses this dark alone." Ending line matched:
+"HELIOS never learned to look here. This is Haven. Begin again."
+
+- **Materials → small pixel-art molecules in real CPK colours.**
+  asteroid.gd draws chunky beveled pixel atoms joined by bonds; the
+  colour is now the element's actual CPK/Jmol colour (added to elements.gd
+  as `CPK` + `cpk_color()` — the source palette: O red, C grey, S yellow,
+  Fe orange, Au gold…), not the golden-angle hue. Smaller overall. Pickups
+  and radar asteroid blips use the same CPK colours so everything matches.
+- **Fields stay depleted.** main.gd now spawns each dive site
+  deterministically (RNG seeded by the sector), so revisiting shows the
+  SAME field; each rock carries a `mine_key`, and shattering it records the
+  key in `GameState.mined` (saved/loaded like salvage) — mined rocks never
+  respawn when you come back.
+
+**Performance.** The "busier space" pass had made things janky:
+- flight.gd's starfield allocated a fresh RandomNumberGenerator PER CHUNK
+  PER FRAME (GC-stutter). Now cached per (chunk, layer) in `_star_cache`
+  and only generated once; densities trimmed back to sane.
+- asteroid nodes were redrawing EVERY frame for a glow pulse — now fully
+  static (redraw only on the mining flash).
+- dive starfield counts trimmed. Ship shadow removed (also a per-frame
+  full-hull redraw).
+
+**Materials → molecular.** asteroid.gd now draws each node as a
+ball-and-stick MOLECULAR cluster: solid shaded atoms in the element's
+colour joined by bonds, the arrangement fixed by the element (diatomic
+/ triangle / bent / tetrahedral / ring / chain). NOTE: stylised, not
+chemically accurate — a real Bohr atomic model (per-element electron
+shells) is the legit option if wanted.
+
+**Circle cleanup.** Removed the ore-pickup glow circle; the radar's
+nebula blobs are now clamped so they never spill past the disc edge.
+
+- **Materials went minimal.** Dropped the busy faceted solids for a single
+  clean silhouette per element (shape still fixed by atomic number: hexagon
+  / diamond / crystal / rounded stone / octagon / shard), flat-filled in the
+  element's colour with ONE soft light hint (a smaller inner copy pulled
+  toward the light) and a thin outline. Faint shape-glow kept; no facets.
+- **Chest-only breathing.** The interior idle breathing no longer scales
+  the whole body. The sprite is drawn as three horizontal slices and only
+  the middle (chest) slice puffs a hair wider — head and legs hold still.
+
+## 12/07/2026 — v1.12: no more transparent circles + quest log
+
+- **Killed the transparent circles.** Material glow (asteroid.gd) no
+  longer draws concentric circles — it now fills the node's own SILHOUETTE
+  (its outline, enlarged in two faint layers) so the glow hugs the shape.
+  Dropped the circular specular glint and rich-core circles too. The dive
+  background haze (main.gd) now uses the fractal NebulaFog texture instead
+  of soft circles.
+- **Quest log under the radar.** New scripts/quest_log.gd — a compact
+  sci-fi objectives panel wired into the spacewalk and flight HUDs just
+  below the radar. Reads live from GameState: "Rebuild the jump drive"
+  (current part + element/ore progress) and "Find the scattered n/5"
+  (next survivor + region, or which drive part the signal still needs),
+  flipping to ✔ lines as each completes.
+
+- **10 more nebulae** (9 → 19) appended to GameState.NEBULAE with varied
+  palettes/sizes/distances. The first nine stay fixed (rescue regions
+  1/2/3 depend on their indices); new ones append at 9+ and don't collide
+  with any beacon (gauntlet beacon-region checks still pass).
+- **Denser starfields.** flight.gd gains a far dust layer and ~1.5× counts
+  (4 parallax layers now); the dive starfield counts bumped ~1.5×.
+- **More traffic.** Comets/shooting stars fire far more often (flight
+  1.8–4.5 s shooting; dive streaks 2.5–7 s).
+- **Dive background haze.** main.gd now paints faint distant colour from
+  the nearest nebulae behind the dive, so the mining scene never reads as
+  empty black.
+
+**Materials are now per-ELEMENT, not per-category.** asteroid.gd rebuilt
+again: each element gets a faceted low-poly SOLID whose FORM is fixed by
+its atomic number (golden-ratio hash → gem / octahedron / iso-cube /
+hex-prism / crystal-cluster / boulder) and whose COLOUR is the element's
+own hue. Facets are lit by a fake key light (counter-rotated per node so
+lighting stays world-consistent) for a real 3D read; each node still
+varies in size/spin so a field of one element isn't clones. Rich veins
+carry a bright breathing core; every node keeps its glow halo. (Chose
+faceted 2D over literal 3D meshes — ~40 live nodes make per-node 3D
+SubViewports too costly; the faceted look reads as 3D at no cost.)
+
+**All sound removed.** scripts/sfx.gd is now a silent stub that keeps the
+Sfx API so every call site still resolves — nothing synthesized, nothing
+plays. Restore from git history to bring audio back.
+
+**Idle breathing.** The crew avatar inside the ship gently rises/falls
+and its chest expands when standing still (interior_player.gd).
+
+**Ship casts a shadow.** In flight, a soft black silhouette of the hull
+is drawn just off the ship (offset away from the light) over the fields
+and wrecks it passes — a real sense of the ship floating above the field.
+
 ## 12/07/2026 — v1.9: HELIOS story rework + material variety
 
 **Darker story — HELIOS.** Rewrote the premise: Earth's systems were

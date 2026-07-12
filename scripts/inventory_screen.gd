@@ -214,25 +214,39 @@ func _draw_card(e: Array, r: Rect2, hovered: bool) -> void:
 		Color(Elements.color_of(sym).r, Elements.color_of(sym).g,
 			Elements.color_of(sym).b, 0.9 if have else 0.25))
 
+	# element icon — the same pixel-art chunk you mine in space
+	var icon: Texture2D = Elements.icon_for(sym)
+	var text_x := 12.0
+	if icon != null:
+		var box := 42.0
+		var isz := icon.get_size()
+		var s := box / maxf(isz.x, isz.y)
+		var draw_sz := isz * s
+		var ipos := r.position + Vector2(7.0 + (box - draw_sz.x) * 0.5,
+			(r.size.y - draw_sz.y) * 0.5)
+		draw_texture_rect(icon, Rect2(ipos, draw_sz), false,
+			Color(1, 1, 1, 1) if have else Color(0.5, 0.5, 0.55, 0.28))
+		text_x = 54.0
+
 	# symbol, count, name
 	var sym_col := ecol if have else Color(1, 1, 1, 0.25)
-	draw_string(_font, r.position + Vector2(12, 24), sym,
+	draw_string(_font, r.position + Vector2(text_x, 24), sym,
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 17, sym_col)
 	draw_string(_font, r.position + Vector2(0, 22),
 		("×%d" % amount) if amount > 0 else "—",
 		HORIZONTAL_ALIGNMENT_RIGHT, r.size.x - 10, 13,
 		UITheme.TEXT if amount > 0 else Color(1, 1, 1, 0.18))
-	draw_string(_font, r.position + Vector2(12, 42), str(e[1]),
-		HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 24, 9,
+	draw_string(_font, r.position + Vector2(text_x, 42), str(e[1]),
+		HORIZONTAL_ALIGNMENT_LEFT, r.size.x - text_x - 12, 9,
 		UITheme.TEXT_DIM if have else Color(1, 1, 1, 0.15))
 
 	# capacity bar
 	if amount > 0:
 		var frac := float(amount) / float(GameState.ELEMENT_CAP)
-		draw_rect(Rect2(r.position + Vector2(12, r.size.y - 6), Vector2(r.size.x - 24, 2)),
-			Color(1, 1, 1, 0.07))
-		draw_rect(Rect2(r.position + Vector2(12, r.size.y - 6),
-			Vector2((r.size.x - 24) * clampf(frac, 0.01, 1.0), 2)),
+		draw_rect(Rect2(r.position + Vector2(text_x, r.size.y - 6),
+			Vector2(r.size.x - text_x - 12, 2)), Color(1, 1, 1, 0.07))
+		draw_rect(Rect2(r.position + Vector2(text_x, r.size.y - 6),
+			Vector2((r.size.x - text_x - 12) * clampf(frac, 0.01, 1.0), 2)),
 			Color(ecol.r, ecol.g, ecol.b, 0.85))
 
 	# on-suit badge

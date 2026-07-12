@@ -18,6 +18,7 @@ const HOME_DOCK_RADIUS := 300.0
 const INVENTORY_SCREEN := preload("res://scripts/inventory_screen.gd")
 const FLOAT_TEXT := preload("res://scripts/float_text.gd")
 const RADAR_PANEL := preload("res://scripts/radar_panel.gd")
+const QUEST_LOG := preload("res://scripts/quest_log.gd")
 
 # Derelict debris — old wrecks and lost cargo. Human-made, so its metal
 # mix is scrap composition, not solar: mostly Al/Fe hulls, Ti struts,
@@ -120,8 +121,8 @@ func _update_comets(delta: float) -> void:
 	## view, and quick shooting stars that flash by in under a second.
 	_comet_timer -= delta
 	if _comet_timer <= 0.0:
-		var shooting := randf() < 0.55
-		_comet_timer = randf_range(4.0, 9.0) if shooting else randf_range(11.0, 22.0)
+		var shooting := randf() < 0.6
+		_comet_timer = randf_range(1.8, 4.5) if shooting else randf_range(6.0, 13.0)
 		var a := randf() * TAU
 		var start: Vector2 = ship_pos + Vector2.from_angle(a) * 860.0
 		var across := (ship_pos - start).normalized().rotated(randf_range(-0.7, 0.7))
@@ -306,6 +307,14 @@ func _build_hud() -> void:
 	radar.set_anchors_and_offsets_preset(
 		Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_MINSIZE, 18)
 
+	# quest log, tucked under the radar
+	var qlog := QUEST_LOG.new()
+	root.add_child(qlog)
+	qlog.set_anchors_and_offsets_preset(
+		Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_MINSIZE, 18)
+	qlog.offset_top += 214.0
+	qlog.offset_bottom += 214.0
+
 	var nav := PanelContainer.new()
 	nav.position = Vector2(18, 18)
 	nav.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -476,10 +485,36 @@ func _draw_nebulae(center: Vector2, half: Vector2) -> void:
 ## so far layers crawl and near layers sweep past — cheap, convincing 3D.
 const STAR_LAYERS := [
 	# [depth, count/chunk, size lo, size hi, alpha, tint]
-	[0.25, 62, 0.4, 1.0, 0.45, Color(0.75, 0.85, 1.0)],
-	[0.55, 38, 0.8, 1.7, 0.7, Color(0.9, 0.95, 1.0)],
-	[1.0, 20, 1.2, 2.6, 1.0, Color(1.0, 1.0, 1.0)],
+	[0.12, 80, 0.3, 0.8, 0.32, Color(0.7, 0.78, 1.0)],   # far dust
+	[0.25, 55, 0.4, 1.0, 0.5, Color(0.75, 0.85, 1.0)],
+	[0.55, 34, 0.8, 1.7, 0.72, Color(0.9, 0.95, 1.0)],
+	[1.0, 18, 1.2, 2.6, 1.0, Color(1.0, 1.0, 1.0)],
 ]
+
+# star patterns cached per (chunk, layer) — never regenerate RNGs per frame
+var _star_cache := {}
+
+
+func _star_chunk(cx: int, cy: int, li: int) -> Array:
+	## The star PATTERN for a chunk+layer, generated once and cached — no
+	## per-frame RNG churn. Each entry: [local_offset, size, alpha, glint].
+	var key := Vector3i(cx, cy, li)
+	if _star_cache.has(key):
+		return _star_cache[key]
+	if _star_cache.size() > 3000:
+		_star_cache.clear()
+	var layer: Array = STAR_LAYERS[li]
+	var rng := RandomNumberGenerator.new()
+	rng.seed = _chunk_seed(cx, cy, 20 + li)
+	var out: Array = []
+	var near := li == STAR_LAYERS.size() - 1
+	for i in int(layer[1]):
+		out.append([Vector2(rng.randf(), rng.randf()) * STAR_CHUNK,
+			rng.randf_range(layer[2], layer[3]),
+			rng.randf_range(0.3, 0.9) * float(layer[4]),
+			near and rng.randf() < 0.08])
+	_star_cache[key] = out
+	return out
 
 
 func _draw_stars(center: Vector2, half: Vector2) -> void:
@@ -488,23 +523,16 @@ func _draw_stars(center: Vector2, half: Vector2) -> void:
 		var depth: float = layer[0]
 		var shift := center * (1.0 - depth)          # parallax offset
 		var vc := center - shift                     # pattern-space view center
+		var tint: Color = layer[5]
 		for cy in range(floori((vc.y - half.y) / STAR_CHUNK), floori((vc.y + half.y) / STAR_CHUNK) + 1):
 			for cx in range(floori((vc.x - half.x) / STAR_CHUNK), floori((vc.x + half.x) / STAR_CHUNK) + 1):
-				var rng := RandomNumberGenerator.new()
-				rng.seed = _chunk_seed(cx, cy, 20 + li)
-				for i in int(layer[1]):
-					var p := Vector2(cx, cy) * STAR_CHUNK \
-						+ Vector2(rng.randf(), rng.randf()) * STAR_CHUNK + shift
-					var size := rng.randf_range(layer[2], layer[3])
-					var tint: Color = layer[5]
-					draw_circle(p, size, Color(tint.r, tint.g, tint.b,
-						rng.randf_range(0.3, 0.9) * float(layer[4])))
-					# the near layer gets occasional bright glint stars
-					if li == 2 and rng.randf() < 0.08:
-						draw_line(p + Vector2(-4, 0), p + Vector2(4, 0),
-							Color(1, 1, 1, 0.35), 1.0)
-						draw_line(p + Vector2(0, -4), p + Vector2(0, 4),
-							Color(1, 1, 1, 0.35), 1.0)
+				var origin := Vector2(cx, cy) * STAR_CHUNK + shift
+				for st in _star_chunk(cx, cy, li):
+					var p: Vector2 = origin + st[0]
+					draw_circle(p, st[1], Color(tint.r, tint.g, tint.b, st[2]))
+					if st[3]:
+						draw_line(p + Vector2(-4, 0), p + Vector2(4, 0), Color(1, 1, 1, 0.35), 1.0)
+						draw_line(p + Vector2(0, -4), p + Vector2(0, 4), Color(1, 1, 1, 0.35), 1.0)
 
 
 func _draw_fields(center: Vector2, half: Vector2) -> void:

@@ -59,12 +59,23 @@ func _on_body_entered(body: Node) -> void:
 const IRON_TEX := preload("res://assets/sprites/iron.png")
 const CRYSTAL_TEX := preload("res://assets/sprites/crystal.png")
 
+const CHUNK_PX := 22.0   # drawn diameter of a floating chunk
+
 
 func _draw() -> void:
-	# glow and tint in the vein element's own color
-	var col := Elements.hue_of(element) if element != "" \
+	# a broken-off chunk is a MINIATURE of the element it came from — same
+	# art, same colour as the rock it was cut out of.
+	var icon: Texture2D = Elements.icon_for(element) if element != "" else null
+	if icon != null:
+		var sz := icon.get_size()
+		var s := CHUNK_PX / maxf(sz.x, sz.y)
+		draw_set_transform(-sz * 0.5 * s, 0.0, Vector2(s, s))
+		draw_texture(icon, Vector2.ZERO)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		return
+	# fallback: tinted placeholder chunk in the element's CPK colour
+	var col := Elements.cpk_color(element) if element != "" \
 		else (Color(0.4, 0.95, 1.0) if rich else Color(1.0, 0.72, 0.25))
-	draw_circle(Vector2.ZERO, 9.0, Color(col.r, col.g, col.b, 0.22))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2(2.0, 2.0))
 	draw_texture(CRYSTAL_TEX if rich else IRON_TEX, Vector2(-4.0, -4.0),
 		Color(col.r * 1.1 + 0.25, col.g * 1.1 + 0.25, col.b * 1.1 + 0.25))

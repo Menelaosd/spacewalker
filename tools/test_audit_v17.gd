@@ -89,20 +89,13 @@ func _init() -> void:
 	var t0: Dictionary = gs.trader_stock[0]
 	ok(int(t0["price"]) == gs.price_of(str(t0["sym"])) * 2, "Vesna still charges 2x")
 
-	# --- all 13 sounds synthesized, loops looped ---
+	# --- sound removed: the Sfx stub must exist and be safely callable ---
 	var sfx = root.get_node("/root/Sfx")
-	var names := ["laser", "thrust", "klaxon", "pickup", "bank", "upgrade",
-		"deny", "thud", "clack", "o2low", "hiss", "step", "radio"]
-	var built := true
-	for n in names:
-		if not sfx._s.has(n):
-			built = false
-			print("  missing sound: " + n)
-	ok(built, "all 13 sounds synthesized")
-	ok(sfx._s["laser"].loop_mode == AudioStreamWAV.LOOP_FORWARD \
-		and sfx._s["thrust"].loop_mode == AudioStreamWAV.LOOP_FORWARD \
-		and sfx._s["klaxon"].loop_mode == AudioStreamWAV.LOOP_FORWARD,
-		"loops loop")
+	sfx.play("nope")
+	sfx.laser_on(true)
+	sfx.thrust_on(true)
+	sfx.stop_loops()
+	ok(sfx != null, "Sfx stub present and callable (audio removed)")
 
 	gs.delete_save(2)
 	print("---- %s ----" % ("ALL PASS" if fails == 0 else "%d FAILURES" % fails))

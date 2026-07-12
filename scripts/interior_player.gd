@@ -26,6 +26,7 @@ var walk_check: Callable   # set by the interior — cell-based walkability
 var facing := Vector2.DOWN
 var _step := 0.0
 var _moving := false
+var _breath := 0.0
 
 
 func _ready() -> void:
@@ -51,6 +52,7 @@ func _process(delta: float) -> void:
 			position.x = clampf(position.x, bounds.position.x, bounds.end.x)
 			position.y = clampf(position.y, bounds.position.y, bounds.end.y)
 	_moving = input.length() > 0.1
+	_breath += delta
 	if _moving:
 		facing = input.normalized()
 		var beat_was := int(_step) % 2
@@ -97,8 +99,31 @@ func _draw() -> void:
 	# ONE scale for everything, from the idle frame — otherwise the taller
 	# synthesized stride frames make the whole body shrink mid-step
 	var s := TARGET_H / F_FRONT.get_size().y
-	var bob := (absf(sin(_step * PI)) * -1.8) if _moving else 0.0
-	draw_set_transform(Vector2(0, bob), 0.0, Vector2(-s if f["flip"] else s, s))
-	# anchor the HEAD, not the center: taller frames extend downward only
-	draw_texture(tex, Vector2(-tex.get_size().x * 0.5, -F_FRONT.get_size().y * 0.5))
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	var sx := -s if f["flip"] else s
+	var head := -F_FRONT.get_size().y * 0.5
+	var tw := tex.get_size().x
+	var th := tex.get_size().y
+	if _moving:
+		# one scale for everything, head-anchored (taller stride frames only
+		# extend downward, so the body never shrinks mid-step)
+		var bob := absf(sin(_step * PI)) * -1.8
+		draw_set_transform(Vector2(0, bob), 0.0, Vector2(sx, s))
+		draw_texture(tex, Vector2(-tw * 0.5, head))
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	else:
+		# idle: ONLY the chest breathes — the middle slice puffs a hair wider;
+		# head and legs hold perfectly still
+		var br := maxf(sin(_breath * 1.6), 0.0)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2(sx, s))
+		_slice(tex, head, tw, th, 0.0, 0.34, 1.0)              # head — still
+		_slice(tex, head, tw, th, 0.34, 0.58, 1.0 + 0.11 * br)  # chest — breathes
+		_slice(tex, head, tw, th, 0.58, 1.0, 1.0)              # legs — still
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+func _slice(tex: Texture2D, head: float, tw: float, th: float,
+		a: float, b: float, w: float) -> void:
+	## Draw a horizontal band of the sprite, its width scaled by w.
+	var src := Rect2(0, th * a, tw, th * (b - a))
+	var dw := tw * w
+	draw_texture_rect_region(tex, Rect2(-dw * 0.5, head + th * a, dw, th * (b - a)), src)

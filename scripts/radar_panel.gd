@@ -139,7 +139,7 @@ func _plot_walk(c: Vector2, pp: Vector2, k: float, sweep: float, flick: float) -
 		var rel: Vector2 = (a.global_position - pp) * k
 		if rel.length() > R - 3.0:
 			continue
-		var col: Color = Elements.hue_of(a.vein) if a.vein != "" else acc
+		var col: Color = Elements.cpk_color(a.vein) if a.vein != "" else acc
 		var al := _blip_alpha(rel.angle(), sweep) * flick
 		var bp := c + rel
 		if a.is_rich:
@@ -183,9 +183,12 @@ func _plot_flight(c: Vector2, sp: Vector2, k: float, sweep: float, flick: float)
 		var rel := (GameState.nebula_center(i) - sp) * k
 		var nr: float = GameState.nebula_radius(i) * k
 		if rel.length() - nr < R - 4.0:
-			var pos := c + rel.limit_length(R - 4.0)
-			draw_circle(pos, minf(nr, R * 0.85), Color(ncol.r, ncol.g, ncol.b, 0.14 * flick))
-			draw_circle(pos, minf(nr, R * 0.85) * 0.5, Color(ncol.r, ncol.g, ncol.b, 0.12 * flick))
+			var pos := c + rel.limit_length(R - 6.0)
+			# clamp the blob so it never spills past the disc edge
+			var inside := R - c.distance_to(pos) - 2.0
+			var br := clampf(minf(nr, R * 0.6), 2.5, maxf(inside, 2.5))
+			draw_circle(pos, br, Color(ncol.r, ncol.g, ncol.b, 0.16 * flick))
+			draw_circle(pos, br * 0.5, Color(ncol.r, ncol.g, ncol.b, 0.13 * flick))
 		else:
 			var dir := rel.normalized()
 			draw_line(c + dir * (R - 6.0), c + dir * (R - 1.0),

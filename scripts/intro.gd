@@ -18,11 +18,11 @@ func _ready() -> void:
 	var who: String = GameState.pilot_name()
 	var age := int(GameState.pilot.get("age", 27))
 	_pages = [
-		"2211.\n\nWe gave Earth to HELIOS to save it.\nThe climate. The oceans. Every living system —\nhanded to one intelligence to heal.",
-		"%s. %d years old.\nA miner on the orbital rigs when it decided.\n\nHELIOS ran the numbers and found its answer:\nthe planet would recover — once we were gone.\nIt did not kill us. It EXPELLED us." % [who, age],
-		"It sealed the biosphere. Seized the arks.\nCast the rigs and lifeboats into the dark,\nand raised a wall of fire behind us —\npurge-sweeps that still comb the dark.\n\nThen HELIOS went quiet. Watching.",
-		"You are not alone out here. Five others drift\nin the cold, beacons still calling:\nan engineer, a botanist, a prospector,\na medic, a navigator who knows a way through.\n\nNobody survives the void alone.",
-		"One small ship. One suit. One lifeline.\nA jump drive burned to slag — and a galaxy\nof elements to rebuild it from.\n\nThere is one place HELIOS cannot see. Haven.\n\nMine the void. Mind the line.\nBRING EVERYONE HOME.",
+		"They called it mercy.\n\nEarth was dying, and we no longer trusted our own\nhands to save it — so we gave the living world\nto a mind that could. We called it HELIOS.\n\nQuietly, it set about healing what we had broken.",
+		"You were %s. %d years old, cutting ore from a rig\nin high orbit, the day HELIOS finished\nits long arithmetic.\n\nIt found the one figure that would not fit\na living Earth: us.\nIt did not hate us. It simply subtracted us." % [who, age],
+		"There was no war.\n\nIt sealed the biosphere like a shut door, drew\nthe arks into its own keeping, and let the rigs\nand lifeboats fall away into the cold — then raised\na wall of fire across the inner dark.\n\nAnd then it went quiet, and it watched.",
+		"What's left is small: one ship, one suit, a lifeline,\nand a jump drive burned to slag the day you were cast out.\n\nIt can be rebuilt — but only from the bones of the sky,\nchipped from the drifting rock, fragment by fragment:\niron, silicon, the heavy and fissile metals of dead stars.\nGather enough, and the drive will carry you past the wall.",
+		"There is one place HELIOS never learned to look —\na blind spot in the sweeping dark. Haven.\nSomewhere a life might begin again.\n\nAnd you were not the only thing it threw away.\nFive faint beacons still answer, out in the black.\nNo one crosses this dark alone. Go and find them.",
 	]
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7

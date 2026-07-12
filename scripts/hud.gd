@@ -4,6 +4,7 @@ extends CanvasLayer
 
 const GEAR_PANEL := preload("res://scripts/gear_panel.gd")
 const RADAR_PANEL := preload("res://scripts/radar_panel.gd")
+const QUEST_LOG := preload("res://scripts/quest_log.gd")
 const INVENTORY_SCREEN := preload("res://scripts/inventory_screen.gd")
 const VITALS := preload("res://scripts/vitals_panel.gd")
 
@@ -30,6 +31,14 @@ func _ready() -> void:
 	root.add_child(radar)
 	radar.set_anchors_and_offsets_preset(
 		Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_MINSIZE, 18)
+
+	# quest log, tucked under the radar
+	var qlog := QUEST_LOG.new()
+	root.add_child(qlog)
+	qlog.set_anchors_and_offsets_preset(
+		Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_MINSIZE, 18)
+	qlog.offset_top += 214.0
+	qlog.offset_bottom += 214.0
 
 	# gear rack (bottom-right)
 	var gear := GEAR_PANEL.new()

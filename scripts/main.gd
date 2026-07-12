@@ -139,7 +139,7 @@ func _update_streaks(delta: float) -> void:
 	## Shooting stars — a flick of light every so often keeps the sky alive.
 	_streak_timer -= delta
 	if _streak_timer <= 0.0 and player != null:
-		_streak_timer = randf_range(5.0, 13.0)
+		_streak_timer = randf_range(2.5, 7.0)
 		var a := randf() * TAU
 		var start: Vector2 = player.global_position + Vector2.from_angle(a) * 780.0
 		_streaks.append({
@@ -234,14 +234,38 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_tree().change_scene_to_file("res://scenes/ship_interior.tscn")
 
 
+func _draw_bg_nebulae() -> void:
+	## Faint distant colour hangs in the black, biased toward whichever
+	## clouds are nearest our parked sector — so the dive never feels empty.
+	var cam := player.global_position if player != null else Vector2.ZERO
+	var order: Array = []
+	for i in GameState.NEBULAE.size():
+		order.append([GameState.nebula_center(i).distance_to(GameState.sector), i])
+	order.sort_custom(func(a, b): return a[0] < b[0])
+	for n in mini(4, order.size()):
+		var i: int = order[n][1]
+		var col: Color = GameState.NEBULAE[i]["color"]
+		var dir := GameState.nebula_center(i) - GameState.sector
+		dir = dir.normalized() if dir.length() > 1.0 else Vector2.from_angle(float(i))
+		var drift := Vector2(sin(_t * 0.05 + float(i)) * 30.0, cos(_t * 0.04 + float(i)) * 26.0)
+		var pos := cam + dir * (260.0 + n * 95.0) + drift
+		# fractal fog, not flat circles — faint, slowly turning
+		var tex := NebulaFog.texture_for(i)
+		var half := Vector2(NebulaFog.SIZE, NebulaFog.SIZE) * 0.5
+		var sc := (1050.0 - n * 90.0) / float(NebulaFog.SIZE)
+		draw_set_transform(pos, float(i) * 0.7 + _t * 0.008, Vector2(sc, sc))
+		draw_texture(tex, -half, Color(col.r, col.g, col.b, 0.13))
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
 func _make_stars() -> void:
 	## Four parallax depth layers, properly dense — the pattern square is
 	## 5200px wide and the view sees ~4% of it, so counts must be big.
 	## Off-screen stars are culled at draw time. [pos, size, alpha, depth]
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 1337
-	for layer in [[0.12, 900, 0.3, 0.7, 0.3], [0.25, 1300, 0.4, 1.0, 0.4],
-			[0.55, 800, 0.8, 1.7, 0.65], [1.0, 500, 1.2, 2.6, 1.0]]:
+	for layer in [[0.12, 1000, 0.3, 0.7, 0.32], [0.25, 1350, 0.4, 1.0, 0.42],
+			[0.55, 850, 0.8, 1.7, 0.68], [1.0, 520, 1.2, 2.6, 1.0]]:
 		for i in int(layer[1]):
 			_stars.append([
 				Vector2(rng.randf_range(-2600, 2600), rng.randf_range(-2600, 2600)),
@@ -263,15 +287,23 @@ func _spawn_asteroids() -> void:
 	var base_tint := Color(0.42, 0.4, 0.38)
 	if region["tint"] != null:
 		base_tint = base_tint.lerp(region["tint"], 0.35)
+	# deterministic per dive site: revisiting shows the SAME field, and rocks
+	# you've mined (tracked in GameState.mined) stay gone
+	var sx := int(round(GameState.sector.x))
+	var sy := int(round(GameState.sector.y))
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(Vector2i(sx, sy))
 	var placed: Array = []
 	var tries := 0
+	var idx := 0
 	while placed.size() < count and tries < 800:
 		tries += 1
-		var ang := randf() * TAU
+		var ang := rng.randf() * TAU
 		# some asteroids sit past the tether limit — upgrade bait
-		var dist := randf_range(280.0, GameState.tether_length + 320.0)
+		var dist := rng.randf_range(280.0, GameState.tether_length + 320.0)
 		var pos := Vector2.from_angle(ang) * dist
-		var r := randf_range(18.0, 40.0) * size_mult
+		var r := rng.randf_range(18.0, 40.0) * size_mult
+		var rich := rng.randf() < rich_chance
 		var ok := true
 		for p in placed:
 			if pos.distance_to(p[0]) < (r + p[1] + 60.0):
@@ -280,13 +312,19 @@ func _spawn_asteroids() -> void:
 		if not ok:
 			continue
 		placed.append([pos, r])
+		var key := "%d:%d:%d" % [sx, sy, idx]
+		idx += 1
+		if GameState.mined.has(key):
+			continue   # already mined out — don't respawn it
 		var a := ASTEROID_SCENE.instantiate()
-		a.setup(r, randf() < rich_chance, base_tint)
+		a.setup(r, rich, base_tint)
 		a.position = pos
+		a.mine_key = key
 		add_child(a)
 
 
 func _draw() -> void:
+	_draw_bg_nebulae()
 	# nebula fog when parked inside one — the dive site belongs to a place
 	var neb := GameState.nebula_index_at(GameState.sector)
 	if neb >= 0:

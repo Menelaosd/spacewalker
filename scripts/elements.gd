@@ -156,6 +156,57 @@ static func hue_of(sym: String) -> Color:
 	return Color.from_hsv(fmod(float(z) * 0.618034, 1.0), 0.62, 0.95)
 
 
+## CPK / Jmol standard atom colours — the reference palette chemistry uses
+## for elements (source: Jmol). The mineable molecules are drawn in these.
+const CPK := {
+	"H": Color8(255, 255, 255), "He": Color8(217, 255, 255), "Li": Color8(204, 128, 255),
+	"Be": Color8(194, 255, 0), "B": Color8(255, 181, 181), "C": Color8(144, 144, 144),
+	"N": Color8(48, 80, 248), "O": Color8(255, 13, 13), "F": Color8(144, 224, 80),
+	"Ne": Color8(179, 227, 245), "Na": Color8(171, 92, 242), "Mg": Color8(138, 255, 0),
+	"Al": Color8(191, 166, 166), "Si": Color8(240, 200, 160), "P": Color8(255, 128, 0),
+	"S": Color8(255, 255, 48), "Cl": Color8(31, 240, 31), "Ar": Color8(128, 209, 227),
+	"K": Color8(143, 64, 212), "Ca": Color8(61, 255, 0), "Sc": Color8(230, 230, 230),
+	"Ti": Color8(191, 194, 199), "V": Color8(166, 166, 171), "Cr": Color8(138, 153, 199),
+	"Mn": Color8(156, 122, 199), "Fe": Color8(224, 102, 51), "Co": Color8(240, 144, 160),
+	"Ni": Color8(80, 208, 80), "Cu": Color8(200, 128, 51), "Zn": Color8(125, 128, 176),
+	"Ga": Color8(194, 143, 143), "Ge": Color8(102, 143, 143), "As": Color8(189, 128, 227),
+	"Se": Color8(255, 161, 0), "Br": Color8(166, 41, 41), "Kr": Color8(92, 184, 209),
+	"Rb": Color8(112, 46, 176), "Sr": Color8(0, 255, 0), "Y": Color8(148, 255, 255),
+	"Zr": Color8(148, 224, 224), "Nb": Color8(115, 194, 201), "Mo": Color8(84, 181, 181),
+	"Ru": Color8(36, 143, 143), "Rh": Color8(10, 125, 140), "Pd": Color8(0, 105, 133),
+	"Ag": Color8(192, 192, 192), "Cd": Color8(255, 217, 143), "Sn": Color8(102, 128, 128),
+	"Sb": Color8(158, 99, 181), "Te": Color8(212, 122, 0), "I": Color8(148, 0, 148),
+	"Xe": Color8(66, 158, 176), "Cs": Color8(87, 23, 143), "Ba": Color8(0, 201, 0),
+	"La": Color8(112, 212, 255), "Ce": Color8(255, 255, 199), "W": Color8(33, 148, 214),
+	"Pt": Color8(208, 208, 224), "Au": Color8(255, 209, 35), "Hg": Color8(184, 184, 208),
+	"Pb": Color8(87, 89, 97), "Th": Color8(0, 186, 255), "U": Color8(0, 143, 255),
+}
+
+
+static func cpk_color(sym: String) -> Color:
+	return CPK.get(sym, Color8(230, 130, 180))   # lanthanide fallback: soft magenta
+
+
+## Per-element pixel-art icons (game-assets, sliced by tools/extract_elements.gd
+## into assets/sprites/elements/z<atomic number>.png). Loaded lazily from the
+## raw PNG and cached, so it works the same in editor, export and headless.
+static var _icon_cache := {}
+
+
+static func icon_for(sym: String) -> Texture2D:
+	var z := z_of(sym)
+	if _icon_cache.has(z):
+		return _icon_cache[z]
+	var tex: Texture2D = null
+	var abs := ProjectSettings.globalize_path("res://assets/sprites/elements/z%d.png" % z)
+	if FileAccess.file_exists(abs):
+		var img := Image.load_from_file(abs)
+		if img != null:
+			tex = ImageTexture.create_from_image(img)
+	_icon_cache[z] = tex   # cache misses too, so we only probe the disk once
+	return tex
+
+
 static func _sample(fractions: Dictionary) -> String:
 	## Weighted random element — real abundance IS the drop table.
 	var roll := randf()
