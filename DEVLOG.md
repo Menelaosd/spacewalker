@@ -5,6 +5,59 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 12/07/2026 — v1.20: economy de-RNG, quest prose, rename discoverable
+
+- **Trader economy fix (game_state.roll_trader).** U and Th are the ONLY
+  source of the two fissiles the final drive part needs. They're now
+  GUARANTEED in Vesna's stock every shift once rep ≥ 10 (until you own each),
+  so completion can't stall on trader RNG (validated: 20/20 shifts, stock
+  still capped at the 3 buy-slots). New "master broker" at rep ≥ 12: her pool
+  opens to ALL 83 abundance elements, so the rare ones become buyable — the
+  collection endgame no longer depends on a lucky crystal roll (validated:
+  83/83 offered within 300 shifts).
+- **Main-quest prose.** Each drive part gained a `flavor` line ("The drive's
+  veins. Until they run, no fire can move through her.") shown in the quest
+  log under the part name, and the install `log` lines were rewritten with
+  more warmth and weight.
+- **Room rename discoverable + clearer.** The bare text field is now a titled
+  RENAME ROOM panel (pre-filled name, Enter/Esc hints), and the top room label
+  shows "R  rename" whenever you're standing in a built room.
+
+Estimates (model, not playtested): a normal main-story completion is ~8–12 h,
+about half of it the reputation/trade endgame for the precious + fissile
+metals. Full 103-element collection is 100% achievable (nothing is
+uncollectible now) but a long completionist grind — the 20 wreck-only
+synthetics (~6% drop) are the main time sink.
+
+## 12/07/2026 — v1.19: full 103-element set, trivia cards, tighter UI
+
+- **All 103 elements, collectible.** The inventory now shows the complete
+  periodic run 1–103 (`Elements.full_table()` + `NONABUNDANT` for the 20 with
+  no natural abundance). Every card shows its atomic number, so the ordering
+  is obvious and there are no gaps. The 83 real-abundance elements are
+  craftable as before; the 20 synthetics are a "find them all" side-hunt —
+  collectible only, dropped rarely (6%) from wreck salvage (reactor-core
+  leftovers), never used in crafting/quest/gear. Discovery gauge is now X/103.
+- **Click-for-trivia (`element_facts.gd` + inventory detail card).** Clicking
+  any element opens a styled card: big icon over a tinted disc, symbol/name,
+  identity line (Z · category/synthetic · abundance), and a real one-line fact
+  for all 103 elements. Accent matches the element's art colour (`glow_for`).
+- **Elements sourcing** made robust: `icon_for_z()`, symbol lookup now covers
+  all 103 so name/hue work for synthetics; `is_craftable()`/`synthetic_symbols()`.
+- **Smaller UI (round 2).** `UI_SCALE` 0.82→0.70; upgrade modal and inventory
+  trimmed further with smaller fonts; inventory scrollbar moved into a gutter
+  right of the grid (was overlapping the last column); quest-log offsets retuned.
+- **Gear tile "SUIT" → "BAG"** so the ore-bag upgrade reads clearly.
+- **Element sizing in space:** intact node bigger (`ICON_FILL` 1.45→1.6, spawn
+  radius 17–34) and broken fragments much smaller (`CHUNK_PX` 22→13) — a clear
+  whole-rock → small-pieces contrast.
+- **Audit (headless):** all 103 have a real source; win path still completes;
+  no synthetic gates progress; every required element is craftable + farmable.
+
+Note: the game has no hard-coded calendar year (only the pilot's chosen age).
+The crew-card DOBs (2149–2159) fit a setting around ~2185 (Hale ~36 veteran,
+others 25–29). Canonical year + full crew profiles pending the captain's design.
+
 ## 12/07/2026 — v1.18: ore/element split, gear modal, analytical quest log
 
 A progression + UI pass. **Ore and elements are now two different things.**

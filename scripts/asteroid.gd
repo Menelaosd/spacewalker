@@ -7,8 +7,8 @@ extends StaticBody2D
 
 const PICKUP_SCENE := preload("res://scenes/pickup.tscn")
 
-const ICON_FILL := 1.45   # drawn diameter as a multiple of radius (kept modest
-                          # so the sprites don't dwarf the astronaut)
+const ICON_FILL := 1.6    # intact node is a chunky whole rock — clearly bigger
+                          # than the little fragments it shatters into
 
 var radius := 28.0
 var health := 100.0

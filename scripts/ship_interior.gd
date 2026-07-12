@@ -159,6 +159,7 @@ var _prompt_label: Label
 var _msg_label: Label
 var _msg_tween: Tween
 var _upgrade_modal: Control
+var _rename_box: Control
 var _rename_edit: LineEdit
 var _ending_t := 0.0   # > 0 while the going-home sequence plays
 
@@ -364,6 +365,8 @@ func _ready() -> void:
 	if OS.get_environment("SW_MODAL") != "":
 		crew.set_process(false)
 		_upgrade_modal.open(OS.get_environment("SW_MODAL"))
+	if OS.get_environment("SW_RENAME") != "":
+		_open_rename()
 
 
 func _define_stations() -> void:
@@ -487,7 +490,11 @@ func _process(delta: float) -> void:
 		_overlay.queue_redraw()
 		return
 	_update_active_station()
-	_room_label.text = _room_at(crew.position)
+	var rn := _room_at(crew.position)
+	if rn != "—" and not _rename_box.visible \
+			and not (_upgrade_modal != null and _upgrade_modal.visible):
+		rn += "      R  rename"
+	_room_label.text = rn
 	_banked_label.text = "BANKED ORE   %d" % GameState.banked
 	if _active >= 0:
 		_prompt_label.text = _station_label(_stations[_active])
@@ -552,10 +559,10 @@ func _room_at(p: Vector2) -> String:
 func _unhandled_input(event: InputEvent) -> void:
 	if not (event is InputEventKey and event.pressed and not event.echo):
 		return
-	# rename field open: Esc cancels it (Enter submits via the LineEdit)
-	if _rename_edit != null and _rename_edit.visible:
+	# rename box open: Esc cancels it (Enter submits via the LineEdit)
+	if _rename_box != null and _rename_box.visible:
 		if event.physical_keycode == KEY_ESCAPE:
-			_rename_edit.visible = false
+			_rename_box.visible = false
 			_rename_edit.release_focus()
 			crew.set_process(true)
 			get_viewport().set_input_as_handled()
@@ -667,15 +674,33 @@ func _build_hud() -> void:
 	_upgrade_modal.closed.connect(func(): crew.set_process(true))
 	_upgrade_modal.upgraded.connect(_on_upgraded)
 
-	# room-rename field — hidden until you rename at a room's centre
+	# room-rename box — a clear titled panel, hidden until you press R
+	_rename_box = PanelContainer.new()
+	_rename_box.visible = false
+	_rename_box.mouse_filter = Control.MOUSE_FILTER_STOP
+	root.add_child(_rename_box)
+	var rv := VBoxContainer.new()
+	rv.add_theme_constant_override("separation", 8)
+	_rename_box.add_child(rv)
+	var rt := Label.new()
+	rt.text = "RENAME ROOM"
+	rt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	rt.add_theme_font_size_override("font_size", 14)
+	rt.modulate = UITheme.ACCENT
+	rv.add_child(rt)
 	_rename_edit = LineEdit.new()
-	_rename_edit.placeholder_text = "room name…"
+	_rename_edit.placeholder_text = "name this room…"
 	_rename_edit.max_length = 20
-	_rename_edit.custom_minimum_size = Vector2(240, 34)
+	_rename_edit.custom_minimum_size = Vector2(280, 38)
 	_rename_edit.alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_rename_edit.visible = false
-	root.add_child(_rename_edit)
-	_rename_edit.set_anchors_and_offsets_preset(
+	rv.add_child(_rename_edit)
+	var rhint := Label.new()
+	rhint.text = "Enter to save   ·   Esc to cancel"
+	rhint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	rhint.add_theme_font_size_override("font_size", 10)
+	rhint.modulate = Color(1, 1, 1, 0.5)
+	rv.add_child(rhint)
+	_rename_box.set_anchors_and_offsets_preset(
 		Control.PRESET_CENTER, Control.PRESET_MODE_MINSIZE)
 	_rename_edit.text_submitted.connect(_on_rename_submitted)
 
@@ -752,7 +777,7 @@ func _open_rename() -> void:
 		return
 	_rename_edit.set_meta("cell", cell)
 	_rename_edit.text = GameState.room_display_name(cell)
-	_rename_edit.visible = true
+	_rename_box.visible = true
 	_rename_edit.grab_focus()
 	_rename_edit.select_all()
 	crew.set_process(false)
@@ -764,7 +789,7 @@ func _on_rename_submitted(text: String) -> void:
 		GameState.rename_room(cell, text)
 		Sfx.play("bank", -10.0)
 		GameState.say("Room renamed “%s”." % GameState.room_display_name(cell))
-	_rename_edit.visible = false
+	_rename_box.visible = false
 	_rename_edit.release_focus()
 	crew.set_process(true)
 

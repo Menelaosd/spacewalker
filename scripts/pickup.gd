@@ -57,7 +57,7 @@ func _on_body_entered(body: Node) -> void:
 const IRON_TEX := preload("res://assets/sprites/iron.png")
 const CRYSTAL_TEX := preload("res://assets/sprites/crystal.png")
 
-const CHUNK_PX := 22.0   # drawn diameter of a floating chunk
+const CHUNK_PX := 13.0   # small fragment — much smaller than the whole rock
 
 
 func _draw() -> void:

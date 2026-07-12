@@ -41,8 +41,7 @@ const MK := ["I", "II", "III", "IV", "V", "VI"]
 
 
 func _draw() -> void:
-	_draw_tile(0, "SUIT", "MK %s · %d" % [
-		MK[mini(GameState.suit_level, MK.size() - 1)], GameState.carry_max()],
+	_draw_tile(0, "BAG", "%d ore" % GameState.ore_max(),
 		GameState.suit_level, ICON_HELMET)
 	_draw_tile(1, "LINE", "%dm" % int(GameState.tether_length),
 		GameState.tether_level, ICON_LINE)

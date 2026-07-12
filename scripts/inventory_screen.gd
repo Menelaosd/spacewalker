@@ -4,18 +4,19 @@ extends Control
 ## grid of LARGE element cards — symbol, full name, count, capacity bar,
 ## category strip, on-suit badge. Mouse wheel scrolls, hover for details.
 
+const FACTS_DB := preload("res://scripts/element_facts.gd")
 const SUIT_TEX := preload("res://assets/sprites/astronaut.png")
 const ICON_HELMET := preload("res://assets/icons/helmet.svg")
 const ICON_LINE := preload("res://assets/icons/line.svg")
 const ICON_TANK := preload("res://assets/icons/tank.svg")
 const ICON_LASER := preload("res://assets/icons/laser.svg")
 
-const PANEL_W := 1010.0
-const PANEL_H := 576.0
-const LEFT_W := 244.0
+const PANEL_W := 920.0
+const PANEL_H := 512.0
+const LEFT_W := 208.0
 const COLS := 6
-const CARD_W := 116.0
-const CARD_H := 48.0
+const CARD_W := 100.0
+const CARD_H := 44.0
 const CARD_GAP := 5.0
 const VISIBLE_ROWS := 8
 
@@ -24,6 +25,8 @@ var _sorted: Array = []
 var _grid_origin := Vector2.ZERO
 var _scroll := 0
 var _hover := -1
+var _detail := -1
+var _collectible_total := 0
 
 
 func _ready() -> void:
@@ -35,8 +38,17 @@ func _ready() -> void:
 	GameState.inventory_changed.connect(queue_redraw)
 	GameState.cargo_changed.connect(func(_c, _b): queue_redraw())
 	GameState.gear_changed.connect(queue_redraw)
-	_sorted = Elements.TABLE.duplicate()
-	_sorted.sort_custom(func(a, b): return a[2] < b[2])   # atomic number order
+	_sorted = Elements.full_table()   # all 103, atomic-number order
+	for e in _sorted:
+		if e[4]:
+			_collectible_total += 1   # the 83 real-abundance elements
+	# debug: SW_DETAIL=Fe opens that element's trivia card at boot
+	var dbg := OS.get_environment("SW_DETAIL")
+	if dbg != "":
+		for i in _sorted.size():
+			if _sorted[i][0] == dbg:
+				_detail = i
+				break
 
 
 func _max_scroll() -> int:
@@ -66,12 +78,25 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.physical_keycode in [KEY_I, KEY_TAB]:
 			visible = not visible
+			if not visible:
+				_detail = -1
 			get_viewport().set_input_as_handled()
 		elif event.physical_keycode == KEY_ESCAPE and visible:
-			visible = false
+			if _detail >= 0:
+				_detail = -1          # close the trivia card first
+			else:
+				visible = false
 			get_viewport().set_input_as_handled()
+			queue_redraw()
 	elif visible and event is InputEventMouseButton and event.pressed:
-		if event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+		if event.button_index == MOUSE_BUTTON_LEFT:
+			if _detail >= 0:
+				_detail = -1          # click anywhere dismisses the trivia card
+			elif _hover >= 0:
+				_detail = _hover      # open trivia for the hovered element
+			get_viewport().set_input_as_handled()
+			queue_redraw()
+		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 			_scroll = mini(_scroll + 1, _max_scroll())
 			get_viewport().set_input_as_handled()
 			queue_redraw()
@@ -91,6 +116,63 @@ func _draw() -> void:
 	_draw_suit_column(Rect2(panel.position + Vector2(20, 28), Vector2(LEFT_W, PANEL_H - 48)))
 	_draw_elements_area(Rect2(panel.position + Vector2(LEFT_W + 40, 28),
 		Vector2(PANEL_W - LEFT_W - 60, PANEL_H - 48)))
+	if _detail >= 0 and _detail < _sorted.size():
+		_draw_detail(vp, _sorted[_detail])
+
+
+func _draw_detail(vp: Vector2, e: Array) -> void:
+	## A beautiful trivia card for the clicked element — icon, identity, and
+	## a real-world fact. Dims the inventory behind it.
+	draw_rect(Rect2(Vector2.ZERO, vp), Color(0.0, 0.02, 0.05, 0.55))
+	var craftable: bool = e[4]
+	var sym: String = e[0]
+	var acc: Color = Elements.glow_for(sym)   # match the element's real art colour
+	var pw := 500.0
+	var ph := 260.0
+	var p := Rect2((vp.x - pw) * 0.5, (vp.y - ph) * 0.5, pw, ph)
+	UITheme.draw_sci_panel(self, p, acc)
+
+	# big icon on the left, over a soft tinted disc
+	var icx := p.position.x + 92.0
+	var icy := p.position.y + ph * 0.44
+	draw_circle(Vector2(icx, icy), 66.0, Color(acc.r, acc.g, acc.b, 0.10))
+	var icon := Elements.icon_for_z(e[2])
+	if icon != null:
+		var isz := icon.get_size()
+		var s := 116.0 / maxf(isz.x, isz.y)
+		var dsz := isz * s
+		draw_texture_rect(icon, Rect2(Vector2(icx - dsz.x * 0.5, icy - dsz.y * 0.5), dsz), false)
+
+	var tx := p.position.x + 176.0
+	var ty := p.position.y + 40.0
+	# symbol + name
+	draw_string(_font, Vector2(tx, ty), sym, HORIZONTAL_ALIGNMENT_LEFT, -1, 34, acc)
+	draw_string(_font, Vector2(tx + 74, ty), str(e[1]),
+		HORIZONTAL_ALIGNMENT_LEFT, pw - 250, 18, UITheme.TEXT)
+	# identity line
+	var ident := "Atomic no. %d   ·   %s" % [e[2],
+		"SYNTHETIC · collection only" if not craftable else Elements.category(sym).to_upper()]
+	if craftable:
+		ident += "   ·   abundance %s%%" % String.num_scientific(e[3])
+	draw_string(_font, Vector2(tx, ty + 22), ident,
+		HORIZONTAL_ALIGNMENT_LEFT, pw - 184, 10,
+		Color(0.85, 0.45, 0.85) if not craftable else UITheme.TEXT_DIM)
+	draw_line(Vector2(tx, ty + 32), Vector2(p.end.x - 24, ty + 32),
+		Color(acc.r, acc.g, acc.b, 0.3), 1.0)
+	# the trivia, wrapped
+	draw_multiline_string(_font, Vector2(tx, ty + 56), FACTS_DB.fact(sym),
+		HORIZONTAL_ALIGNMENT_LEFT, pw - 200, 14, -1, UITheme.TEXT)
+	# footer
+	var status := ""
+	if craftable:
+		status = "STORED %d   ·   %s" % [int(GameState.elements.get(sym, 0)),
+			"DISCOVERED" if GameState.discovered.has(sym) else "NOT YET FOUND"]
+	else:
+		status = "FOUND — reactor salvage" if GameState.discovered.has(sym) else "NOT YET FOUND — salvage old wrecks"
+	draw_string(_font, Vector2(tx, p.end.y - 34), status,
+		HORIZONTAL_ALIGNMENT_LEFT, pw - 200, 11, Color(acc.r, acc.g, acc.b, 0.8))
+	draw_string(_font, Vector2(p.position.x, p.end.y - 16),
+		"click anywhere / Esc to close", HORIZONTAL_ALIGNMENT_CENTER, pw, 10, UITheme.TEXT_DIM)
 
 
 # ------------------------------------------------------------------
@@ -127,7 +209,7 @@ func _draw_suit_column(rect: Rect2) -> void:
 	# discovery gauge
 	var owned := GameState.discovered.size()
 	UITheme.draw_ring_gauge(self, Vector2(cx - 54, y + 54), 30.0,
-		float(owned) / float(_sorted.size()), UITheme.ACCENT, _font)
+		float(owned) / float(maxi(_sorted.size(), 1)), UITheme.ACCENT, _font)
 	draw_string(_font, Vector2(cx - 14, y + 46), "%d / %d" % [owned, _sorted.size()],
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 15, UITheme.TEXT)
 	draw_string(_font, Vector2(cx - 14, y + 62), "ELEMENTS",
@@ -161,8 +243,8 @@ func _draw_elements_area(rect: Rect2) -> void:
 		var p := _grid_origin + Vector2(col * (CARD_W + CARD_GAP), row * (CARD_H + CARD_GAP))
 		_draw_card(e, Rect2(p, Vector2(CARD_W, CARD_H)), i == _hover)
 
-	# scrollbar
-	var track := Rect2(rect.end.x - 5.0, _grid_origin.y,
+	# scrollbar — in the gutter just RIGHT of the last card column
+	var track := Rect2(_grid_origin.x + COLS * (CARD_W + CARD_GAP) + 6.0, _grid_origin.y,
 		4.0, VISIBLE_ROWS * (CARD_H + CARD_GAP) - CARD_GAP)
 	draw_rect(track, Color(1, 1, 1, 0.06))
 	var total_rows := ceilf(float(_sorted.size()) / COLS)
@@ -176,15 +258,24 @@ func _draw_elements_area(rect: Rect2) -> void:
 	var fy := rect.end.y - 30.0
 	if _hover >= 0:
 		var he: Array = _sorted[_hover]
-		var hcol: Color = Elements.hue_of(he[0])
-		draw_circle(Vector2(rect.position.x + 8, fy + 6), 5.0, hcol)
-		var status := "DISCOVERED" if GameState.discovered.has(he[0]) else "NOT YET FOUND"
-		draw_string(_font, Vector2(rect.position.x + 20, fy + 11),
-			"%s — %s   ·   Z %d   ·   %s   ·   stored %d / %d   ·   abundance %s%%   ·   %s" % [
-				he[0], he[1], he[2], Elements.category(he[0]).to_upper(),
-				int(GameState.elements.get(he[0], 0)), GameState.ELEMENT_CAP,
-				String.num_scientific(he[3]), status],
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 11, UITheme.TEXT)
+		if not he[4]:
+			# synthetic — collectible for the set, but no natural abundance
+			var syn_have := GameState.discovered.has(he[0])
+			draw_circle(Vector2(rect.position.x + 8, fy + 6), 5.0, Color(0.85, 0.4, 0.85))
+			draw_string(_font, Vector2(rect.position.x + 20, fy + 11),
+				"%s — %s   ·   Z %d   ·   SYNTHETIC — salvaged from old reactor cores, collection only (not craftable)   ·   %s   ·   click for trivia" % [
+					he[0], he[1], he[2], "FOUND" if syn_have else "NOT YET FOUND"],
+				HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.82, 0.7, 0.86))
+		else:
+			var hcol: Color = Elements.hue_of(he[0])
+			draw_circle(Vector2(rect.position.x + 8, fy + 6), 5.0, hcol)
+			var status := "DISCOVERED" if GameState.discovered.has(he[0]) else "NOT YET FOUND"
+			draw_string(_font, Vector2(rect.position.x + 20, fy + 11),
+				"%s — %s   ·   Z %d   ·   %s   ·   stored %d / %d   ·   abundance %s%%   ·   %s   ·   click for trivia" % [
+					he[0], he[1], he[2], Elements.category(he[0]).to_upper(),
+					int(GameState.elements.get(he[0], 0)), GameState.ELEMENT_CAP,
+					String.num_scientific(he[3]), status],
+				HORIZONTAL_ALIGNMENT_LEFT, -1, 11, UITheme.TEXT)
 	else:
 		draw_string(_font, Vector2(rect.position.x + 8, fy + 11),
 			"hover a card for details · mouse wheel to scroll · Esc to close",
@@ -193,9 +284,13 @@ func _draw_elements_area(rect: Rect2) -> void:
 
 func _draw_card(e: Array, r: Rect2, hovered: bool) -> void:
 	var sym: String = e[0]
+	var z: int = e[2]
+	var craftable: bool = e[4]        # 83 abundance elements; else synthetic
 	var amount: int = int(GameState.elements.get(sym, 0))
 	var have: bool = GameState.discovered.has(sym)
 	var ecol: Color = Elements.hue_of(sym)
+	# synthetics are collection-only — a distinct magenta accent
+	var strip: Color = Color(0.85, 0.35, 0.85) if not craftable else Elements.color_of(sym)
 
 	var bg := Color(0.0, 0.0, 0.0, 0.35)
 	var border := Color(1, 1, 1, 0.08)
@@ -212,13 +307,12 @@ func _draw_card(e: Array, r: Rect2, hovered: bool) -> void:
 	sb.set_corner_radius_all(5)
 	sb.draw(get_canvas_item(), r)
 
-	# category strip down the left edge
+	# accent strip down the left edge (magenta = synthetic/collection-only)
 	draw_rect(Rect2(r.position + Vector2(1, 6), Vector2(3, r.size.y - 12)),
-		Color(Elements.color_of(sym).r, Elements.color_of(sym).g,
-			Elements.color_of(sym).b, 0.9 if have else 0.25))
+		Color(strip.r, strip.g, strip.b, 0.9 if have else 0.25))
 
-	# element icon — the same pixel-art chunk you mine in space
-	var icon: Texture2D = Elements.icon_for(sym)
+	# element icon — full colour when discovered, dim until then
+	var icon: Texture2D = Elements.icon_for_z(z)
 	var text_x := 10.0
 	if icon != null:
 		var box := 34.0
@@ -231,14 +325,20 @@ func _draw_card(e: Array, r: Rect2, hovered: bool) -> void:
 			Color(1, 1, 1, 1) if have else Color(0.5, 0.5, 0.55, 0.28))
 		text_x = 44.0
 
+	# atomic number top-right — makes the periodic ordering obvious
+	draw_string(_font, r.position + Vector2(0, 12), str(z),
+		HORIZONTAL_ALIGNMENT_RIGHT, r.size.x - 7, 9,
+		Color(0.55, 0.9, 1.0, 0.55 if have else 0.28))
 	# symbol, count, name
 	var sym_col := ecol if have else Color(1, 1, 1, 0.25)
-	draw_string(_font, r.position + Vector2(text_x, 22), sym,
+	draw_string(_font, r.position + Vector2(text_x, 24), sym,
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 15, sym_col)
-	draw_string(_font, r.position + Vector2(0, 20),
-		("×%d" % amount) if amount > 0 else "—",
-		HORIZONTAL_ALIGNMENT_RIGHT, r.size.x - 8, 12,
-		UITheme.TEXT if amount > 0 else Color(1, 1, 1, 0.18))
+	if amount > 0:
+		draw_string(_font, r.position + Vector2(0, 27), "×%d" % amount,
+			HORIZONTAL_ALIGNMENT_RIGHT, r.size.x - 7, 11, UITheme.TEXT)
+	elif have and not craftable:
+		draw_string(_font, r.position + Vector2(0, 27), "SYN",
+			HORIZONTAL_ALIGNMENT_RIGHT, r.size.x - 7, 8, Color(0.85, 0.4, 0.85, 0.7))
 	draw_string(_font, r.position + Vector2(text_x, 40), str(e[1]),
 		HORIZONTAL_ALIGNMENT_LEFT, r.size.x - text_x - 6, 8,
 		UITheme.TEXT_DIM if have else Color(1, 1, 1, 0.15))

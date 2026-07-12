@@ -90,6 +90,35 @@ const TABLE := [
 	["U", "Uranium", 92, 2.663e-11],
 ]
 
+## The 20 atomic numbers NOT in TABLE — no stable isotope / not naturally
+## present in the solar spectrum, so they're display-only (locked, never
+## collectible or craftable). [Z, symbol, name]. Together with TABLE these
+## complete the periodic run 1–103 with no gaps in the inventory.
+const NONABUNDANT := [
+	[43, "Tc", "Technetium"], [61, "Pm", "Promethium"], [84, "Po", "Polonium"],
+	[85, "At", "Astatine"], [86, "Rn", "Radon"], [87, "Fr", "Francium"],
+	[88, "Ra", "Radium"], [89, "Ac", "Actinium"], [91, "Pa", "Protactinium"],
+	[93, "Np", "Neptunium"], [94, "Pu", "Plutonium"], [95, "Am", "Americium"],
+	[96, "Cm", "Curium"], [97, "Bk", "Berkelium"], [98, "Cf", "Californium"],
+	[99, "Es", "Einsteinium"], [100, "Fm", "Fermium"], [101, "Md", "Mendelevium"],
+	[102, "No", "Nobelium"], [103, "Lr", "Lawrencium"],
+]
+
+static var _full := []
+
+
+static func full_table() -> Array:
+	## All 103, sorted by atomic number: [sym, name, Z, atom%, collectible].
+	## The 83 in TABLE are collectible/craftable; the 20 NONABUNDANT are not.
+	if _full.is_empty():
+		for e in TABLE:
+			_full.append([e[0], e[1], e[2], e[3], true])
+		for n in NONABUNDANT:
+			_full.append([n[1], n[2], n[0], 0.0, false])
+		_full.sort_custom(func(a, b): return a[2] < b[2])
+	return _full
+
+
 ## Elements that stay gaseous and never condense into asteroid rock —
 ## these are scooped from nebulae instead of mined.
 const GASES := ["H", "He", "N", "Ne", "Ar", "Kr", "Xe"]
@@ -127,7 +156,26 @@ static func _lookup() -> Dictionary:
 	if _by_symbol.is_empty():
 		for e in TABLE:
 			_by_symbol[e[0]] = e
+		# synthetics too, so name_of/z_of/hue_of work for the display set
+		for n in NONABUNDANT:
+			_by_symbol[n[1]] = [n[1], n[2], n[0], 0.0]
 	return _by_symbol
+
+
+static func is_craftable(sym: String) -> bool:
+	## True for the 83 real-abundance elements (minable/scoopable/tradeable and
+	## used in recipes); false for the 20 synthetic display/collection elements.
+	for e in TABLE:
+		if e[0] == sym:
+			return true
+	return false
+
+
+static func synthetic_symbols() -> Array:
+	var out: Array = []
+	for n in NONABUNDANT:
+		out.append(n[1])
+	return out
 
 
 static func name_of(sym: String) -> String:
@@ -194,7 +242,12 @@ static var _icon_cache := {}
 
 
 static func icon_for(sym: String) -> Texture2D:
-	var z := z_of(sym)
+	return icon_for_z(z_of(sym))
+
+
+static func icon_for_z(z: int) -> Texture2D:
+	## Load by atomic number — works for the display-only elements too, which
+	## aren't in the symbol lookup.
 	if _icon_cache.has(z):
 		return _icon_cache[z]
 	var tex: Texture2D = null

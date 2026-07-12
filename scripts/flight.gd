@@ -235,6 +235,11 @@ func _trash_in_chunk(cx: int, cy: int) -> Array:
 				if roll <= 0:
 					metal = m[0]
 					break
+			# rare: a synthetic element left in the wreck's old reactor core —
+			# the "find them all" hunt (collection only, never used in crafting)
+			if rng.randf() < 0.06:
+				var syn: Array = Elements.synthetic_symbols()
+				metal = syn[rng.randi_range(0, syn.size() - 1)]
 			pieces.append({
 				"pos": origin + Vector2(rng.randf_range(60, FIELD_CHUNK - 60),
 					rng.randf_range(60, FIELD_CHUNK - 60)),
@@ -313,8 +318,8 @@ func _build_hud() -> void:
 	root.add_child(qlog)
 	qlog.set_anchors_and_offsets_preset(
 		Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_MINSIZE, 18)
-	qlog.offset_top += 176.0
-	qlog.offset_bottom += 176.0
+	qlog.offset_top += 150.0
+	qlog.offset_bottom += 150.0
 	UITheme.shrink(qlog, true, false)
 
 	var nav := PanelContainer.new()

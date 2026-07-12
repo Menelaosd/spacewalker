@@ -4,7 +4,7 @@ extends Control
 ## per-material breakdown) and the search for the five scattered survivors
 ## (pips + next beacon). Sci-fi styled to match the HUD.
 
-const PANEL := Vector2(252.0, 206.0)
+const PANEL := Vector2(252.0, 236.0)
 
 var _font: Font = ThemeDB.fallback_font
 
@@ -58,7 +58,14 @@ func _draw() -> void:
 		y += 14.0
 		draw_string(_font, Vector2(x + 8, y), str(part.get("name", "")),
 			HORIZONTAL_ALIGNMENT_LEFT, PANEL.x - 24, 11, warm)
-		y += 15.0
+		y += 14.0
+		# a line of flavour — what this part is, why it matters
+		var flav := str(part.get("flavor", ""))
+		if flav != "":
+			draw_multiline_string(_font, Vector2(x + 8, y), flav,
+				HORIZONTAL_ALIGNMENT_LEFT, PANEL.x - 26, 9, 2,
+				Color(dim.r, dim.g, dim.b, 0.75))
+			y += 24.0
 		# per-material bars: element rows, then the ore row
 		var got := 0
 		var need_tot := 0

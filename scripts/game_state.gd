@@ -185,16 +185,21 @@ func pilot_name() -> String:
 # ==================================================================
 const QUEST_PARTS := [
 	{"name": "Plasma Conduits", "req": {"Fe": 12, "Si": 8}, "ore": 20,
-		"log": "Conduits seated. The drive hums for the first time in years."},
+		"flavor": "The drive's veins. Until they run, no fire can move through her.",
+		"log": "Conduits seated. Somewhere deep in the hull, something long-dead draws its first breath."},
 	{"name": "Coolant Loop", "req": {"Mg": 10, "Al": 6}, "ore": 30,
-		"log": "Coolant cycling. She runs cold and quiet now."},
+		"flavor": "A jump makes heat enough to kill. This is what carries it away.",
+		"log": "Coolant cycling. She runs cold and quiet now — patient, like she's waiting for a word."},
 	{"name": "Field Coils", "req": {"Ni": 8, "Ti": 6, "Cu": 4}, "ore": 40,
-		"log": "Coils wound. Blue jump-field light flickers across the hull."},
+		"flavor": "The coils that fold a stretch of empty space into a single open door.",
+		"log": "Coils wound. A thread of blue jump-light crawls the length of the hull, and fades."},
 	{"name": "Ignition Lattice", "req": {"Ag": 3, "Pt": 2, "Au": 1}, "ore": 50,
-		"log": "Lattice aligned. One spark left to find — the heart.",
+		"flavor": "The spark-gap where a jump is born — woven from metals rock will not give up.",
+		"log": "Lattice aligned. One ember left to find now — the heart that lights the rest.",
 		"hint": "Precious metals never ride in rock — strip old wrecks for silver and gold; platinum is Vesna's trade (reputation 6)."},
 	{"name": "Fuel Core", "req": {"U": 1, "Th": 1}, "ore": 60,
-		"log": "The core burns steady. Course locked: HAVEN.",
+		"flavor": "The heart. It burns the heavy, fissile metals torn from the ruin of dead stars.",
+		"log": "The core catches, steadies, holds. Course locked — and for the first time in a long time, a destination: HAVEN.",
 		"hint": "No rock carries fissiles. Vesna deals uranium and thorium at reputation 10 — work her contracts."},
 ]
 var quest_stage := 0          # part being built; QUEST_PARTS.size() = done
@@ -887,15 +892,29 @@ func roll_trader() -> void:
 		pool.append_array(TRADER_T2)
 	if reputation >= 10:
 		pool.append_array(TRADER_T3)
+	# master broker: at high standing Vesna can source ANY real element —
+	# the collection endgame doesn't hinge on a lucky crystal roll
+	if reputation >= 12:
+		for e in Elements.TABLE:
+			if not (e[0] in pool):
+				pool.append(e[0])
 	var rng := RandomNumberGenerator.new()
 	rng.seed = shift * 6113 + slot * 977 + 5
 	trader_stock = []
-	for i in 3:
+	# the two fissiles are the ONLY source of U/Th and are mandatory for the
+	# final drive part — once unlocked, GUARANTEE them until you own each, so
+	# completion is never walled behind trader RNG
+	if reputation >= 10 and quest_stage < QUEST_PARTS.size():
+		for s in ["U", "Th"]:
+			if int(elements.get(s, 0)) < 1:
+				trader_stock.append({"sym": s, "price": price_of(s) * 2,
+					"qty": 1})
+				pool.erase(s)
+	# Vesna buys low, sells high: 2x market rate kills buy-here-deliver-there
+	# arbitrage. Limited units per shift — she's a trader, not a replicator.
+	while trader_stock.size() < 3 and pool.size() > 0:
 		var sym: String = pool[rng.randi_range(0, pool.size() - 1)]
 		pool.erase(sym)
-		# Vesna buys low, sells high: 2x market rate kills the buy-here-
-		# deliver-there arbitrage (contracts pay ~1x + a small bonus).
-		# Limited units per shift — she's a trader, not a replicator.
 		trader_stock.append({"sym": sym, "price": price_of(sym) * 2,
 			"qty": rng.randi_range(1, 3)})
 

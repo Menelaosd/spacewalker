@@ -14,7 +14,7 @@ const BG_LIGHT := Color(0.035, 0.125, 0.17, 0.94)
 const TEXT := Color(0.88, 0.99, 1.0)
 const TEXT_DIM := Color(0.88, 0.99, 1.0, 0.6)
 const CUT := 18.0                              # big corner slant
-const UI_SCALE := 0.82                          # global HUD shrink factor
+const UI_SCALE := 0.70                          # global HUD shrink factor
 
 
 static func shrink(c: Control, right: bool, bottom: bool, s := UI_SCALE) -> void:
