@@ -303,6 +303,23 @@ static func glow_for(sym: String) -> Color:
 	return col
 
 
+static var _ast_col_cache := {}
+
+
+static func asteroid_color(sym: String) -> Color:
+	## The element's asteroid tint — its own icon colour (glow_for), but with a
+	## brightness FLOOR so dark elements (e.g. Carbon) still read against space.
+	## Hue preserved, only value lifted. Used identically inside (the ring) and
+	## outside (the rock tint), so an element looks the same in both views.
+	var z := z_of(sym)
+	if _ast_col_cache.has(z):
+		return _ast_col_cache[z]
+	var c := glow_for(sym)
+	var out := Color.from_hsv(c.h, minf(c.s, 0.85), maxf(c.v, 0.7))
+	_ast_col_cache[z] = out
+	return out
+
+
 static func _sample(fractions: Dictionary, roll := -1.0) -> String:
 	## Weighted random element — real abundance IS the drop table.
 	## Pass `roll` (0..1) for a DETERMINISTIC pick (e.g. seeded per rock so a

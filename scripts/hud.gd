@@ -14,6 +14,7 @@ const VITALS := preload("res://scripts/vitals_panel.gd")
 var _msg_label: Label
 var _msg_tween: Tween
 var _dock_prompt: Control
+var _helm_prompt: Control
 var _flare_banner: Control
 var _t := 0.0
 
@@ -63,6 +64,14 @@ func _ready() -> void:
 	_dock_prompt.set_prompt("E    ENTER SHIP")
 	_dock_prompt.y_from_bottom = 120.0
 
+	# "take the helm" prompt — always available on a spacewalk (fly out from
+	# right here, no need to go back inside)
+	_helm_prompt = KeyPrompt.new()
+	_helm_prompt.modulate = Color(0.6, 0.9, 1.0, 0.0)
+	root.add_child(_helm_prompt)
+	_helm_prompt.set_prompt("F    TAKE THE HELM")
+	_helm_prompt.y_from_bottom = 96.0
+
 	var hint := HintBar.new()
 	hint.items = Keymap.hint("spacewalk")
 	root.add_child(hint)
@@ -101,6 +110,8 @@ func _process(delta: float) -> void:
 		_dock_prompt.modulate.a = 0.75 + 0.25 * absf(sin(_t * 3.5))
 	else:
 		_dock_prompt.modulate.a = 0.0
+	# helm prompt shows on any real spacewalk (not during the adrift opening)
+	_helm_prompt.modulate.a = 0.0 if (player == null or GameState.adrift) else 0.55
 
 
 func _on_notify(text: String) -> void:

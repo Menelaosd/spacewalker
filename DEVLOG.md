@@ -5,6 +5,86 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 13/07/2026 — v1.41: cut the "home" concept + helm-transition polish
+
+- **Removed the HOME concept entirely** — a fixed station at world-origin never
+  made sense when your ship *is* your home (board it with Q anywhere, park any
+  field with E). Gone: the "Home X.X km" status readout, the gold compass arrow
+  under the ship, the in-world mini station, the radar's home marker, and the
+  redundant "Dock at home" action. The origin chunk no longer stays artificially
+  clear, so fields/scrap spawn there like anywhere else (no dead start zone).
+- **Renamed the innermost region** "Home Reach" → "The Reach" (flows with The
+  Drift / The Belt / The Expanse). The spacewalk radar still shows your parked
+  ship as a square blip — that's your ride home, kept.
+- **Helm-transition fix:** taking the helm mid-mining used to let you watch the
+  elements pop out during the fade. Now the field (rocks + pickups) is hidden
+  the instant you press F, before the black rolls in — a clean cut.
+
+## 13/07/2026 — v1.40: spacewalk element labels (drop ring, white name always)
+
+- **No ring:** removed the colour circle around spacewalk elements entirely —
+  the icon stands on its own now.
+- **No per-element text tint:** the element name is no longer coloured by its
+  chemistry/category — one consistent readable style.
+- **Name ALWAYS on, white + sharp black outline:** every element node now shows
+  `<symbol> · <name>` (e.g. "O · Oxygen", "Si · Silicon") permanently — not just
+  while mining — in small white text (size 9) with an 8-way black shadow so it
+  reads crisply over any rock. Flight-mode zone colours (core tint) are untouched.
+
+## 13/07/2026 — v1.39: spacewalk & flight polish (5 captain asks) + fixes
+
+- **Ship shadow on asteroids (flight):** a rock the hull passes over gets
+  darkened (sprite redrawn black, alpha by overlap) — the hull draws on top,
+  so it reads as a shadow peeking from under the ship. Asteroid-only.
+- **Reach zone (spacewalk):** two discreet gold rings, both centred on the
+  ship (the zone centre) — no web, no off-centre arc. Just enough to read range.
+- **Astronaut animation:** removed the thin-profile flip (the "coin-flip");
+  clean instant facing now, plus a smooth idle CROSSFADE between the two float
+  frames (sine-blended, per the game-juice sine-animation idea), a gentle
+  drift-lean, and an idle bob. NOTE: genuinely new painted frames still need
+  art — this is the most that the existing 8 frames + procedural motion can do.
+- **"F — Take the helm":** fly straight to the outer view from a spacewalk with
+  a 0.6s fade, no trip inside. Prompt on any real spacewalk.
+- **Tether:** subtle thin dashed line over a solid under-line (discreet, opens
+  slightly as it stretches). Bungee give cut 90→46px — a slight elastic nudge
+  at the end of the line, not a bounce.
+- **Element size — hard fix:** spacewalk asteroids keep their element icons
+  (distinct art from the outside rocks, by design) but are now sized purely
+  from radius with a hard cap (ICON_MAX 30 → longest ≤60px), so a node is never
+  huge regardless of region or the icon's own canvas.
+- **Full zone SEED SYSTEM — one field, two views, per-element colour:**
+  `GameState.dive_field` is the single generator (one seed per zone). Flight
+  draws rocks at their REAL positions (no compression) — a rock's spot outside
+  is exactly where it sits inside. Mining flags `GameState.mined[key]`, checked
+  LIVE at draw so a mined rock vanishes from the outside view too. Graphics
+  differ by design (element pixel-icon inside, neutral tinted rock outside) but
+  the COLOUR is ONE map covering ALL elements: `Elements.asteroid_color` (the
+  element's own icon colour via `glow_for`, with a value floor so dark elements
+  like Carbon still read). Outside rock = GRAY body + only the CORE gem tinted
+  by that colour (16 body/core layer pairs from `tools/gen_rock_layers.gd`);
+  inside = element icon + a thin ring in the same colour, so oxygen reads cyan
+  both sides, sulphur yellow, etc — every element distinct, no C/S both green.
+- **Spacewalk element look:** thin (1px) crisp ring inset just inside the
+  element (not wrapping it); icons hard-capped small (ICON_MAX 26 → ≤52px) so a
+  node never dwarfs the crew; slight idle pulse.
+- Also: CRT overlay warning fixed (sizes from anchors).
+
+## 13/07/2026 — v1.38: asteroid ZONE art — rocks preview their contents
+
+- The mining zones you see in flight were plain gray code circles. Now they
+  use the captain's asteroid sheet (`tools/extract_asteroids.gd` → 72 rocks,
+  9 element categories × 8 shape variants). Each rock in a zone is assigned a
+  DETERMINISTIC vein element (rich rocks skew to crystal fractions), and the
+  sprite is picked by that element's CATEGORY — so the core colour previews
+  the contents: cyan gas, orange alkali, gold precious, steel metal, yellow
+  alkaline, violet metalloid, green nonmetal, magenta rare, red actinide.
+  A field's colour mix tells you what's inside before you park.
+- Extraction: global border flood-fill on a GREEN-DOMINANCE test (not just
+  bg-distance), so the bright green halos around each rock are removed while
+  enclosed cores — including the green nonmetal row — survive because gray
+  rock walls them off from the flood. Region tint washes the body slightly.
+- Debug: SW_FIELD=1 jumps the ship to the nearest zone for screenshots.
+
 ## 13/07/2026 — v1.37: CRT actually renders + real VHS, wreck loot rework
 
 - **The CRT overlay never rendered.** Same 0×0-Control family as the

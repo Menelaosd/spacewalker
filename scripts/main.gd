@@ -230,6 +230,39 @@ func _unhandled_input(event: InputEvent) -> void:
 			# Step inside the ship. Bank whatever we're carrying first.
 			GameState.bank_cargo()
 			get_tree().change_scene_to_file("res://scenes/ship_interior.tscn")
+		elif event.physical_keycode == KEY_F and player != null \
+				and not GameState.adrift and not _leaving:
+			# take the helm straight from the walk — smooth fade to the outer view
+			_drive_ship()
+
+
+var _leaving := false
+var _fade: ColorRect
+
+
+func _drive_ship() -> void:
+	_leaving = true
+	GameState.bank_cargo()
+	GameState.pending_shift = true
+	GameState.say("Reeling in the line — taking the helm.")
+	# Clear the field FIRST so you never watch the elements pop out during the
+	# fade — hide every rock/pickup instantly (1 frame) before the black rolls in.
+	for a in get_tree().get_nodes_in_group("asteroids"):
+		a.visible = false
+	for p in get_tree().get_nodes_in_group("pickups"):
+		p.visible = false
+	if _fade == null:
+		var layer := CanvasLayer.new()
+		layer.layer = 120
+		add_child(layer)
+		_fade = ColorRect.new()
+		_fade.color = Color(0, 0, 0, 0)
+		_fade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		_fade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		layer.add_child(_fade)
+	var tw := create_tween()
+	tw.tween_property(_fade, "color:a", 1.0, 0.6)
+	tw.tween_callback(func(): get_tree().change_scene_to_file("res://scenes/flight.tscn"))
 
 
 func _draw_bg_nebulae() -> void:
@@ -274,50 +307,21 @@ func _make_stars() -> void:
 
 
 func _spawn_asteroids() -> void:
-	# the dive field takes on the character of the region you parked in:
-	# Home Reach is sparse practice rock, The Belt is a dense quarry,
-	# The Expanse is few-but-huge, nebulae are tinted and crystal-heavy
+	# the dive field takes on the character of the region you parked in;
+	# GameState.dive_field is the SHARED generator, so this field is exactly
+	# what the flight-mode preview showed (same rocks, same veins, same
+	# mined-out gaps). Revisiting shows the same field.
 	var region: Dictionary = GameState.region_at(GameState.sector)
-	var rich_chance := GameState.sector_richness()
-	var size_mult: float = region["size"]
-	var count := 14 + int(26.0 * float(region["chance"])) \
-		+ mini(int(GameState.sector.length() / 4000.0), 8)
 	var base_tint := Color(0.42, 0.4, 0.38)
 	if region["tint"] != null:
 		base_tint = base_tint.lerp(region["tint"], 0.35)
-	# deterministic per dive site: revisiting shows the SAME field, and rocks
-	# you've mined (tracked in GameState.mined) stay gone
-	var sx := int(round(GameState.sector.x))
-	var sy := int(round(GameState.sector.y))
-	var rng := RandomNumberGenerator.new()
-	rng.seed = hash(Vector2i(sx, sy))
-	var placed: Array = []
-	var tries := 0
-	var idx := 0
-	while placed.size() < count and tries < 800:
-		tries += 1
-		var ang := rng.randf() * TAU
-		# some asteroids sit past the tether limit — upgrade bait
-		var dist := rng.randf_range(280.0, GameState.tether_length + 320.0)
-		var pos := Vector2.from_angle(ang) * dist
-		var r := rng.randf_range(17.0, 34.0) * size_mult
-		var rich := rng.randf() < rich_chance
-		var ok := true
-		for p in placed:
-			if pos.distance_to(p[0]) < (r + p[1] + 40.0):
-				ok = false
-				break
-		if not ok:
-			continue
-		placed.append([pos, r])
-		var key := "%d:%d:%d" % [sx, sy, idx]
-		idx += 1
-		if GameState.mined.has(key):
+	for rock in GameState.dive_field(GameState.sector):
+		if rock["mined"]:
 			continue   # already mined out — don't respawn it
 		var a := ASTEROID_SCENE.instantiate()
-		a.setup(r, rich, base_tint)
-		a.position = pos
-		a.mine_key = key
+		a.setup(rock["r"], rock["rich"], base_tint)
+		a.position = rock["pos"]
+		a.mine_key = rock["key"]
 		add_child(a)
 
 
@@ -345,9 +349,13 @@ func _draw() -> void:
 	# shooting stars
 	for st in _streaks:
 		SpaceDressing.draw_comet(self, st, _t)
-	# faint ring showing max tether reach
-	draw_arc(Vector2(0, 48), GameState.tether_length, 0.0, TAU, 96,
-		Color(1.0, 0.85, 0.3, 0.08), 2.0)
+	# tether reach — discreet concentric rings, both centred on the ship (the
+	# centre of the zone). Faint; just enough to read the safe range.
+	if not GameState.adrift and player != null:
+		var anc: Vector2 = player.tether_anchor
+		var reach: float = GameState.tether_length
+		draw_arc(anc, reach, 0.0, TAU, 96, Color(1.0, 0.85, 0.3, 0.08), 1.5)
+		draw_arc(anc, reach * 0.66, 0.0, TAU, 72, Color(1.0, 0.85, 0.3, 0.045), 1.0)
 
 	# the drifting survivor at a rescue site — tinted suit, strobing ping
 	if _rescue_active:

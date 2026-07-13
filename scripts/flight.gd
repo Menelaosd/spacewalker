@@ -2,7 +2,7 @@ extends Node2D
 ## Piloting mode — take the helm and fly the ship through infinite space.
 ## Space is generated in deterministic chunks (same coordinates always hold
 ## the same stars and asteroid fields), and fields get richer with distance
-## from home. Park near a field (E) to move your dive site there, then
+## from the origin. Park near a field (E) to move your dive site there, then
 ## spacewalk it. Q hands back the helm and returns inside.
 ## All visuals are placeholder _draw() shapes.
 
@@ -17,7 +17,6 @@ const DAMP := 0.45
 const STAR_CHUNK := 640.0
 const FIELD_CHUNK := 1600.0
 const PARK_REACH := 140.0        # extra reach beyond a field's radius
-const HOME_DOCK_RADIUS := 300.0
 const INVENTORY_SCREEN := preload("res://scripts/inventory_screen.gd")
 const FLOAT_TEXT := preload("res://scripts/float_text.gd")
 const RADAR_PANEL := preload("res://scripts/radar_panel.gd")
@@ -67,7 +66,6 @@ var _comets: Array = []          # {pos, vel, size, life}
 var _comet_timer := 6.0
 var _near_beacon := false        # in reach of the current distress beacon
 var _near_field: Dictionary = {}
-var _near_home := false
 var _scooping := false
 var _t := 0.0
 var _font: Font = ThemeDB.fallback_font
@@ -82,15 +80,34 @@ var _msg_tween: Tween
 var _flight_origin := Vector2.ZERO
 
 
+const FLIGHT_ZOOM := 0.68   # <1 = pulled back; see much more space while flying
+
+
 func _ready() -> void:
 	texture_filter = TEXTURE_FILTER_LINEAR   # painted hull, not pixel art
 	ship_pos = GameState.sector
 	_flight_origin = ship_pos
 	cam.position = ship_pos
+	cam.zoom = Vector2(FLIGHT_ZOOM, FLIGHT_ZOOM)
 	cam.reset_smoothing()
 	_build_hud()
 	GameState.notify.connect(_on_notify)
 	GameState.say("You have the helm. Fields get richer the farther you fly.")
+	# debug: SW_FIELD=1 jumps the ship to the nearest asteroid zone (screenshots)
+	if OS.get_environment("SW_FIELD") != "":
+		for ring in range(1, 12):
+			var found := false
+			for dy in range(-ring, ring + 1):
+				for dx in range(-ring, ring + 1):
+					var fdb := _field_in_chunk(dx, dy)
+					if not fdb.is_empty():
+						ship_pos = fdb["center"]
+						cam.position = ship_pos
+						cam.reset_smoothing()
+						found = true
+						break
+				if found: break
+			if found: break
 	# debug: SW_DIALOG=JUNO opens that crew member's first-meeting dialog
 	if OS.get_environment("SW_DIALOG") != "":
 		_in_dialog = true
@@ -132,7 +149,6 @@ func _process(delta: float) -> void:
 	ship_pos += vel * delta
 	cam.position = ship_pos
 
-	_near_home = ship_pos.length() < HOME_DOCK_RADIUS
 	_near_field = _find_near_field()
 	_near_beacon = GameState.rescue_available() \
 		and ship_pos.distance_to(GameState.rescue_beacon()) < 300.0
@@ -200,13 +216,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	match event.physical_keycode:
 		KEY_E:
-			if _near_home:
-				GameState.sector = Vector2.ZERO
-				GameState.save_game()
-				Sfx.play("bank", -8.0)
-				GameState.say("Docked at home.")
-				get_tree().change_scene_to_file("res://scenes/main.tscn")
-			elif _near_beacon:
+			if _near_beacon:
 				# board the broken ship — meet them face to face
 				_in_dialog = true
 				vel = Vector2.ZERO
@@ -243,21 +253,32 @@ func _field_in_chunk(cx: int, cy: int) -> Dictionary:
 	var origin := Vector2(cx, cy) * FIELD_CHUNK
 	# the region plan decides how likely, big and rich fields are here
 	var region := GameState.region_at(origin + Vector2.ONE * FIELD_CHUNK * 0.5)
-	# the home chunk stays clear — that's where the dock lives
-	if not (cx == 0 and cy == 0) and rng.randf() < float(region["chance"]):
+	if rng.randf() < float(region["chance"]):
 		var center := origin + Vector2(
 			rng.randf_range(FIELD_CHUNK * 0.2, FIELD_CHUNK * 0.8),
 			rng.randf_range(FIELD_CHUNK * 0.2, FIELD_CHUNK * 0.8))
-		var radius: float = rng.randf_range(170.0, 300.0) * float(region["size"])
-		var rich: float = GameState.richness_at(center)
+		# THE ACTUAL dive field — same rocks, SAME POSITIONS you'll mine when you
+		# park (shared generator, one seed per zone). No compression: a rock's
+		# offset out here is exactly where it sits inside. Mined-state is checked
+		# LIVE at draw time (below), so mining a rock removes it from here too.
+		var real: Array = GameState.dive_field(center)
+		var maxd := 1.0
+		for rk in real:
+			maxd = maxf(maxd, (rk["pos"] as Vector2).length() + float(rk["r"]))
 		var rocks: Array = []
-		for i in rng.randi_range(6, 13):
+		for rk in real:
 			rocks.append({
-				"off": Vector2.from_angle(rng.randf() * TAU) * radius * rng.randf_range(0.15, 0.85),
-				"r": rng.randf_range(9.0, 24.0) * float(region["size"]),
-				"rich": rng.randf() < rich,
+				"off": rk["pos"],
+				"r": rk["r"],
+				"rich": rk["rich"],
+				"key": rk["key"],
+				# tint a neutral rock by the ELEMENT'S OWN colour (sampled from
+				# its icon) so the zone rock matches what it looks like inside
+				"col": Elements.glow_for(rk["sym"]),
+				"var": int(hash(rk["key"]) % 16),
 			})
-		field = {"center": center, "radius": radius, "rich": rich,
+		field = {"center": center, "radius": maxd,
+			"rich": GameState.richness_at(center),
 			"rocks": rocks, "tint": region["tint"]}
 	_field_cache[key] = field
 	return field
@@ -272,8 +293,8 @@ func _trash_in_chunk(cx: int, cy: int) -> Array:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = _chunk_seed(cx, cy, 3)
 	var pieces: Array = []
-	# no junk in the home chunk; sparse everywhere else
-	if not (cx == 0 and cy == 0) and rng.randf() < 0.3:
+	# sparse scrap everywhere
+	if rng.randf() < 0.3:
 		var origin := Vector2(cx, cy) * FIELD_CHUNK
 		for i in rng.randi_range(1, 3):
 			# weighted scrap-metal roll
@@ -536,10 +557,9 @@ func _build_hud() -> void:
 
 
 func _update_hud() -> void:
-	var km := ship_pos.length() / 100.0
 	var region_name: String = GameState.region_at(ship_pos)["name"]
-	var line := "%s   ·   Sector (%d, %d)   ·   Home %.1f km" % [
-		region_name.to_upper(), int(ship_pos.x / 100.0), int(ship_pos.y / 100.0), km]
+	var line := "%s   ·   Sector (%d, %d)" % [
+		region_name.to_upper(), int(ship_pos.x / 100.0), int(ship_pos.y / 100.0)]
 	if GameState.rescue_available():
 		var t: Dictionary = GameState.rescue_target()
 		line += "   ·   ✦ %s'S BEACON: %s" % [t["name"], str(t["region"]).to_upper()]
@@ -550,9 +570,6 @@ func _update_hud() -> void:
 	if _near_beacon:
 		_prompt_label.set_prompt("E    Board the wreck — %s, %s" % [
 			GameState.rescue_target()["name"], GameState.rescue_target()["role"]])
-		_prompt_label.modulate.a = 0.95
-	elif _near_home:
-		_prompt_label.set_prompt("E    Dock at home")
 		_prompt_label.modulate.a = 0.95
 	elif not _near_field.is_empty():
 		_prompt_label.set_prompt("E    Park & spacewalk this field  (~%d%% rich)" % int(
@@ -582,15 +599,15 @@ func _on_notify(text: String) -> void:
 # ==================================================================
 func _draw() -> void:
 	var center := cam.get_screen_center_position()
-	var half := get_viewport_rect().size * 0.5 + Vector2(STAR_CHUNK, STAR_CHUNK)
+	# the visible world is bigger than the viewport by 1/zoom — expand the cull
+	# bounds to match, or stars/fields pop in at the edges
+	var half := get_viewport_rect().size * 0.5 / cam.zoom.x + Vector2(STAR_CHUNK, STAR_CHUNK)
 	_draw_nebulae(center, half)
 	_draw_stars(center, half)
 	_draw_fields(center, half)
 	_draw_wrecks(center, half)
 	_draw_trash(center, half)
 	_draw_beacon(center)
-	_draw_home()
-	_draw_home_compass()
 	for c in _comets:
 		SpaceDressing.draw_comet(self, c, _t)
 	_draw_ship()
@@ -748,6 +765,27 @@ func _draw_stars(center: Vector2, half: Vector2) -> void:
 						draw_line(p + Vector2(0, -4), p + Vector2(0, 4), Color(1, 1, 1, 0.35), 1.0)
 
 
+var _ast_cache := {}
+
+
+func _asteroid_tex(variant: int) -> Texture2D:
+	## neutral (gray) rock body. 16 shapes.
+	if not _ast_cache.has(variant):
+		_ast_cache[variant] = load("res://assets/asteroids/neutral_%d.png" % variant)
+	return _ast_cache[variant]
+
+
+var _core_cache := {}
+
+
+func _asteroid_core(variant: int) -> Texture2D:
+	## white core mask for a shape — tinted per element so only the core is
+	## coloured, the rock body stays gray.
+	if not _core_cache.has(variant):
+		_core_cache[variant] = load("res://assets/asteroids/core_%d.png" % variant)
+	return _core_cache[variant]
+
+
 func _draw_fields(center: Vector2, half: Vector2) -> void:
 	var pad := half + Vector2(400, 400)
 	for cy in range(floori((center.y - pad.y) / FIELD_CHUNK), floori((center.y + pad.y) / FIELD_CHUNK) + 1):
@@ -756,20 +794,35 @@ func _draw_fields(center: Vector2, half: Vector2) -> void:
 			if f.is_empty():
 				continue
 			var fc: Vector2 = f["center"]
-			var base := Color(0.42, 0.4, 0.38)
-			if f["tint"] != null:
-				base = base.lerp(f["tint"], 0.3)
 			for rock in f["rocks"]:
+				# LIVE mined-sync: a rock you mined inside is gone out here too
+				if GameState.mined.has(rock["key"]):
+					continue
 				var p: Vector2 = fc + rock["off"]
 				var r: float = rock["r"]
-				draw_circle(p, r, base)
-				# sun-side sheen, night-side shadow — same light as everything
-				draw_circle(p + SpaceDressing.SUN_DIR * r * 0.3, r * 0.5,
-					base.lightened(0.18))
-				draw_circle(p - SpaceDressing.SUN_DIR * r * 0.35, r * 0.5,
-					base.darkened(0.3))
-				var fleck := Color(0.4, 0.95, 1.0) if rock["rich"] else Color(1.0, 0.72, 0.25)
-				draw_circle(p + Vector2(-r * 0.25, r * 0.2), 2.5, fleck)
+				var tex := _asteroid_tex(int(rock["var"]))
+				if tex != null:
+					# GRAY rock body (untinted) + only the CORE tinted by the
+					# element's colour — the rock stays rocky, its gem shows what
+					# element it is (matches the inside ring colour)
+					var sz := tex.get_size()
+					var s := clampf(r * 1.7, 30.0, 64.0) / maxf(sz.x, sz.y)
+					var ecol: Color = rock["col"]
+					draw_set_transform(p, 0.0, Vector2(s, s))
+					draw_texture(tex, -sz * 0.5)
+					var core := _asteroid_core(int(rock["var"]))
+					if core != null:
+						draw_texture(core, -core.get_size() * 0.5, ecol)
+					# the SHIP passing over the rock throws a shadow onto it —
+					# the hull draws on top afterward, so this darkening reads as
+					# a shadow peeking out from under the passing hull
+					var over := 1.0 - clampf(
+						ship_pos.distance_to(p) / (SHIP_SHADOW_R + r), 0.0, 1.0)
+					if over > 0.0:
+						draw_texture(tex, -sz * 0.5, Color(0, 0, 0, 0.6 * over))
+					draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+				else:
+					draw_circle(p, r, Color(0.42, 0.4, 0.38))
 			if not _near_field.is_empty() and _near_field["center"] == fc:
 				draw_arc(fc, f["radius"] + PARK_REACH, 0.0, TAU, 64,
 					Color(0.35, 0.8, 1.0, 0.25), 2.0)
@@ -817,36 +870,10 @@ func _crew_wreck_tex(tname: String) -> Texture2D:
 	return _crew_wreck_cache[tname]
 
 
-func _draw_home() -> void:
-	draw_arc(Vector2.ZERO, HOME_DOCK_RADIUS, 0.0, TAU, 64,
-		Color(0.3, 0.8, 1.0, 0.15), 2.0)
-	# mini home station
-	var hull := Color(0.55, 0.58, 0.66)
-	draw_rect(Rect2(-26, -14, 52, 28), hull)
-	draw_circle(Vector2(-26, 0), 14.0, hull)
-	draw_circle(Vector2(26, 0), 14.0, hull)
-	draw_rect(Rect2(-26, -3, 52, 6), Color(0.9, 0.45, 0.15))
-	draw_string(_font, Vector2(-24, -HOME_DOCK_RADIUS - 10), "HOME",
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.6, 0.9, 1.0, 0.6))
-
-
-func _draw_home_compass() -> void:
-	if ship_pos.length() < 600.0:
-		return
-	var dir := -ship_pos.normalized()
-	var base := ship_pos + dir * 84.0
-	var side := dir.orthogonal() * 6.0
-	draw_colored_polygon(
-		PackedVector2Array([base + dir * 14.0, base + side, base - side]),
-		Color(1.0, 0.85, 0.3, 0.7))
-	draw_string(_font, base + dir * 26.0 + Vector2(-18, 4),
-		"%.1f km" % (ship_pos.length() / 100.0),
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(1.0, 0.85, 0.3, 0.55))
-
-
 ## The captain's ship, bow facing +X (see tools/process_ship_art.gd).
 const SHIP_TEX := preload("res://assets/sprites/ship_hd.png")
 const SHIP_SCALE := 0.46
+const SHIP_SHADOW_R := 90.0   # how far the hull's shadow reaches onto rocks
 
 
 func _draw_ship() -> void:

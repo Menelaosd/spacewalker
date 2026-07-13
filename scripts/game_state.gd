@@ -393,7 +393,7 @@ func region_at(p: Vector2) -> Dictionary:
 				"rich": 0.18, "tint": n["color"], "nebula": true}
 	var r := p.length()
 	if r < 3000.0:
-		return {"name": "Home Reach", "chance": 0.3, "size": 0.8,
+		return {"name": "The Reach", "chance": 0.3, "size": 0.8,
 			"rich": -0.04, "tint": null, "nebula": false}
 	if r < 6000.0:
 		return {"name": "The Drift", "chance": 0.45, "size": 1.0,
@@ -413,6 +413,52 @@ func richness_at(p: Vector2) -> float:
 
 func sector_richness() -> float:
 	return richness_at(sector)
+
+
+func dive_field(center: Vector2) -> Array:
+	## THE single source of truth for a dive site's asteroids — so the flight
+	## preview and the actual spacewalk field are the SAME rocks (same count,
+	## positions, sizes, elements, mined-state). Deterministic per site:
+	## seeded by the rounded centre, veins seeded per rock key (identical to
+	## asteroid.gd's own derivation, so the spawned rock matches this preview).
+	var sx := int(round(center.x))
+	var sy := int(round(center.y))
+	var region := region_at(center)
+	var rich_chance := richness_at(center)
+	var size_mult: float = region["size"]
+	var count := 14 + int(26.0 * float(region["chance"])) \
+		+ mini(int(center.length() / 4000.0), 8)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(Vector2i(sx, sy))
+	var out: Array = []
+	var placed: Array = []
+	var tries := 0
+	var idx := 0
+	while placed.size() < count and tries < 800:
+		tries += 1
+		var ang := rng.randf() * TAU
+		var dist := rng.randf_range(280.0, tether_length + 320.0)
+		var pos := Vector2.from_angle(ang) * dist
+		var r := rng.randf_range(17.0, 34.0) * size_mult
+		var rich := rng.randf() < rich_chance
+		var ok := true
+		for pl in placed:
+			if pos.distance_to(pl[0]) < (r + pl[1] + 40.0):
+				ok = false
+				break
+		if not ok:
+			continue
+		placed.append([pos, r])
+		var key := "%d:%d:%d" % [sx, sy, idx]
+		idx += 1
+		var vrng := RandomNumberGenerator.new()
+		vrng.seed = hash("vein:" + key)
+		var roll := vrng.randf()
+		var sym: String = Elements.sample_crystal_element(roll) if rich \
+			else Elements.sample_rock_element(roll)
+		out.append({"pos": pos, "r": r, "rich": rich, "key": key,
+			"sym": sym, "cat": Elements.category(sym), "mined": mined.has(key)})
+	return out
 
 
 func _ready() -> void:

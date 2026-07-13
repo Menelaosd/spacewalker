@@ -7,10 +7,9 @@ extends StaticBody2D
 
 const PICKUP_SCENE := preload("res://scenes/pickup.tscn")
 
-const ICON_FILL := 1.35   # intact node is a chunky whole rock — clearly bigger
-                          # than the little fragments it shatters into
-const ICON_MAX := 46.0    # absolute half-size cap: even in big-rock regions
-                          # (Expanse size 1.7) a node never dwarfs the ~34px crew
+const ICON_FILL := 0.9    # element icon drawn a touch under its radius
+const ICON_MAX := 26.0    # HARD half-size cap → longest axis ≤ 52px, so an
+                          # element node stays close to the crew's size (~45px)
 
 var radius := 28.0
 var health := 100.0
@@ -26,6 +25,8 @@ var _ore_color := Color(1.0, 0.72, 0.25)
 var _glow_color := Color(1.0, 0.72, 0.25)
 var _flash := 0.0
 var _hit_local := Vector2.ZERO
+var _t := 0.0            # drives the slow idle pulse
+var _phase := 0.0        # per-rock offset so they don't breathe in sync
 
 
 func setup(r: float, rich: bool, _tint := Color(0.42, 0.4, 0.38)) -> void:
@@ -44,29 +45,39 @@ func _ready() -> void:
 		roll = vrng.randf()
 	vein = Elements.sample_crystal_element(roll) if is_rich else Elements.sample_rock_element(roll)
 	_ore_color = Elements.cpk_color(vein)      # chemistry colour — sparks/label
-	_glow_color = Elements.glow_for(vein)      # matches the art — bubble glow
+	# the element's OWN colour (sampled from its icon) — the same tint the
+	# flight-mode zone rock uses, so inside and outside match exactly
+	_glow_color = Elements.glow_for(vein)
 	health = radius * 4.0
+	# INSIDE the field you see the element's own pixel-art icon (different art
+	# from the flight-mode rock preview, but the SAME element — both derive the
+	# vein from the same mine_key seed). Sizing is uniform and hard-capped so a
+	# node never dwarfs the crew.
 	_icon = Elements.icon_for(vein)
-	# fit the art to ICON_FILL x radius and remember its centre offset
-	var draw_half := radius   # half of the visible art's longest axis
+	var draw_half := radius
 	if _icon != null:
 		var sz := _icon.get_size()
-		# fit longest axis to ICON_FILL x radius, but never past ICON_MAX
 		var target := minf(radius * ICON_FILL, ICON_MAX)
 		_icon_scale = (target * 2.0) / maxf(sz.x, sz.y)
 		_icon_ofs = -sz * 0.5 * _icon_scale
 		draw_half = maxf(sz.x, sz.y) * 0.5 * _icon_scale
-	_bubble_r = draw_half * 1.18
+	_bubble_r = draw_half * 1.05
+	_phase = float(hash(mine_key) % 1000) / 1000.0 * TAU
 	var shape := CircleShape2D.new()
-	# collide at ~90% of the DRAWN art so the beam visibly touches the chunk
-	shape.radius = draw_half * 0.9
+	shape.radius = draw_half * 0.82
 	$Collision.shape = shape
 
 
 func _process(delta: float) -> void:
+	_t += delta
 	if _flash > 0.0:
 		_flash = maxf(_flash - delta * 4.0, 0.0)
-		queue_redraw()
+	queue_redraw()   # always: the idle pulse needs a steady redraw
+
+
+func _pulse() -> float:
+	## very slight breathing — ±2.5% over ~5s, offset per rock
+	return 1.0 + 0.025 * sin(_t * 1.25 + _phase)
 
 
 func take_damage(dmg: float, at: Vector2) -> void:
@@ -99,14 +110,14 @@ func _shatter() -> void:
 # Drawing — the element's pixel-art icon
 # ==================================================================
 func _draw() -> void:
-	_draw_glow()
 	if _icon == null:
 		# fallback: a plain ore blob in the element's colour
 		draw_circle(Vector2.ZERO, radius, _ore_color.darkened(0.3))
 		draw_circle(Vector2(-radius * 0.3, -radius * 0.3), radius * 0.4,
 			_ore_color.lerp(Color.WHITE, 0.4))
 	else:
-		draw_set_transform(_icon_ofs, 0.0, Vector2(_icon_scale, _icon_scale))
+		var pz := _icon_scale * _pulse()
+		draw_set_transform(_icon_ofs * _pulse(), 0.0, Vector2(pz, pz))
 		draw_texture(_icon, Vector2.ZERO)
 		if _flash > 0.0:
 			# whiten toward the hit — a bright "you're cutting it" pulse
@@ -115,28 +126,19 @@ func _draw() -> void:
 	_draw_bite()
 
 
-func _draw_glow() -> void:
-	## A crisp CONTAINMENT RING in the element's colour instead of the old
-	## fuzzy bloom — reads as a mineral specimen in a field, not a blurry
-	## orb. A faint dark seat under the rock grounds it; a thin bright ring
-	## traces the bubble; a short arc catches a highlight top-left. Static
-	## (redraws only on the mining flash).
-	var g := _glow_color
-	# soft dark seat — a shadow so the rock sits in space, not floats
-	draw_circle(Vector2.ZERO, _bubble_r * 1.02, Color(0.02, 0.03, 0.05, 0.35))
-	# containment ring: thin, crisp, element-coloured (brightens on a hit)
-	var ring_a := 0.4 + 0.5 * _flash
-	draw_arc(Vector2.ZERO, _bubble_r, 0.0, TAU, 48,
-		Color(g.r, g.g, g.b, ring_a), 1.5, true)
-	# a slim inner seat of colour just inside the ring (no big radial fade)
-	draw_arc(Vector2.ZERO, _bubble_r * 0.94, 0.0, TAU, 48,
-		Color(g.r, g.g, g.b, ring_a * 0.35), 3.0, true)
-	# specular catch, top-left quadrant
-	draw_arc(Vector2.ZERO, _bubble_r, PI * 0.75, PI * 1.25, 16,
-		Color(1, 1, 1, 0.28 + 0.4 * _flash), 1.5, true)
-
-
 func _draw_bite() -> void:
+	# element name ALWAYS shown: small WHITE text with a sharp black shadow so
+	# it reads over any rock colour. No ring, no per-element tint.
+	if vein != "":
+		var font := ThemeDB.fallback_font
+		var label := "%s · %s" % [vein, Elements.name_of(vein)]
+		var pos := Vector2(-70, -radius - 12)
+		# sharp black outline: draw the string offset in 8 directions behind it
+		for o in [Vector2(-1, -1), Vector2(1, -1), Vector2(-1, 1), Vector2(1, 1),
+				Vector2(-1, 0), Vector2(1, 0), Vector2(0, -1), Vector2(0, 1)]:
+			draw_string(font, pos + o, label, HORIZONTAL_ALIGNMENT_CENTER, 140, 9,
+				Color(0, 0, 0, 0.95))
+		draw_string(font, pos, label, HORIZONTAL_ALIGNMENT_CENTER, 140, 9, Color.WHITE)
 	if _flash <= 0.0:
 		return
 	# molten spark right where the beam meets the rock
@@ -146,9 +148,3 @@ func _draw_bite() -> void:
 		var sd := Vector2.from_angle(randf() * TAU)
 		draw_line(hp + sd * 2.0, hp + sd * (5.0 + randf() * 8.0),
 			Color(_ore_color.r, _ore_color.g, _ore_color.b, (0.5 + randf() * 0.5) * _flash), 1.4)
-	# element name tag while it's being cut
-	if vein != "":
-		draw_string(ThemeDB.fallback_font, Vector2(-70, -radius - 12),
-			"%s — %s" % [vein, Elements.name_of(vein)],
-			HORIZONTAL_ALIGNMENT_CENTER, 140, 13,
-			Color(_ore_color.r, _ore_color.g, _ore_color.b, minf(_flash * 2.0, 1.0)))

@@ -168,7 +168,7 @@ func _plot_walk(c: Vector2, pp: Vector2, k: float, sweep: float, flick: float) -
 
 
 # ------------------------------------------------------------------
-# Helm plot: asteroid fields, wrecks, home, nebula bearings
+# Helm plot: asteroid fields, wrecks, nebula bearings
 # ------------------------------------------------------------------
 func _plot_flight(c: Vector2, sp: Vector2, k: float, sweep: float, flick: float) -> void:
 	var acc := UITheme.ACCENT
@@ -241,10 +241,10 @@ func _plot_flight(c: Vector2, sp: Vector2, k: float, sweep: float, flick: float)
 				c + bdir * (R - 10.0) + bdir.orthogonal() * 4.0,
 				c + bdir * (R - 10.0) - bdir.orthogonal() * 4.0]),
 				Color(gold.r, gold.g, gold.b, 0.9 * bpulse * flick))
-	# home station — clamped to the rim when far, always points the way back
-	_plot_home(c, -sp, k, flick)
 
 
+# Plots a square blip (your parked ship on the spacewalk radar), clamped to the
+# rim when out of range so it always points the way back to the airlock.
 func _plot_home(c: Vector2, rel_world: Vector2, k: float, flick: float) -> void:
 	var acc := UITheme.ACCENT
 	var srel := rel_world * k

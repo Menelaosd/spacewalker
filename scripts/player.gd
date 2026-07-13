@@ -13,9 +13,10 @@ const REFILL_RATE := 45.0    # per second while docked
 # The lifeline has some give past its rated length — a soft bungee zone,
 # not a wall. Outward speed bleeds off and a pull-back force ramps up
 # with stretch until you simply can't push any farther.
-const TETHER_STRETCH := 90.0      # px of elastic give past max length
-const TETHER_PULL := 460.0        # max pull-back accel at full stretch
-const TETHER_BLEED := 10.0        # how fast outward velocity dies at full stretch
+const TETHER_STRETCH := 46.0      # px of elastic give past max length — a SLIGHT
+                                  # bungee, not a big rubber-band bounce
+const TETHER_PULL := 520.0        # max pull-back accel at full stretch
+const TETHER_BLEED := 12.0        # how fast outward velocity dies at full stretch
 
 var tether_anchor := Vector2.ZERO
 var attached := true   # false during the adrift opening — no line, no leash
@@ -228,7 +229,10 @@ func _suit_state() -> Dictionary:
 	## suit, the tether clip and the laser muzzle, so everything stays
 	## glued to the same body no matter the pose.
 	var f := _pick_frame()
-	var rot := clampf(velocity.x * 0.0009, -0.3, 0.3)
+	# lean into the drift: a gentle tilt along the velocity, stronger the
+	# faster you move (kept small so the suit stays upright)
+	var rot := clampf(velocity.x * 0.0012, -0.32, 0.32) \
+		+ clampf(velocity.y * 0.0004, -0.12, 0.12) * _face
 	var sc := Vector2(ASTRO_SCALE, ASTRO_SCALE)
 	if _dying:
 		rot = _anim_t * 0.9   # limp slow tumble
@@ -239,11 +243,10 @@ func _suit_state() -> Dictionary:
 		if aim_dir.x < 0.0:
 			sc.y = -ASTRO_SCALE
 	else:
-		# face the way we're MOVING (latched), not the mouse — so the suit
-		# doesn't flip when the animation changes mid-drift
+		# clean instant flip toward the way we're moving (no squash pivot)
 		var face := _face
 		if f == 5:
-			face = signf((tether_anchor - global_position).x)   # reach for the line
+			face = signf((tether_anchor - global_position).x)
 		if face < 0.0:
 			sc.x = -ASTRO_SCALE
 	return {"frame": f, "xf": Transform2D(rot, sc, 0.0, Vector2.ZERO)}
@@ -268,7 +271,7 @@ func _draw_tether(st: Dictionary) -> void:
 	# fixed 60px into a loop hanging below the astronaut
 	var sag := slack * clampf(dist * 0.28, 0.0, 60.0)
 	var pts := PackedVector2Array()
-	var steps := 14
+	var steps := 24
 	for i in steps + 1:
 		var t := float(i) / float(steps)
 		var p := a.lerp(hip, t)
@@ -277,7 +280,33 @@ func _draw_tether(st: Dictionary) -> void:
 	# strain shows: gold when easy, hot red-orange and thin at full stretch
 	var strain := clampf((dist - GameState.tether_length) / GameState.tether_stretch(), 0.0, 1.0)
 	var col := Color(1.0, 0.85, 0.3, 0.9).lerp(Color(1.0, 0.35, 0.2, 1.0), strain)
-	draw_polyline(pts, col, 2.0 - strain * 0.8)
+	# a solid line, faintly SEGMENTED — small dashes over a continuous
+	# under-line, so it reads as a woven lifeline without looking busy. The
+	# dashes open a touch as it stretches. Visual only.
+	draw_polyline(pts, Color(col.r, col.g, col.b, 0.85), 1.8 - strain * 0.6)
+	var w := 2.2 - strain * 0.7
+	var dash := 4.0 + strain * 3.0
+	var gap := 2.0
+	var acc := 0.0
+	var draw_on := true
+	for i in pts.size() - 1:
+		var seg := pts[i + 1] - pts[i]
+		var seg_len := seg.length()
+		if seg_len < 0.001:
+			continue
+		var dir := seg / seg_len
+		var used := 0.0
+		while used < seg_len:
+			var span := (dash if draw_on else gap) - acc
+			var step := minf(span, seg_len - used)
+			if draw_on:
+				draw_line(pts[i] + dir * used, pts[i] + dir * (used + step),
+					col.lightened(0.15), w)
+			used += step
+			acc += step
+			if acc >= (dash if draw_on else gap):
+				acc = 0.0
+				draw_on = not draw_on
 
 
 func _draw_suit(st: Dictionary) -> void:
@@ -304,8 +333,20 @@ func _draw_suit(st: Dictionary) -> void:
 			var a := TAU * float(i) / 4.0 + PI / 4.0
 			draw_circle(Vector2.from_angle(a) * 14.0, 1.6 + randf() * 1.2,
 				Color(0.7, 0.9, 1.0, 0.55))
-	draw_set_transform_matrix(xf)
-	draw_texture(tex, -tex.get_size() * 0.5)
+	# idle bob — when just drifting (not thrusting / braking / mining / dying),
+	# the suit rises and settles a hair, like floating breath in zero-g
+	var bob := 0.0
+	if not _dying and thrust_input.length() <= 0.1 and not braking and not laser_on:
+		bob = sin(_anim_t * 1.6) * 1.3
+	draw_set_transform_matrix(xf.translated(Vector2(0, bob)))
+	if frame <= 1:
+		# idle drift: CROSSFADE the two idle frames instead of hard-toggling,
+		# so the float reads as a smooth loop rather than a two-frame flicker
+		var blend := 0.5 + 0.5 * sin(_anim_t * 1.4)
+		draw_texture(ASTRO[0], -ASTRO[0].get_size() * 0.5, Color(1, 1, 1, 1.0 - blend))
+		draw_texture(ASTRO[1], -ASTRO[1].get_size() * 0.5, Color(1, 1, 1, blend))
+	else:
+		draw_texture(tex, -tex.get_size() * 0.5)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
