@@ -5,6 +5,107 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 14/07/2026 — v1.47: top-edge flicker KILLED (exclusive fullscreen) + dialog framing
+
+- **The flickering line at the top of the screen — root-caused and fixed.**
+  Frame-diffing live captures showed exactly rows 0-1 alternating between
+  rgb(36,36,36) — the Windows 11 dark-mode window-chrome colour — and black.
+  Godot's regular fullscreen (mode 3) keeps a 1px window border by design and
+  Win11's DWM keeps repainting it. Switched to EXCLUSIVE fullscreen (mode 4):
+  no border, no chrome, window is exactly 2560x1440 now. Also set stretch
+  aspect to "expand" (no letterbox strips on odd-sized windows).
+- **Dialog figures sunk further** (captain 20% / crew 13% below the bottom
+  edge — the captain takes extra sink so his HEAD levels with the crew's) —
+  waist-up framing, nobody floats, ratios read right per the captain.
+
+## 14/07/2026 — v1.46: dialog scenes — aboard THEIR ship
+
+- **Each first-meeting dialog now plays inside that crew member's own ship**
+  (captain's INSIDE art → crew/<name>_inside.png): JUNO's engineering bay,
+  MIRA's greenhouse, HALE's rugged cockpit, SOLA's medbay, VEGA's navigation
+  deck. Drawn OPAQUE cover-fit and pulled darker (0.5 tint + dusk pass) so the
+  figures and text stay the read — no space, no radar, no HUD bleeding through.
+- **All other HUD hidden while the dialog is up** (radar/quest log/labels/
+  banner) — also kills the flicker that was showing at the top of the screen.
+- **Layout polish per the captain:** compact dialog box (21% height, was 34%),
+  crew drawn smaller than the captain (0.84 vs 0.92 — they stand a step back)
+  and both figures sunk below the bottom edge so nobody hovers; a speaker TAIL
+  triangle on the box's top edge points at whoever is talking (left = you,
+  right = them), jumping per line — static, no motion.
+
+## 14/07/2026 — v1.45: interior walk regenerated from the frames2 sheet
+
+- The captain regenerated the walk sheet (game-assets/spacewalker/frames2) with
+  a proper structure: 4 walk poses + a still per direction. Extractor updated
+  for the new layout (each row carries its own idle; the bottom stills row is
+  redundant and skipped). Same 2-pass normalisation (helmet width + per-row
+  median height): sizes came out dead-even (helmet 65-70, heights 116-123).
+  Same label inversion as frames1 — the "DOWN" row is the back view, "UP" the
+  visor; mapped by pixels.
+- **Cut to the classic 4-beat (captain: 4 frames per row played back weird):**
+  only the TWO clean opposite-leg contact poses per direction survive (right
+  0+1, left 0+1, front 0+1, back 0+2 — back f1 was an odd wide stance, f3
+  near-duped f2); the player interleaves the idle as the passing frame —
+  step A → stand → step B → stand. 12 frames total, 10 fps.
+
+## 14/07/2026 — v1.44: dialog figures — one size, all facing the player
+
+- **Proportions fixed:** dialog figures were scaled by their CANVAS height, but
+  each figure PNG pads its canvas differently — JUNO rendered visibly smaller
+  than SOLA/MIRA. Both the captain and the crew now scale by their opaque
+  CONTENT box (computed once, cached) and bottom-anchor on the art's real feet,
+  so all five stand the same height. The captain matches the crew height
+  exactly (was 0.96 vs 0.92 — read too big) and sinks 5% below the screen
+  bottom, so he reads slightly nearer the camera without towering.
+- **Facing fixed:** zoomed head-checks on all five — JUNO and VEGA gazed
+  screen-right (away from the captain); both joined HALE and MIRA in the FLIP
+  list. SOLA is frontal and stays unmirrored. The flip now mirrors around the
+  CONTENT span, so flipped art anchors at the same right edge as unflipped.
+- Screenshot-verified all 5 first-meeting dialogs (SW_DIALOG hook).
+
+## 14/07/2026 — v1.43: CRT/scanline overlay removed
+
+- Cut the CRT/VHS post-effect entirely — autoload, `crt_overlay.gd`, and
+  `crt.gdshader` deleted (and the `SW_NO_CRT` escape hatch with them). The
+  game now renders clean; the art reads sharper without the scanline veil.
+
+## 13/07/2026 — v1.42: real interior walk animation + asset purge
+
+- **Interior astronaut replaced wholesale** with the captain's new frame sheet
+  (`tools/extract_walk_frames.gd` → assets/sprites/walk): 7 painted walk frames
+  per direction (right / left / front / back) + a dedicated idle still each.
+  Every frame extracted onto ONE common canvas, feet bottom-aligned and centred,
+  so the cycle never jitters. NOTE the sheet's UP/DOWN row labels were
+  camera-inverted for a top-down game — mapped by pixels, not labels (visor rows
+  = walking down-screen, backpack rows = walking up-screen).
+- `interior_player.gd` rewritten on the new set: 11 fps cycles, real left
+  frames (no more mirrored right — the backpack stays on the correct side),
+  idle chest-breathing kept, footstep sfx timed to footfalls. `SW_WALK` env
+  hook (right/left/up/down) for screenshot verification.
+- **Frame normalisation + dedup (14/07):** the AI sheet's figures drifted in
+  size (back views ~10% taller, front idle bigger than its walks) and padded
+  rows with near-repeat poses. Fixed in the extractor with a 2-pass normalise —
+  per-frame HELMET-width equalisation (the helmet is the same size in every
+  pose, so it's the true scale anchor), then per-direction median-height
+  equalisation (kills the size snap on turns, keeps natural stride bob) — and
+  pairwise-diff dedup (verified via `tools/analyze_walk.gd` similarity matrix).
+  Frame sets now load dynamically per direction, footsteps follow the real
+  cycle length.
+- **Side cycles cut to the captain's 4 picks:** the sheet's side rows drew the
+  same raised-leg moment three ways, which played back as hopping on one foot.
+  Right/left now run a clean 4-beat — stand → knee up → stride → recover (no
+  kick-behind pose at all); front/back keep their 5 distinct frames. 10 fps.
+  NB the left row's kick poses sit at DIFFERENT indices than the right row's
+  (left 3+4 vs right 3/4/5) — left picks are [0,2,5,6], right [0,1,2,6].
+- **142 unused assets deleted** (verified by diffing every file on disk against
+  all literal + dynamic `res://` references, incl. `%s`/`%d` patterns): 56
+  colored category asteroids (superseded by neutral+core layers; metal_/
+  nonmetal_ kept as regeneration sources), the old avatar frames (s10_01..12,
+  synthesized s10_front_a/b — s10_00 kept as crew fallback), ~60 never-placed
+  prop cutouts, crew _profile/_ship art (superseded by _figure/_id/_wreck),
+  placeholder ship.png, generated ui/ kit, 2 icons, 5 fire particles. Obsolete
+  `tools/gen_walk_frames.gd` removed. All scenes boot + reimport clean after.
+
 ## 13/07/2026 — v1.41: cut the "home" concept + helm-transition polish
 
 - **Removed the HOME concept entirely** — a fixed station at world-origin never

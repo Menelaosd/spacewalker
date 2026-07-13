@@ -20,15 +20,18 @@ const LINE_H := 18.0
 
 # characters whose figure art faces AWAY from the player's side —
 # mirror them so the two are actually talking to each other
-const FLIP := {"HALE": true, "MIRA": true}
+# (verified per head: JUNO + VEGA gaze screen-right, SOLA is frontal)
+const FLIP := {"HALE": true, "MIRA": true, "JUNO": true, "VEGA": true}
 
 var _font: Font = ThemeDB.fallback_font
+var _boxes := {}                # texture -> Rect2 opaque-content bbox cache
 var _who := ""
 var _lines: Array = []
 var _idx := 0
 var _chars := 0.0
 var _t := 0.0                   # time since start() — figure fade-in
 var _figure: Texture2D = null
+var _bg: Texture2D = null       # the crew member's ship interior, full-screen
 var _player: Texture2D = null   # the captain, back view, left side
 var _fading_out := false
 var _fade_t := 0.0
@@ -50,6 +53,9 @@ func start(char_name: String) -> void:
 	if dialogs.has(char_name):
 		_lines = dialogs[char_name]
 	_figure = load("res://assets/sprites/crew/" + char_name.to_lower() + "_figure.png")
+	# their ship's interior fills the scene — you BOARDED their wreck; no
+	# space, no radar, no HUD peeking through
+	_bg = load("res://assets/sprites/crew/" + char_name.to_lower() + "_inside.png")
 	if _player == null:
 		_player = load("res://assets/sprites/crew/player_figure.png")
 	_idx = 0
@@ -59,6 +65,11 @@ func start(char_name: String) -> void:
 	_fade_t = 0.0
 	_done = false
 	visible = true
+	# the conversation owns the whole screen — hide every other HUD element
+	# (radar, quest log, labels, banners) so nothing animates/flickers on top
+	for sib in get_parent().get_children():
+		if sib != self and sib is CanvasItem:
+			sib.visible = false
 	if _lines.is_empty():
 		_begin_fade_out()   # nothing to say — fade straight through
 	queue_redraw()
@@ -119,6 +130,31 @@ func _gui_input(event: InputEvent) -> void:
 		accept_event()
 
 
+func _content_box(tex: Texture2D) -> Rect2:
+	## The opaque bbox of the art INSIDE its canvas. Each figure PNG pads its
+	## canvas differently, so scaling by canvas height rendered every character
+	## a different size — scale by what's actually drawn instead.
+	if _boxes.has(tex):
+		return _boxes[tex]
+	var img := tex.get_image()
+	if img.is_compressed():
+		img.decompress()
+	var minx := img.get_width()
+	var maxx := 0
+	var miny := img.get_height()
+	var maxy := 0
+	for y in range(0, img.get_height(), 2):
+		for x in range(0, img.get_width(), 2):
+			if img.get_pixel(x, y).a > 0.05:
+				minx = mini(minx, x)
+				maxx = maxi(maxx, x)
+				miny = mini(miny, y)
+				maxy = maxi(maxy, y)
+	var box := Rect2(minx, miny, maxi(maxx - minx, 1), maxi(maxy - miny, 1))
+	_boxes[tex] = box
+	return box
+
+
 func _wrap(text: String, width: float) -> PackedStringArray:
 	# draw_string doesn't wrap — split into lines that fit `width`
 	var out := PackedStringArray()
@@ -140,8 +176,18 @@ func _draw() -> void:
 	var vp := get_viewport_rect().size
 	var ac := UITheme.ACCENT
 
-	# near-black dim — the scene behind vanishes
-	draw_rect(Rect2(Vector2.ZERO, vp), Color(0.0, 0.01, 0.03, 0.82))
+	# their ship interior fills the frame — OPAQUE (no space/radar bleed),
+	# cover-fit (fill + centre-crop) and pulled darker so the figures and the
+	# dialog box stay the read
+	draw_rect(Rect2(Vector2.ZERO, vp), Color(0, 0, 0, 1))
+	if _bg != null:
+		var bsz := _bg.get_size()
+		var cover := maxf(vp.x / bsz.x, vp.y / bsz.y)
+		var dsz2 := bsz * cover
+		var org := (Vector2(vp.x, vp.y) - dsz2) * 0.5
+		draw_texture_rect(_bg, Rect2(org, dsz2), false, Color(0.5, 0.5, 0.55))
+	# soft extra dusk so the bright panels in the art never fight the text
+	draw_rect(Rect2(Vector2.ZERO, vp), Color(0.0, 0.01, 0.03, 0.25))
 
 	# who's speaking? the active side draws bright, the listener dims a touch
 	var speaking_you := false
@@ -149,41 +195,64 @@ func _draw() -> void:
 		speaking_you = str((_lines[_idx] as Dictionary).get("who", "")) == "YOU"
 	var fade := clampf(_t / FIGURE_FADE, 0.0, 1.0)
 
-	# the captain — back view, LEFT side, a little larger (nearer the camera)
+	# BOTH figures scale by their opaque CONTENT box (not the canvas — canvas
+	# padding differs per art, which used to render every character a
+	# different size) and bottom-anchor on the content's real feet.
+
+	# the captain — back view, LEFT side, sunk below the screen bottom so he
+	# reads planted (nearer the camera), never hovering
 	if _player != null:
-		var pts := _player.get_size()
-		if pts.y > 0.0:
-			var ps := vp.y * 0.96 / pts.y
-			var pdsz := pts * ps
-			var ppos := Vector2(56.0, vp.y - pdsz.y)
-			var pcol := Color(1, 1, 1, fade) if speaking_you \
-				else Color(0.62, 0.66, 0.74, fade)
-			draw_texture_rect(_player, Rect2(ppos, pdsz), false, pcol)
+		var pbb := _content_box(_player)
+		var ps := vp.y * 0.92 / pbb.size.y
+		var pdsz := _player.get_size() * ps
+		# sunk so his HEAD lines up with the crew's across the box (he's the
+		# bigger figure — without the extra sink he towers a head above them)
+		var ppos := Vector2(56.0 - pbb.position.x * ps,
+			vp.y + vp.y * 0.20 - pbb.end.y * ps)
+		var pcol := Color(1, 1, 1, fade) if speaking_you \
+			else Color(0.62, 0.66, 0.74, fade)
+		draw_texture_rect(_player, Rect2(ppos, pdsz), false, pcol)
 
-	# character figure, right side, bottom-anchored, ~92% of screen height;
-	# the dialog box intentionally covers the lower half (waist-up framing).
-	# FLIP mirrors art that faces away from the conversation.
+	# character figure, right side — smaller than the captain (they stand a
+	# step further back) and sunk below the bottom edge so their feet never
+	# hover over the floor. FLIP mirrors art that faces away.
 	if _figure != null:
-		var ts := _figure.get_size()
-		if ts.y > 0.0:
-			var s := vp.y * 0.92 / ts.y
-			var dsz := ts * s
-			var pos := Vector2(vp.x - 120.0 - dsz.x, vp.y - dsz.y)
-			var ccol := Color(0.62, 0.66, 0.74, fade) if speaking_you \
-				else Color(1, 1, 1, fade)
-			if FLIP.get(_who, false):
-				# mirror around the figure's own span (negative-size rects
-				# don't reposition — use a transform)
-				draw_set_transform(Vector2(pos.x + dsz.x, pos.y), 0.0, Vector2(-1, 1))
-				draw_texture_rect(_figure, Rect2(Vector2.ZERO, dsz), false, ccol)
-				draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-			else:
-				draw_texture_rect(_figure, Rect2(pos, dsz), false, ccol)
+		var bb := _content_box(_figure)
+		var s := vp.y * 0.84 / bb.size.y
+		var dsz := _figure.get_size() * s
+		var ccol := Color(0.62, 0.66, 0.74, fade) if speaking_you \
+			else Color(1, 1, 1, fade)
+		var top := vp.y + vp.y * 0.13 - bb.end.y * s   # feet sunk off-screen
+		if FLIP.get(_who, false):
+			# mirror around the CONTENT span so the visible art (not the
+			# padded canvas) lands right-edge at the same anchor
+			var anchor := vp.x - 120.0 + bb.position.x * s
+			draw_set_transform(Vector2(anchor, top), 0.0, Vector2(-1, 1))
+			draw_texture_rect(_figure, Rect2(Vector2.ZERO, dsz), false, ccol)
+			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		else:
+			var pos := Vector2(vp.x - 120.0 - bb.end.x * s, top)
+			draw_texture_rect(_figure, Rect2(pos, dsz), false, ccol)
 
-	# dialog box — sci panel over the lower third
-	var box_h := vp.y * 0.34
-	var box := Rect2(MARGIN_X, vp.y - box_h - 20.0, vp.x - MARGIN_X * 2.0, box_h)
+	# dialog box — a compact sci panel along the bottom (lines are short;
+	# a third of the screen was way too much box)
+	var box_h := vp.y * 0.21
+	var box := Rect2(MARGIN_X * 1.4, vp.y - box_h - 24.0,
+		vp.x - MARGIN_X * 2.8, box_h)
 	UITheme.draw_sci_panel(self, box, ac)
+
+	# speaker tail — a small triangle on the box's top edge pointing up at
+	# whoever is talking (captain left, crew right). Static, jumps per line.
+	if not _lines.is_empty() and _idx < _lines.size():
+		var tx := box.position.x + 150.0 if speaking_you else box.end.x - 150.0
+		var ty := box.position.y + 1.0
+		draw_colored_polygon(PackedVector2Array([
+			Vector2(tx - 13.0, ty), Vector2(tx + 13.0, ty),
+			Vector2(tx, ty - 15.0)]), Color(0.04, 0.13, 0.18, 0.96))
+		draw_line(Vector2(tx - 13.0, ty), Vector2(tx, ty - 15.0),
+			Color(ac.r, ac.g, ac.b, 0.8), 1.4)
+		draw_line(Vector2(tx + 13.0, ty), Vector2(tx, ty - 15.0),
+			Color(ac.r, ac.g, ac.b, 0.8), 1.4)
 
 	if not _lines.is_empty() and _idx < _lines.size():
 		var line: Dictionary = _lines[_idx]
