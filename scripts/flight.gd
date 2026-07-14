@@ -35,7 +35,7 @@ const TRASH_SPRITE_DIR := "res://assets/sprites/trash/"
 # Debris is SPACE TRASH — tiny next to the ~156px ship hull. Every crop is
 # normalised so its longest side draws at this many px (~1/5.5 of the ship),
 # whatever its source resolution, so a huge crop and a small one both read small.
-const TRASH_DRAW_MAX := 28.0
+const TRASH_DRAW_MAX := 42.0
 
 # Derelict WRECKS — whole dead ships (salvage-sheet art), much rarer than
 # loose junk. Stripping one pays a real scrap haul and can recover a lost
@@ -709,9 +709,6 @@ func _draw_trash(center: Vector2, half: Vector2) -> void:
 				# normalise the longest side to TRASH_DRAW_MAX so any source
 				# resolution draws SMALL (~28px, ~1/5.5 of the ~156px ship)
 				var s: float = TRASH_DRAW_MAX / maxf(ts.x, maxf(ts.y, 1.0))
-				# faint glow in the metal's colour, behind the sprite — a subtle
-				# tell for which scrap element this piece yields on pickup
-				draw_circle(p, TRASH_DRAW_MAX * 0.55, Color(mcol.r, mcol.g, mcol.b, 0.10))
 				# STATIC per-piece tilt (piece["spin"] as a fixed angle, NOT *_t) —
 				# detailed sprites spinning continuously read as nauseating; tumbled
 				# but still looks like real drifting debris
@@ -768,14 +765,25 @@ func _draw_nebulae(center: Vector2, half: Vector2) -> void:
 		draw_set_transform(nc, 2.4 - _t * 0.005, Vector2(s * 1.3, s * 1.15))
 		draw_texture(tex, -half_tex, Color(1, 1, 1, 0.7))
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-		# glowing heart, proportional to the cloud
+		# glowing heart, proportional to the cloud — a soft radial glow texture
+		# (NOT stacked draw_circle discs: their crisp edges read as tiny
+		# concentric rings). Two smoothly-faded layers give the core gentle
+		# depth with no perceptible boundary.
 		var rng := RandomNumberGenerator.new()
 		rng.seed = 7000 + i
 		var heart := nc + Vector2.from_angle(rng.randf() * TAU) * nr * 0.2
-		draw_circle(heart, nr * 0.125, Color(col.lightened(0.3).r, col.lightened(0.3).g,
-			col.lightened(0.3).b, 0.05))
-		draw_circle(heart, nr * 0.046, Color(col.lightened(0.55).r, col.lightened(0.55).g,
-			col.lightened(0.55).b, 0.07))
+		var glow := NebulaFog.glow_texture()
+		var gh := glow.get_size() * 0.5
+		var lc := col.lightened(0.35)
+		var gso := nr * 0.30 / gh.x          # outer soft halo
+		draw_set_transform(heart, 0.0, Vector2(gso, gso))
+		draw_texture(glow, -gh, Color(lc.r, lc.g, lc.b, 0.09))
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		var lc2 := col.lightened(0.6)
+		var gsi := nr * 0.12 / gh.x          # inner brighter core
+		draw_set_transform(heart, 0.0, Vector2(gsi, gsi))
+		draw_texture(glow, -gh, Color(lc2.r, lc2.g, lc2.b, 0.13))
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		# stars packed through the cloud, tinted by it — big clouds get more
 		for b in int(20.0 + nr / 60.0):
 			var sp := nc + Vector2.from_angle(rng.randf() * TAU) \

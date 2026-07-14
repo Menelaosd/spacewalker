@@ -15,10 +15,10 @@ extends Control
 # are UPPERCASE; icon files are lowercase.
 const CREW := ["JUNO", "MIRA", "HALE", "SOLA", "VEGA"]
 
-const DIAM := 44.0            # circle diameter
-const GAP := 9.0             # gap between circles
-const MARGIN := 18.0          # inset from the screen's top-right corner
-const RING := 2.0            # ring border thickness
+const DIAM := 30.0            # circle diameter (smaller, per captain)
+const GAP := 6.0             # gap between circles
+const MARGIN := 16.0          # inset from the screen's top-right corner
+const RING := 1.5            # ring border thickness
 
 var _color_tex := {}          # NAME -> Texture2D (rescued look)
 var _bw_tex := {}             # NAME -> Texture2D (unrescued look)
@@ -98,8 +98,8 @@ func _draw() -> void:
 
 	# tiny right-aligned caption above the row
 	var cap := "CREW %d / %d" % [count, CREW.size()]
-	draw_string(_font, Vector2(0, 11), cap, HORIZONTAL_ALIGNMENT_RIGHT,
-		size.x, 11, Color(0.88, 0.99, 1.0, 0.55))
+	draw_string(_font, Vector2(0, 10), cap, HORIZONTAL_ALIGNMENT_RIGHT,
+		size.x, 9, Color(0.88, 0.99, 1.0, 0.55))
 
 	var accent := Color8(74, 222, 255)             # cyan (UITheme.ACCENT)
 	var y := 16.0

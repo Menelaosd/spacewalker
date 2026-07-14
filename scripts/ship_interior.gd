@@ -122,11 +122,12 @@ const ROOM_PROPS := {
 	#   • THREE double beds along the top plating (heads to the wall), each a
 	#     pair of bunks, with two tall lockers standing between them, plus a
 	#     nightstand at each row end as a bedside table.
-	#   • LEFT wall = personal nook: a wardrobe, a reading chair, a pin/tool
-	#     board, and a potted plant in the bottom-left corner.
-	#   • LOWER-RIGHT = a workbench desk with a chair (clear of the Medbay door
-	#     at y~0 above it and the Upgrade door at x~+95 to its left), with a
-	#     potted plant in the corner beside it.
+	#   • LEFT wall = personal nook: a wardrobe, a reading chair and a potted
+	#     plant down the far-left plating (the old pin/tool board is gone — tool
+	#     desks make no sense in crew berths).
+	#   • LOWER-RIGHT = a cosy seat: a reading chair beside a potted plant in the
+	#     corner (clear of the Medbay door at y~0 and the Upgrade door at x~+95).
+	#     This corner used to hold a workbench desk — removed for the same reason.
 	#   • a round RUG anchors the open mid-floor as a cosy centrepiece. It is a
 	#     FLOOR DECAL (see FLAT_PROPS): drawn flat + non-blocking, listed FIRST
 	#     so it lies UNDER every standing piece.
@@ -143,15 +144,13 @@ const ROOM_PROPS := {
 		# bedside tables at the ends of the bunk row (top corners)
 		["nightstand", Vector2(-172, -33), 18.0],
 		["nightstand", Vector2(172, -33), 18.0],
-		# left-wall personal nook (replaces the old left-wall locker)
+		# left-wall personal nook (no tool board — makes no sense in a berth)
 		["wardrobe", Vector2(-172, -4), 34.0],
 		["chair", Vector2(-146, 24), 18.0],
-		["toolboard", Vector2(-176, 40), 28.0],
-		["plant", Vector2(-176, 64), 22.0],
-		# desk nook in the lower-right corner
-		["workbench", Vector2(158, 52), 40.0],
-		["chair", Vector2(137, 61), 18.0],
-		["plant", Vector2(182, 66), 20.0],
+		["plant", Vector2(-176, 52), 22.0],
+		# cosy seat in the lower-right corner (was a workbench desk — removed)
+		["chair", Vector2(156, 58), 18.0],
+		["plant", Vector2(182, 64), 20.0],
 	],
 	"engine": [
 		["batteries", Vector2(-60, 42), 52.0],
@@ -906,30 +905,45 @@ func _process(delta: float) -> void:
 
 func _update_npcs() -> void:
 	## Drive the crew's rest/gesture state machine. Each NPC rests (frame 0 +
-	## breath) for a RANDOM 7-15s, then plays its gesture ONCE, then rests again.
-	## First trigger is randomised per NPC so they stagger and never sync.
+	## breath) ~90% of the time, then plays ONE gesture picked at random from its
+	## pool, ONCE and slowly, then settles back to rest.
+	##
+	## INDEPENDENT TIMING (crew must NEVER gesture in unison): every NPC owns its
+	## own RNG (`_npc_rng`), seeded from a fresh randomize() at first sight, so
+	## their schedules are provably independent AND non-deterministic across runs.
+	## The FIRST trigger is staggered over a WIDE 3-25s window; every later rest
+	## is an INFREQUENT 12-30s. No shared clock advances them together — each keeps
+	## its own absolute `next` time and re-rolls it independently.
 	for nname in NPC_SPOTS:
 		if not GameState.rescued.has(nname):
 			continue
 		var a: Dictionary = _npc_anim.get(nname, {})
 		if a.is_empty():
-			a = {"mode": "rest", "gstart": 0.0,
-				"next": _reactor + randf_range(2.0, NPC_REST_MAX)}
+			var rng := RandomNumberGenerator.new()
+			rng.randomize()   # own seed per NPC — no two schedules line up
+			_npc_rng[nname] = rng
+			a = {"mode": "rest", "gstart": 0.0, "anim": 0,
+				"next": _reactor + rng.randf_range(NPC_FIRST_MIN, NPC_FIRST_MAX)}
 			_npc_anim[nname] = a
-		var frames := _npc_idle_frames(nname)
+		var rng2: RandomNumberGenerator = _npc_rng[nname]
+		var pool := _npc_idle_pool(nname)
 		if a["mode"] == "rest":
 			if _reactor >= float(a["next"]):
-				if frames.size() > 1:
+				if pool.size() >= 1 and (pool[0] as Array).size() > 1:
+					# pick a RANDOM gesture from the pool, play it once
+					a["anim"] = rng2.randi_range(0, pool.size() - 1)
 					a["mode"] = "gesture"
 					a["gstart"] = _reactor
 				else:
-					# no real gesture to play (token/single frame) — just wait again
-					a["next"] = _reactor + randf_range(NPC_REST_MIN, NPC_REST_MAX)
+					# no real gesture yet (token / not imported) — wait again
+					a["next"] = _reactor + rng2.randf_range(NPC_REST_MIN, NPC_REST_MAX)
 		else:
-			var gdur := float(maxi(frames.size(), 1)) / NPC_GESTURE_FPS
+			var gi: int = clampi(int(a["anim"]), 0, pool.size() - 1)
+			var nframes := (pool[gi] as Array).size() if pool.size() > 0 else 1
+			var gdur := float(maxi(nframes, 1)) / NPC_GESTURE_FPS
 			if _reactor - float(a["gstart"]) >= gdur:
 				a["mode"] = "rest"
-				a["next"] = _reactor + randf_range(NPC_REST_MIN, NPC_REST_MAX)
+				a["next"] = _reactor + rng2.randf_range(NPC_REST_MIN, NPC_REST_MAX)
 
 
 func _update_active_station() -> void:
@@ -1960,22 +1974,31 @@ func _draw_furniture(fy: float, behind: bool, flats: bool) -> void:
 
 
 var _token_cache := {}
-var _idle_cache := {}   # name -> Array[{tex, feet}] idle frames ([] = none yet)
-var _npc_anim := {}     # name -> {mode:"rest"/"gesture", next, gstart}
+var _idle_cache := {}   # name -> Array[{tex, feet}] BASE idle frames ([] = none yet)
+var _pool_cache := {}   # name -> Array of gesture groups (each Array[{tex, feet}])
+var _npc_anim := {}     # name -> {mode:"rest"/"gesture", next, gstart, anim}
+var _npc_rng := {}      # name -> its own RandomNumberGenerator (independent schedule)
 const NPC_TALL := 40.0  # aboard crew height in px — crew-scale, feet on floor
+# per-NPC size scale on the draw height — HALE is a big man, rendered noticeably
+# larger. Scaled ABOUT THE FEET baseline (grows upward), so feet + shadow stay
+# planted on the deck. Default 1.0 for anyone not listed.
+const NPC_SCALE := {"HALE": 1.15}
 # aboard crew whose sprite art faces RIGHT but who should stand facing LEFT:
 # their frames are mirrored horizontally about the figure's centre (feet/shadow
 # stay put — the shadow is symmetric). The rest keep their native right-facing.
 const NPC_FACE_LEFT := {"JUNO": true, "MIRA": true}
-# The crew STAND STILL and breathe. They are NOT a looping animation: 90% of
-# the time they hold frame 0 (resting) with a subtle chest breath; every 7-15s
-# (randomised + staggered per NPC so they never sync) they play their 6-frame
-# gesture ONCE, slowly, then settle back to resting. No left/right flipping ever.
-const NPC_GESTURE_FPS := 3.0    # deliberate one-shot gesture (was a fast 5fps loop)
-const NPC_BREATH_RATE := 0.85   # rad/s — a slow, calm chest breath
+# The crew STAND STILL and breathe. They are NOT a looping animation: ~90% of
+# the time they hold frame 0 (resting) with a subtle chest breath; INFREQUENTLY
+# (each on its OWN randomised 12-30s clock, first trigger staggered over 3-25s,
+# so they never sync) they play ONE gesture picked at random from their pool,
+# ONCE and slowly, then settle back to resting. No left/right flipping ever.
+const NPC_GESTURE_FPS := 3.0    # deliberate one-shot gesture (slow — never fast)
+const NPC_BREATH_RATE := 0.85   # rad/s — a slow, calm chest breath (~1 per 7s)
 const NPC_BREATH_AMT := 0.055   # chest band widens up to ~5.5% on the inhale
-const NPC_REST_MIN := 7.0       # seconds resting between gestures
-const NPC_REST_MAX := 15.0
+const NPC_FIRST_MIN := 3.0      # first-gesture stagger window (wide, per NPC)
+const NPC_FIRST_MAX := 25.0
+const NPC_REST_MIN := 12.0      # seconds resting between gestures (INFREQUENT)
+const NPC_REST_MAX := 30.0
 
 
 func _npc_token(nname: String) -> Texture2D:
@@ -1985,26 +2008,48 @@ func _npc_token(nname: String) -> Texture2D:
 	return _token_cache[nname]
 
 
-func _npc_idle_frames(nname: String) -> Array:
-	## Glob res://assets/sprites/crew/idle/<name>_idle_*.png, sorted, and cache
-	## each as {tex, feet} where `feet` is the fraction of the canvas height at
-	## which the FEET sit (bottom of the opaque pixels). Anchoring by this — not
-	## the raw canvas bottom — plants the feet on the deck even when a frame has
-	## transparent padding below them (hale/juno carry ~8px). Returns [] if none
-	## are generated/imported yet (other agents make these concurrently) — the
-	## draw then falls back to the static token, so nothing ever breaks.
-	if _idle_cache.has(nname):
-		return _idle_cache[nname]
-	var frames: Array = []
+func _npc_idle_pool(nname: String) -> Array:
+	## Build the crew member's POOL of gesture animations and cache it. Globs
+	## res://assets/sprites/crew/idle/<name>_idle*_<n>.png and GROUPS the frames
+	## by their animation token: the base set <name>_idle_<n> plus every extra
+	## set <name>_idle2_<n>, <name>_idle3_<n>, <name>_idle4_<n> (5 other agents
+	## generate these concurrently — any number of groups is accepted). Returns an
+	## Array of groups, each a sorted Array of {tex, feet}; the base "idle" group
+	## is always first (element 0), used as the resting pose. Each frame's `feet`
+	## is the fraction of canvas height where the FEET sit (bottom of the opaque
+	## pixels), so transparent padding never floats the figure.
+	##
+	## Missing/not-yet-imported files are simply skipped (ResourceLoader.exists +
+	## null-guard), so this never errors while the art is still being made. Empty
+	## groups are dropped; [] is returned (and the draw falls back to the token)
+	## when no frames exist at all.
+	if _pool_cache.has(nname):
+		return _pool_cache[nname]
 	var dir := "res://assets/sprites/crew/idle"
-	var prefix := nname.to_lower() + "_idle_"
+	var base := nname.to_lower() + "_idle"   # e.g. "hale_idle"
+	var groups := {}   # group token ("" | "2" | "3" | ...) -> Array of filenames
 	var d := DirAccess.open(dir)
 	if d != null:
-		var names: Array = []
 		for f in d.get_files():
-			if f.ends_with(".png") and f.begins_with(prefix):
-				names.append(f)
-		names.sort()   # _idle_0..5 sort correctly as strings
+			if not f.ends_with(".png") or not f.begins_with(base):
+				continue
+			# strip the "<name>_idle" prefix and ".png": leaves "<G>_<frame>",
+			# where <G> is "" for the base set or "2"/"3"/"4"... for extra sets
+			var rest := f.substr(base.length(), f.length() - base.length() - 4)
+			var us := rest.rfind("_")
+			if us < 0:
+				continue   # no frame index (e.g. a stray "<name>_idle.png") — skip
+			var gkey := rest.substr(0, us)
+			if not groups.has(gkey):
+				groups[gkey] = []
+			(groups[gkey] as Array).append(f)
+	var keys: Array = groups.keys()
+	keys.sort()   # "" < "2" < "3" < "4" — base group lands first
+	var pool: Array = []
+	for gk in keys:
+		var names: Array = groups[gk]
+		names.sort()   # _<0..5> sort correctly as strings
+		var frames: Array = []
 		for f in names:
 			var path := "%s/%s" % [dir, f]
 			# only load once the .import exists, or load() errors on the raw png
@@ -2012,6 +2057,19 @@ func _npc_idle_frames(nname: String) -> Array:
 				var tex: Texture2D = load(path)
 				if tex != null:
 					frames.append({"tex": tex, "feet": _feet_frac(tex)})
+		if not frames.is_empty():
+			pool.append(frames)
+	_pool_cache[nname] = pool
+	return pool
+
+
+func _npc_idle_frames(nname: String) -> Array:
+	## The BASE idle group (pool element 0) — the resting-pose source. [] if none
+	## are imported yet, in which case the draw falls back to the static token.
+	if _idle_cache.has(nname):
+		return _idle_cache[nname]
+	var pool := _npc_idle_pool(nname)
+	var frames: Array = pool[0] if pool.size() > 0 else []
 	_idle_cache[nname] = frames
 	return frames
 
@@ -2040,40 +2098,48 @@ func _draw_npc(nname: String, pos: Vector2, tint: Color) -> void:
 	## _draw_npc_frame), so feet + the symmetric ground shadow stay planted. Falls
 	## back to the static token, then the generic tinted kit astronaut, if their
 	## own frames aren't imported yet.
+	# per-NPC height scale — HALE stands taller than the rest. Applied to the
+	# draw height AND the ground shadow so a bigger body casts a bigger footprint;
+	# the shadow stays pinned to the deck line, the figure grows UPWARD from it.
+	var scale: float = NPC_SCALE.get(nname, 1.0)
+	var tall := NPC_TALL * scale
+
 	# feet sit at pos.y + 12 (the deck line); a soft elliptical ground shadow
 	# hugs it, a hair above — two stacked low-alpha circles, flattened, exactly
 	# like interior_player's, so the crew read as grounded on any floor
 	_ci.draw_set_transform(pos + Vector2(0, 11.0), 0.0, Vector2(1.0, 0.42))
-	_ci.draw_circle(Vector2.ZERO, 12.0, Color(0, 0, 0, 0.18))
-	_ci.draw_circle(Vector2.ZERO, 9.0, Color(0, 0, 0, 0.28))
+	_ci.draw_circle(Vector2.ZERO, 12.0 * scale, Color(0, 0, 0, 0.18))
+	_ci.draw_circle(Vector2.ZERO, 9.0 * scale, Color(0, 0, 0, 0.28))
 	_ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 	var feet_y := pos.y + 12.0
 	var phase := pos.x * 0.31
 	var breath := maxf(sin(_reactor * NPC_BREATH_RATE + phase), 0.0) * NPC_BREATH_AMT
 	var flip: bool = NPC_FACE_LEFT.get(nname, false)
-	var frames := _npc_idle_frames(nname)
-	if not frames.is_empty():
+	var pool := _npc_idle_pool(nname)
+	if not pool.is_empty():
 		var anim: Dictionary = _npc_anim.get(nname, {})
 		var gesturing: bool = anim.get("mode", "rest") == "gesture"
 		if gesturing:
-			# ONE slow pass through the gesture, then _update_npcs settles back
+			# ONE slow pass through the RANDOMLY-PICKED gesture group, then
+			# _update_npcs settles back to rest (both index the same group)
+			var g: Array = pool[clampi(int(anim.get("anim", 0)), 0, pool.size() - 1)]
 			var gi := int((_reactor - float(anim["gstart"])) * NPC_GESTURE_FPS)
-			var f: Dictionary = frames[clampi(gi, 0, frames.size() - 1)]
-			_draw_npc_frame(f["tex"], pos.x, feet_y, float(f["feet"]), 0.0, flip)
+			var f: Dictionary = g[clampi(gi, 0, g.size() - 1)]
+			_draw_npc_frame(f["tex"], pos.x, feet_y, float(f["feet"]), 0.0, flip, tall)
 		else:
-			# resting pose — hold frame 0, only the chest breathes
-			var f0: Dictionary = frames[0]
-			_draw_npc_frame(f0["tex"], pos.x, feet_y, float(f0["feet"]), breath, flip)
+			# resting pose — hold the base group's frame 0, only the chest breathes
+			var f0: Dictionary = (pool[0] as Array)[0]
+			_draw_npc_frame(f0["tex"], pos.x, feet_y, float(f0["feet"]), breath, flip, tall)
 	else:
 		var tok := _npc_token(nname)
 		if tok != null:
 			# token canvases are bottom-anchored (feet at the canvas bottom)
-			_draw_npc_frame(tok, pos.x, feet_y, 1.0, breath, flip)
+			_draw_npc_frame(tok, pos.x, feet_y, 1.0, breath, flip, tall)
 		else:
 			var tex: Texture2D = P["crew_npc"]
-			var s2 := 34.0 / tex.get_size().y
-			_ci.draw_set_transform(Vector2(pos.x, feet_y - 17.0), 0.0,
+			var s2 := 34.0 * scale / tex.get_size().y
+			_ci.draw_set_transform(Vector2(pos.x, feet_y - 17.0 * scale), 0.0,
 				Vector2(s2, s2))
 			_ci.draw_texture(tex, -tex.get_size() * 0.5, tint)
 			_ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
@@ -2082,39 +2148,40 @@ func _draw_npc(nname: String, pos: Vector2, tint: Color) -> void:
 
 
 func _draw_npc_frame(tex: Texture2D, cx: float, feet_y: float,
-		feet_frac: float, breath: float, flip := false) -> void:
-	## Draw one crew frame NPC_TALL px tall, its feet planted on feet_y (using
-	## the frame's own feet fraction, so transparent padding never floats it).
+		feet_frac: float, breath: float, flip := false, tall := NPC_TALL) -> void:
+	## Draw one crew frame `tall` px tall (default NPC_TALL; larger for HALE), its
+	## feet planted on feet_y (using the frame's own feet fraction, so transparent
+	## padding never floats it, and so a taller figure grows UPWARD from the deck).
 	## `breath` (>0) puffs the chest band a hair wider — feet and head hold still.
 	## `flip` mirrors the figure horizontally ABOUT its centre line cx: the
 	## reflection (translate 2*cx, x-scale -1, y-scale +1) leaves feet_y and all
 	## vertical geometry untouched, so the crew turns to face left without any
 	## positional shift. Wraps every inner draw, which use absolute cx coords.
-	var s := NPC_TALL / tex.get_size().y
+	var s := tall / tex.get_size().y
 	var dw := tex.get_size().x * s
-	var top := feet_y - feet_frac * NPC_TALL   # canvas top in world space
+	var top := feet_y - feet_frac * tall   # canvas top in world space
 	if flip:
 		_ci.draw_set_transform(Vector2(2.0 * cx, 0.0), 0.0, Vector2(-1.0, 1.0))
 	if breath <= 0.0:
-		_ci.draw_texture_rect(tex, Rect2(cx - dw * 0.5, top, dw, NPC_TALL), false)
+		_ci.draw_texture_rect(tex, Rect2(cx - dw * 0.5, top, dw, tall), false)
 	else:
 		var tw := tex.get_size().x
 		var th := tex.get_size().y
-		_npc_band(tex, cx, top, dw, tw, th, 0.0, 0.38, 1.0)               # head — still
-		_npc_band(tex, cx, top, dw, tw, th, 0.38, 0.62, 1.0 + breath)     # chest — breathes
-		_npc_band(tex, cx, top, dw, tw, th, 0.62, 1.0, 1.0)              # legs — still
+		_npc_band(tex, cx, top, dw, tw, th, 0.0, 0.38, 1.0, tall)             # head — still
+		_npc_band(tex, cx, top, dw, tw, th, 0.38, 0.62, 1.0 + breath, tall)   # chest — breathes
+		_npc_band(tex, cx, top, dw, tw, th, 0.62, 1.0, 1.0, tall)             # legs — still
 	if flip:
 		_ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 func _npc_band(tex: Texture2D, cx: float, top: float, dw: float,
-		tw: float, th: float, a: float, b: float, w: float) -> void:
+		tw: float, th: float, a: float, b: float, w: float, tall := NPC_TALL) -> void:
 	## one horizontal band of the sprite, its WIDTH scaled by w about cx (no
 	## vertical move — the feet stay put)
 	var src := Rect2(0, th * a, tw, th * (b - a))
 	var ddw := dw * w
 	_ci.draw_texture_rect_region(tex,
-		Rect2(cx - ddw * 0.5, top + NPC_TALL * a, ddw, NPC_TALL * (b - a)), src)
+		Rect2(cx - ddw * 0.5, top + tall * a, ddw, tall * (b - a)), src)
 
 
 func _draw_expansions() -> void:

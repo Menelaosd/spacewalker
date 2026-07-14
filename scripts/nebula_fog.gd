@@ -6,6 +6,28 @@ class_name NebulaFog
 const SIZE := 320
 
 static var _cache := {}
+static var _glow: ImageTexture
+
+
+static func glow_texture() -> ImageTexture:
+	## A soft white radial glow (alpha falls smoothly to 0 at the rim, no hard
+	## edge) for a nebula's glowing heart — replaces stacked draw_circle discs,
+	## whose crisp edges read as faint concentric rings in the cloud's centre.
+	if _glow != null:
+		return _glow
+	var gs := 128
+	var gimg := Image.create(gs, gs, false, Image.FORMAT_RGBA8)
+	var gc := gs * 0.5
+	for y in gs:
+		for x in gs:
+			var dd := Vector2(x - gc, y - gc).length() / gc
+			if dd >= 1.0:
+				continue
+			# smooth gaussian-ish falloff — no visible boundary at any radius
+			var a := pow(clampf(1.0 - dd, 0.0, 1.0), 2.2)
+			gimg.set_pixel(x, y, Color(1, 1, 1, a))
+	_glow = ImageTexture.create_from_image(gimg)
+	return _glow
 
 
 static func texture_for(i: int) -> ImageTexture:
@@ -42,8 +64,17 @@ static func texture_for(i: int) -> ImageTexture:
 			var d := Vector2(x - c, y - c).length() / c
 			if d >= 1.0:
 				continue
-			var falloff := pow(clampf(1.0 - d, 0.0, 1.0), 1.1)
 			var v := (density.get_noise_2d(x, y) + 1.0) * 0.5
+			# RAGGED radial fade — the cloud's edge is pushed by its own fog
+			# noise so it dissolves into wisps instead of ending on a clean
+			# circle (the old pow(1-d) falloff drew a visible ring boundary,
+			# doubled by the two draw layers). Sparse regions (low v) fade
+			# early, dense regions reach further, but everything is gone before
+			# d ~ 0.94 so the hard d >= 1 clip never shows as a ring.
+			var dn := d + (1.0 - v) * 0.34
+			var falloff := 1.0 - smoothstep(0.5, 0.94, dn)
+			if falloff <= 0.0:
+				continue
 			# wide hue swing — purple through pink across the cloud
 			var pc := col
 			pc.h = fmod(col.h + hue_drift.get_noise_2d(x, y) * 0.16 + 1.0, 1.0)

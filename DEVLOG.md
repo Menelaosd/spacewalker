@@ -5,6 +5,33 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 15/07/2026 — v1.61: crew gesture variety + polish fixes (multi-agent)
+
+- CREW IDLE POOL: each of the 5 crew got 3 NEW personality idle gestures via
+  PixelLab (15 total, 90 frames) — JUNO tool-inspect/brow-wipe/wrist-check, MIRA
+  plant-examine/glasses/stretch, HALE arm-cross/knuckle-crack/glance, SOLA
+  hand-wring/datapad/neck-touch, VEGA scan/posture/console-nod. All curated as
+  out-and-back palindromes so they start AND end on the neutral rest frame
+  (clean blend), feet-anchored + size-matched to each crew's existing idle set.
+  ship_interior.gd now loads a POOL per crew (globs <name>_idle*_<n>) and plays
+  a RANDOM one, once, slowly (3fps), then rests.
+- GESTURE TIMING FIX: crew were triggering in unison — each NPC now owns a
+  `.randomize()`-seeded RNG with a wide first-trigger window (3-25s) and
+  infrequent rest (12-30s), so they're provably independent/staggered. Subtle
+  chest-breath at rest retained.
+- QUARTERS: removed the tool desks (workbench + toolboard) — didn't belong in a
+  crew berth; layout rebalanced (rug/bunks/wardrobe/chairs/nightstands/plants).
+- HALE renders larger (NPC_SCALE 1.15, scaled about the feet so he stays
+  grounded) — he's a big man.
+- NEBULA: killed the concentric-ring artifact — two causes fixed: nebula_fog.gd
+  radial falloff made noise-ragged (dissolves into wisps, no circular edge), and
+  the two hard-edged "heart" discs replaced with soft gradient glow. Reads as an
+  organic cloud with a gentle core.
+- SPACE TRASH: bigger (TRASH_DRAW_MAX 28→42) and the faint glow disc behind each
+  piece removed.
+- CREW ROSTER: made smaller (circle diameter 44→30, tighter gaps/ring/caption).
+- HUD gear rack now uses the same painted gear icons as the inventory.
+
 ## 15/07/2026 — v1.60: big art/animation/UI pass (PixelLab + real assets, multi-agent)
 
 A large session-long polish pass. Grouped by area:
