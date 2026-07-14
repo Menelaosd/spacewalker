@@ -5,6 +5,175 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 14/07/2026 — v1.54: walk frames HAND-PICKED across all ten frames5 sheets
+
+- Per the captain's order ("YOU pick the frames"), every direction row of all
+  10 frames5 sheets was reviewed personally at zoom (tools/compare_sheets.gd
+  stacks one direction's row from every sheet into a strip). Verdict: SHEET 10
+  wins all four directions — the only sheet drawn per-direction ("SIDE VIEW
+  RIGHT/LEFT", "FRONT VIEW", "BACK VIEW"), upright, clean, visibly alternating
+  legs everywhere; single-sheet source = perfect style consistency. (Agent's
+  sheet-4 pick had weaker front/back rows.)
+- Sides play in sheet order; front/back use the smoothest-loop order
+  [0,3,1,2]; the optimizer confirms all four final orders are the smoothest
+  cycles. left walk frame 0 was ~8% oversized (helmet detector mis-measure) —
+  hand REFIT (0.944) brings it to size. Typewriter fix rode along: Space
+  during the reveal now always completes the wrapped text first (the reveal
+  counter was off by one char per wrapped line, so a first press could skip).
+- Dialog windows opened live for the captain per character (SW_DIALOG runs).
+
+## 14/07/2026 — v1.53: walk SKATING fixed — distance-driven stepping
+
+- The walk cycle was clocked by TIME (fixed cycles/s), so at 205 px/s the
+  body glided ~137px per cycle while the drawn stride covers ~40px — the feet
+  slid 3x their stride across the deck. Classic skating; no frame set can fix
+  a clock mismatch. The cycle now advances per PIXEL OF GROUND ACTUALLY
+  COVERED (STRIDE_PX 18/beat, measured from real position delta — blocked by
+  a wall = no travel = no stepping), phase-locking feet to the floor at any
+  speed. SPEED trimmed 205 → 160 so the matched cadence reads as a brisk
+  walk, not a sprint. Footstep sfx unchanged (2 per cycle).
+
+## 14/07/2026 — v1.52: per-line dialog EXPRESSIONS in the first-meeting scenes
+
+- **Both figures now act the conversation.** Every line in
+  `crew_dialogs.gd` carries `"expr"` (the crew member's pose/expression) and
+  `"pexpr"` (the captain's body language — he's a back view, so he gestures:
+  talk/ask/shrug/point/wave/offer/think/wait/neutral). Worried lines look
+  worried, jokes grin, orders point: HALE rants about HELIOS, VEGA touches
+  her chest at "copies in my head", MIRA does her apologetic wave, JUNO goes
+  arms-wide for "TEN minutes".
+- **59 green-screen renders conditioned** by `tools/prep_dialog_figures.gd`
+  into `assets/sprites/crew/dialog/<name>_<expr>.png` (9 captain poses + 10
+  each for the five crew; 9 near-duplicate captain takes skipped). Chroma key
+  needed a delta term (`g - max(r,b) > 0.30`, measured: bg ~0.9, MIRA's sage
+  suit <= 0.20) or it ate her outfit; despill pulls green down to `max(r,b)`
+  on the 2px halo rim plus any strong remnant — no green fringe on the dark
+  interiors.
+- **No size/position snap between lines**: per set, every pose is scaled so
+  the crown-to-feet height matches the neutral one (the planned head-WIDTH
+  match broke on chin-touch poses — a hand merged with the face run and shrank
+  SOLA 20%), then bottom-aligned feet-centred on ONE shared canvas. The scene
+  draws all expressions of a character through the NEUTRAL texture's content
+  box, so the body stays dead still and swaps are hard cuts — no motion.
+- `dialog_scene.gd` preloads the referenced expressions in `start()` (instant
+  swaps, no disk hitch), keeps the old speaker-dim + fade behaviour, and falls
+  back to the static `<name>_figure.png` (with the old FLIP mirroring) if an
+  expression png is missing — never crashes. The conditioned crew art all
+  faces screen-LEFT toward the captain, so the dialog/ path never flips.
+- New debug hook: `SW_DIALOG_LINE=N` (with `SW_DIALOG=<NAME>`) opens the
+  meeting at line N for screenshot verification.
+- Verified in-game: JUNO/MIRA/HALE/VEGA screenshots incl. mid-conversation
+  lines — expressions match the text, speaker brightens, no fringe, sizes
+  match the old figures.
+
+## 14/07/2026 — v1.51: interior walk cycle rebuilt from the frames5 art drop
+
+- **All 20 walk/idle frames replaced** (`assets/sprites/walk/`) from the
+  captain's frames5 batch — 10 candidate green-screen sheets, all the same
+  4-rows × (4 walk + 1 still) layout. Every sheet was inspected; **sheet (4)**
+  won on the usual weak spots: front/back rows show clearly alternating boot
+  soles (no near-duplicate shuffle frames) and the figure size is uniform
+  across all 20 poses.
+- **Playback order derived, not guessed**: `tools/analyze_walk.gd` pairwise
+  pixel-diff BEST LOOP + a gait probe (lowest-foot centroid / leg spread per
+  frame) + tracking both legs across frames. Final KEEP orders — right
+  `[0,3,1,2]` (contact → wide push-off → trail lift → low swing), left
+  `[0,1,2,3]` (sheet order already is the cycle; optimizer cost 0.493, the
+  smoothest row of the set), front `[0,3,1,2]` (L-step → R-knee-lift →
+  R-step → L-gather; lowest-foot x alternates −11/+11 px), back `[0,3,1,2]`
+  (R toe-off → plant → L toe-off → L swing — sole flashes alternate sides).
+- **Normalisation unchanged and verified**: helmet width 68 (67–69 across
+  sides/back, 71–72 front where the helmet rim reads wider), row-median
+  height 120 (frame heights 115–122), one common 79×122 feet-anchored canvas
+  — no size snap between directions or idle/walk. Baked green-screen feet
+  shadows keyed out as before (game draws its own).
+- `tools/extract_walk_frames.gd` retargeted to the frames5 sheet (same
+  pipeline, SRC + KEEP only). `interior_player.gd` untouched — it auto-detects
+  the same 4-frame + idle files.
+- Verified: montage contact sheet + in-game screenshots of all four walk
+  directions (SW_WALK harness) — clean edges, no green fringe, correct scale.
+
+## 14/07/2026 — v1.50: full UI typography & layout pass (every surface screenshot-audited)
+
+- **Every UI surface captured from the real game and audited** — title (+
+  save-slot menu), spacewalk HUD, flight HUD, ship interior, fabricator,
+  upgrade modal, crew ID card, inventory (+ element trivia card), recipe
+  banner, rename toast, pause menu, chargen.
+- **Toast messages fixed on all three HUDs** (spacewalk / flight / interior):
+  they were default-16px Labels anchored CENTER_BOTTOM while still empty, so
+  set text grew RIGHT of center — "Docked — O2 refilling." rendered off-center
+  and overlapped the F TAKE THE HELM prompt (spacewalk had it at 80px from the
+  bottom, straight through the prompt at 96). All three now sit in one shared
+  toast band 150px up (clear of dock/helm/interact prompts and gear cards),
+  grow BOTH ways from the center anchor so they stay dead-centered, and
+  inherit the new 13px Label size.
+- **Theme-level typography normalisation** (`UITheme.make_theme`): default
+  Label 13px, Button 14px — the captain found the stock 16px too big
+  everywhere it appeared (interior BANKED ORE plate, flight nav bar, pause
+  menu buttons, chargen buttons). Panels wrap tighter automatically.
+- **Flight nav bar tidied**: "Banked ore: 0" → "BANKED ORE   0" at 11px dim
+  (matches the interior plate's wording and role), sector line down to 13px.
+- **Pause menu**: title 17 → 15px over the now-14px buttons.
+- **Inventory trivia card**: the hovered element card's bright white border
+  was shining through the translucent detail panel (read as a stray empty box
+  next to the element name) — hover highlight is suppressed while the card
+  is up.
+- New debug hook `SW_PAUSE=1` (menu.gd) opens the pause menu at boot for
+  screenshots, same pattern as the other SW_ hooks.
+- Nothing moved or animated: static sizes/positions only. Dialog UI
+  (dialog_scene/crew_dialogs) untouched.
+
+## 14/07/2026 — v1.49: doorways that look like doorways + interior beauty pass
+
+- **The "ugly-ass room connectors" are dead — the passage is now an
+  ABSENCE, not an object.** Third redesign: the gold reticle sprite (v1)
+  and the recessed slide-track/parked-leaves/teal-light fixture (v2) both
+  read as clutter stuck on the border, so the connector no longer draws
+  anything in the gap at all. The deck simply continues through the open
+  edge; the only marking is a pair of tiny flush jamb caps (6x8 px, 1px
+  trim accent) where a flanking wall meets the opening — the wall trim
+  just terminates cleanly. Caps are skipped at fully open corners (all
+  four cells built) so nothing ever floats on bare floor. A "threshold
+  seam" variant (2-3px dark joint across the gap) was screenshot-compared
+  at full-deck zoom and cut: the floor plating's own panel seams already
+  swallow it, so the seamless variant draws the eye less. Zero motion,
+  zero light strips, zero amber.
+- **Wall-aware floor shading:** the old per-cell top shadow drew on every
+  cell, walling off open passages. Shade now hugs only sides that ARE
+  walls (north deepest, sides/south lighter), plus soft pooled shadow in
+  corners where two walls meet — rooms sit IN the hull instead of floating.
+- **Floor de-tiling:** each 2x2 floor quarter drifts a hair in brightness
+  (deterministic hash, ±0.045) so big decks stop reading as one flat sheet.
+- No gameplay changes: walkability, stations, furniture, collision and the
+  depth passes are untouched.
+
+## 14/07/2026 — v1.48: two new core rooms + walkable airlock hatch
+
+- **MEDICAL BAY** (cell 2, beside Quarters): THREE med beds along the back
+  wall at the fabricator's exact print size (dims_of box-fits med_bed to
+  33x52 — the first pass drew them at raw width 50 and they towered), the
+  cryo sample fridge in the corner, vitals monitor at the foot end. SOLA
+  the Medic now lives here.
+- **HYDROPONICS** (cell 18, beside Cargo): grow rack, hydroponic tray and
+  seedling table against the back wall, terrarium dome + potted plant up
+  front. MIRA the Botanist moved in. (Captain vetoed "Botany" as the label.)
+- Both furnished from the CRAFT art the fabricator already prints (same
+  widths as Craftables.WIDTHS, so fixed and printed twins match), with the
+  usual depth rules — collision on the base, walk-behind draw on the feet
+  line — and glow accents on the powered pieces. Old saves pick both rooms
+  up automatically (loader always starts from DEFAULT_ROOMS).
+- **The airlock HATCH is now flush floor plating** — no collision, always
+  drawn UNDER the crew, walk right over it (it's a hatch, not a crate).
+  Suit-up interaction unchanged.
+- **Interior walk FINAL: frames4.** The captain's fourth sheet finally
+  contained a real cycle per direction — 2 opposite-leg contacts + 2 pass
+  poses + a still. Cycles run the classic contact → pass → opposite contact
+  → pass; hand-read leg orders confirmed by the smoothest-loop optimizer
+  (it beat the hand pick on the back row and was adopted there). Chroma-key
+  threshold lowered so the sheet's baked feet shadows key out (the game
+  draws its own). 4-beat at 6 fps, sizes uniform after the usual 2-pass
+  normalisation.
+
 ## 14/07/2026 — v1.47: top-edge flicker KILLED (exclusive fullscreen) + dialog framing
 
 - **The flickering line at the top of the screen — root-caused and fixed.**
@@ -441,17 +610,17 @@ interplay, all 147 asset preloads. What they caught got fixed:
   Result: no broken asset refs, no gameplay/economy/save regressions, win path
   still reachable. Fixes applied:
   - **Sound bug (HIGH):** `sfx.gd` set `loop=true` on a shared cached OGG
-    (`forceField_003` = both the klaxon loop AND the "upgrade" one-shot), so
-    every upgrade/craft/install cue droned forever on a pool voice. Fixed —
-    loop players now `duplicate()` the stream, leaving the pooled copy un-looped.
+	(`forceField_003` = both the klaxon loop AND the "upgrade" one-shot), so
+	every upgrade/craft/install cue droned forever on a pool voice. Fixed —
+	loop players now `duplicate()` the stream, leaving the pooled copy un-looped.
   - Vfx now receives `global_position` (was local) from asteroid/pickup —
-    correct even if the world node ever gets a transform.
+	correct even if the world node ever gets a transform.
   - Rename hint now checks the same (feet) cell `_open_rename` edits — no more
-    disagreement near a cell boundary.
+	disagreement near a cell boundary.
   - Core rooms always show their fixed name (a legacy save can't pin a stuck
     custom name on them anymore).
   - Inventory name-plate: dropped the dead ~2% "capacity" sliver (cap is 9999);
-    now a faint full-width element tint = "you're holding some".
+	now a faint full-width element tint = "you're holding some".
 - **Asset cleanup:** removed 7 unused particle textures + never-referenced prop
   sheets s1/s9 (34 files, ~1.9 MB). Kept crew sprites (dialog feature pending)
   and `ship_hd.png` (still the flight/dock hull). Note for export: `tools/` +
@@ -586,17 +755,17 @@ interplay, all 147 asset preloads. What they caught got fixed:
   subtracted us" beat intact:
   - Page 2 no longer names or ages the pilot (you survived — you didn't die,
     so the crawl shouldn't eulogise you). It now opens on *what you were
-    doing* and *why you were off-world*: "working the ore rigs… high orbit,
-    months from the nearest dirt" — which is also why HELIOS's purge missed
+	doing* and *why you were off-world*: "working the ore rigs… high orbit,
+	months from the nearest dirt" — which is also why HELIOS's purge missed
     you. Removed the now-unused `pilot_name()`/age lookup.
   - Page 4's rally-cry ending ("Gather enough, and the drive will carry you
-    past the wall") replaced with flat, grim statement of fact: "Enough of
-    it, and the drive wakes. Nothing else crosses the wall."
+	past the wall") replaced with flat, grim statement of fact: "Enough of
+	it, and the drive wakes. Nothing else crosses the wall."
   - Page 5: Haven is now a *deliberate* blind spot — "a blind spot we wrote
-    into its code on purpose… in case we ever had to hide from it" — so it
+	into its code on purpose… in case we ever had to hide from it" — so it
     reads as humanity's hedged bet against its own creation, paying off the
-    "They called it mercy" opening. Dropped the on-the-nose "Go and find
-    them" command; ends on the theme line "No one crosses this alone."
+	"They called it mercy" opening. Dropped the on-the-nose "Go and find
+	them" command; ends on the theme line "No one crosses this alone."
 
 ## 12/07/2026 — v1.20: economy de-RNG, quest prose, rename discoverable
 

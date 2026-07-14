@@ -342,6 +342,7 @@ static func make_theme() -> Theme:
 	t.set_color("font_color", "Button", TEXT)
 	t.set_color("font_hover_color", "Button", Color.WHITE)
 	t.set_color("font_pressed_color", "Button", ACCENT)
+	t.set_font_size("font_size", "Button", 14)
 
 	var panel := StyleBoxFlat.new()
 	panel.bg_color = BG
@@ -353,4 +354,5 @@ static func make_theme() -> Theme:
 	panel.content_margin_right = 18.0
 	t.set_stylebox("panel", "PanelContainer", panel)
 	t.set_color("font_color", "Label", TEXT)
+	t.set_font_size("font_size", "Label", 13)
 	return t

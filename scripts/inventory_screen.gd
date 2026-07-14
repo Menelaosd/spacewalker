@@ -248,7 +248,10 @@ func _draw_elements_area(rect: Rect2) -> void:
 		var col := i % COLS
 		var row := int(float(i) / COLS) - _scroll
 		var p := _grid_origin + Vector2(col * (CARD_W + CARD_GAP), row * (CARD_H + CARD_GAP))
-		_draw_card(e, Rect2(p, Vector2(CARD_W, CARD_H)), i == _hover)
+		# no hover highlight while the trivia card is up — its bright border
+		# would shine through the translucent detail panel
+		_draw_card(e, Rect2(p, Vector2(CARD_W, CARD_H)),
+			i == _hover and _detail < 0)
 
 	# scrollbar — in the gutter just RIGHT of the last card column
 	var track := Rect2(_grid_origin.x + COLS * (CARD_W + CARD_GAP) + 6.0, _grid_origin.y,

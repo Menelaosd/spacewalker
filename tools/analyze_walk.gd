@@ -27,12 +27,55 @@ func _init() -> void:
 			var hw := _helmet_w(img, bb)
 			print("  %-12s bbox %3dx%3d  helmet_w %3d" % [nm, bb.size.x, bb.size.y, hw])
 		# full pairwise diff of the walk frames (not idle)
-		for a in SETS[dir_name]:
+		var n: int = SETS[dir_name]
+		var D := []
+		for a in n:
+			D.append([])
+			for b in n:
+				D[a].append(0.0)
+		for a in n:
 			var line := "  d%d:" % a
-			for b in range(a + 1, SETS[dir_name]):
-				line += " %d=%.3f" % [b, _diff(imgs[a], imgs[b])]
+			for b in range(a + 1, n):
+				var d := _diff(imgs[a], imgs[b])
+				D[a][b] = d
+				D[b][a] = d
+				line += " %d=%.3f" % [b, d]
 			print(line)
+		# SMOOTHEST LOOP: the cyclic order minimising total adjacent diff —
+		# a real walk cycle is exactly that. Brute force all orders (fix 0
+		# first; both directions equivalent).
+		var idxs: Array = range(1, n)
+		var best_order: Array = []
+		var best_cost := INF
+		for perm in _perms(idxs):
+			var order: Array = [0]
+			order.append_array(perm)
+			var cost := 0.0
+			for i in n:
+				cost += D[order[i]][order[(i + 1) % n]]
+			if cost < best_cost:
+				best_cost = cost
+				best_order = order
+		var worst := 0.0
+		for i in n:
+			worst = maxf(worst, D[best_order[i]][best_order[(i + 1) % n]])
+		print("  BEST LOOP: %s  total=%.3f  worst-step=%.3f" % [
+			str(best_order), best_cost, worst])
 	quit(0)
+
+
+func _perms(arr: Array) -> Array:
+	if arr.size() <= 1:
+		return [arr]
+	var out: Array = []
+	for i in arr.size():
+		var rest := arr.duplicate()
+		rest.remove_at(i)
+		for p in _perms(rest):
+			var q: Array = [arr[i]]
+			q.append_array(p)
+			out.append(q)
+	return out
 
 
 func _bbox(img: Image) -> Rect2i:

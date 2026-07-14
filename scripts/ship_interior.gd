@@ -42,7 +42,6 @@ const P := {
 	"wall_t": preload("res://assets/props/s3_08.png"),     # T: bar + stem down
 	"wall_x": preload("res://assets/props/s3_09.png"),     # cross junction
 	"window": preload("res://assets/props/s3_14.png"),
-	"door_bar": preload("res://assets/props/s4_12.png"),
 	# build markers (sheet 4)
 	"cell_ok": preload("res://assets/props/s4_07.png"),
 	"cell_no": preload("res://assets/props/s4_08.png"),
@@ -86,12 +85,23 @@ const P := {
 	# the fabricator — a 3D printer in the cargo hold (craft sheet 6;
 	# its art is a STATION, never offered as a craftable)
 	"fabricator": preload("res://assets/craft/fabricator.png"),
+	# medbay + botany fixtures — the same craft art the fabricator prints,
+	# so the fixed rooms and player-built pieces share one scale/style
+	"med_bed": preload("res://assets/craft/med_bed.png"),
+	"sample_fridge": preload("res://assets/craft/sample_fridge.png"),
+	"ecg": preload("res://assets/craft/ecg_monitor.png"),
+	"grow_rack": preload("res://assets/craft/grow_rack.png"),
+	"hydro_tray": preload("res://assets/craft/hydroponic_tray.png"),
+	"seedling": preload("res://assets/craft/seedling_table.png"),
+	"terrarium": preload("res://assets/craft/terrarium_dome.png"),
+	"plant": preload("res://assets/craft/potted_plant.png"),
 }
 
 # per-room floor tile + furniture: [tex key, offset from cell center, width px]
 const ROOM_FLOOR := {
 	"quarters": "fl_purple", "engine": "fl_rust", "upgrade": "fl_brace",
 	"bridge": "fl_vent", "cargo": "fl_grate", "airlock": "fl_hazard",
+	"medbay": "fl_plain", "botany": "fl_plain",
 	"room": "fl_plain",
 }
 const ROOM_PROPS := {
@@ -124,15 +134,34 @@ const ROOM_PROPS := {
 		["cylinders", Vector2(-56, -40), 46.0],
 		["wardrobe", Vector2(-64, 34), 36.0],
 	],
+	# medbay: THREE med beds along the back wall (heads to the plating), the
+	# cryo sample fridge in the back corner, vitals monitor at the foot end.
+	# Sizes match the FABRICATOR's printed versions exactly — dims_of box-fits
+	# med_bed into 33x52 (H_CAP), so the fixed beds use the same footprint.
+	"medbay": [
+		["med_bed", Vector2(-60, -14), 33.0],
+		["med_bed", Vector2(-14, -14), 33.0],
+		["med_bed", Vector2(32, -14), 33.0],
+		["sample_fridge", Vector2(66, -36), 28.0],
+		["ecg", Vector2(64, 32), 40.0],
+	],
+	# botany: grow gear against the back wall, living green up front
+	"botany": [
+		["grow_rack", Vector2(-66, -36), 30.0],
+		["hydro_tray", Vector2(-6, -32), 46.0],
+		["seedling", Vector2(56, -32), 44.0],
+		["terrarium", Vector2(-58, 34), 42.0],
+		["plant", Vector2(66, 36), 24.0],
+	],
 	"room": [],
 }
 
 # rescued crew live aboard: room type, offset in that room, suit tint
 const NPC_SPOTS := {
 	"JUNO": ["upgrade", Vector2(-40, 50), Color(1.15, 1.0, 0.72)],
-	"MIRA": ["quarters", Vector2(44, 6), Color(0.78, 1.12, 0.85)],
+	"MIRA": ["botany", Vector2(10, 30), Color(0.78, 1.12, 0.85)],   # the Botanist, home turf
 	"HALE": ["cargo", Vector2(-58, -6), Color(0.8, 1.0, 1.15)],
-	"SOLA": ["quarters", Vector2(-14, 52), Color(1.15, 0.85, 0.85)],
+	"SOLA": ["medbay", Vector2(-64, 30), Color(1.15, 0.85, 0.85)],  # the Medic, on shift
 	"VEGA": ["bridge", Vector2(-66, -40), Color(1.0, 0.88, 1.2)],
 }
 
@@ -154,6 +183,10 @@ const GLOWS := {
 	"cylinders": [Color(0.5, 0.8, 1.0), 16.0],
 	"hatch": [Color(0.9, 0.75, 0.3), 20.0],
 	"fabricator": [Color(0.35, 0.85, 1.0), 24.0],
+	"sample_fridge": [Color(0.5, 0.85, 1.0), 16.0],
+	"ecg": [Color(0.4, 1.0, 0.6), 16.0],
+	"grow_rack": [Color(0.55, 1.0, 0.5), 20.0],
+	"terrarium": [Color(0.45, 0.95, 0.6), 18.0],
 }
 
 @onready var crew: Node2D = $Crew
@@ -295,6 +328,8 @@ func _build_obstacles() -> void:
 	for st in _stations:
 		if not STATION_PROP.has(st["kind"]):
 			continue
+		if st["kind"] == "exit":
+			continue   # the airlock HATCH is flush floor plating — walk over it
 		var sp: Array = STATION_PROP[st["kind"]]
 		var tex2: Texture2D = P[sp[0]]
 		var w2: float = sp[1]
@@ -608,6 +643,28 @@ func _tiled_wall_v(y0: float, y1: float, x: float, inside_e: bool) -> void:
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
+func _draw_doorway(mid: Vector2, rot: float, edge_half: float,
+		cap_a: bool, cap_b: bool) -> void:
+	## The passage between two rooms is an ABSENCE, not an object: the deck
+	## simply continues through the open edge. The only markings are small
+	## flush jamb caps where the flanking wall trim meets the gap — the wall
+	## just terminates cleanly. Local +X runs along the shared edge; cap_a
+	## sits at the -X end, cap_b at +X (skipped where the corner is open
+	## floor and there is no wall to terminate).
+	_ci.draw_set_transform(mid, rot, Vector2.ONE)
+	var run := edge_half - 14.0   # inner faces of the flanking walls
+	for e in [[-1.0, cap_a], [1.0, cap_b]]:
+		if not e[1]:
+			continue
+		var sx: float = e[0]
+		var rx := sx * run
+		var cap := Rect2(minf(rx, rx + sx * 6.0), -4.0, 6.0, 8.0)
+		_ci.draw_rect(cap, Color(0.20, 0.24, 0.30), true)
+		_ci.draw_rect(cap, Color(0, 0, 0, 0.35), false, 1.0)
+		# 1px accent on the cap's inner face — the trim's clean end
+		_ci.draw_line(Vector2(rx, -3.0), Vector2(rx, 3.0),
+			Color(0.55, 0.7, 0.8, 0.45), 1.0)
+	_ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 func _process(delta: float) -> void:
@@ -1121,8 +1178,12 @@ func _build_hud() -> void:
 	_msg_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_msg_label.modulate.a = 0.0
 	root.add_child(_msg_label)
+	# same toast band as the other HUDs — clear of prompts and gear cards
 	_msg_label.set_anchors_and_offsets_preset(
-		Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_MINSIZE, 70)
+		Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_MINSIZE, 150)
+	# text is set later — grow from the center anchor so it STAYS centered
+	_msg_label.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_msg_label.grow_vertical = Control.GROW_DIRECTION_BEGIN
 
 	var hint := HintBar.new()
 	hint.items = Keymap.hint("interior")
@@ -1390,16 +1451,28 @@ func _draw() -> void:
 	_prop("window", win_pos, 66.0)
 	_glow(win_pos + Vector2(0, 10), (GLOWS["window"][0] as Color), GLOWS["window"][1])
 	# doorway thresholds between built neighbours
+	var dcols := GameState.SHIP_COLS
 	for cell in GameState.rooms:
 		for n in GameState.cell_neighbors(cell):
 			if n > cell and _built(n):
 				var mid := (cell_rect(cell).get_center() + cell_rect(n).get_center()) * 0.5
 				var horizontal := absi(n - cell) == 1
-				# left/right neighbours share a VERTICAL edge — rotate the bar
-				draw_set_transform(mid, PI * 0.5 if horizontal else 0.0, Vector2.ONE)
-				draw_texture_rect(P["door_bar"], Rect2(-28, -7, 56, 14), false,
-					Color(1, 1, 1, 0.9))
-				draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+				# jamb caps only where a wall actually flanks that end of the
+				# gap — at fully open corners the floor continues, no trim
+				var cap_a: bool
+				var cap_b: bool
+				if horizontal:
+					# shared VERTICAL edge; local -X = north end, +X = south
+					cap_a = not (_built(cell - dcols) and _built(n - dcols))
+					cap_b = not (_built(cell + dcols) and _built(n + dcols))
+				else:
+					# shared HORIZONTAL edge; local -X = west end, +X = east
+					var dcol: int = cell % dcols
+					cap_a = dcol == 0 or not (_built(cell - 1) and _built(n - 1))
+					cap_b = dcol == dcols - 1 or not (_built(cell + 1) and _built(n + 1))
+				# left/right neighbours share a VERTICAL edge — rotate the piece
+				_draw_doorway(mid, PI * 0.5 if horizontal else 0.0,
+					(CELL_H if horizontal else CELL_W) * 0.5, cap_a, cap_b)
 	_draw_expansions()
 	_draw_depth(true)   # props behind the crew; the rest go to _overlay
 
@@ -1427,16 +1500,42 @@ func _draw_ending() -> void:
 func _draw_room_cell(cell: int) -> void:
 	var rect := cell_rect(cell)
 	var type: String = GameState.rooms[cell]
+	# which sides are real walls (ship edge or unbuilt space) — shading and
+	# shadows hug the walls and leave open passages between rooms bright
+	var col := cell % GameState.SHIP_COLS
+	var row := int(float(cell) / GameState.SHIP_COLS)
+	var wall_n := row == 0 or not _built(cell - GameState.SHIP_COLS)
+	var wall_s := row == GameState.SHIP_ROWS - 1 or not _built(cell + GameState.SHIP_COLS)
+	var wall_w := col == 0 or not _built(cell - 1)
+	var wall_e := col == GameState.SHIP_COLS - 1 or not _built(cell + 1)
 	# the kit's floor tiles, 2x2 per cell — each room type has its own deck.
-	# Lifted a touch so rooms read warm against the dark hull.
+	# Lifted a touch so rooms read warm against the dark hull; each quarter
+	# drifts a hair in brightness so big floors don't read as one flat sheet.
 	var fkey: String = ROOM_FLOOR.get(type, "fl_plain")
 	for ty in 2:
 		for tx in 2:
+			var drift := fposmod(sin(cell * 12.99 + tx * 78.23 + ty * 37.72) * 437.585, 1.0) * 0.09 - 0.045
 			_prop_rect(fkey, Rect2(rect.position.x + tx * CELL_W * 0.5,
 				rect.position.y + ty * CELL_H * 0.5, CELL_W * 0.5, CELL_H * 0.5),
-				Color(1.34, 1.34, 1.28))
-	# gentle top shadow + soft room light
-	draw_rect(Rect2(rect.position, Vector2(rect.size.x, 6)), Color(0, 0, 0, 0.22))
+				Color(1.34 + drift, 1.34 + drift, 1.28 + drift))
+	# walls throw soft shade onto the deck — north deepest (the plating
+	# stands tall there), sides and south just enough to seat the floor
+	if wall_n:
+		draw_rect(Rect2(rect.position, Vector2(rect.size.x, 6)), Color(0, 0, 0, 0.22))
+		draw_rect(Rect2(rect.position + Vector2(0, 6), Vector2(rect.size.x, 5)), Color(0, 0, 0, 0.10))
+	if wall_w:
+		draw_rect(Rect2(rect.position, Vector2(5, rect.size.y)), Color(0, 0, 0, 0.12))
+	if wall_e:
+		draw_rect(Rect2(rect.position + Vector2(rect.size.x - 5, 0), Vector2(5, rect.size.y)), Color(0, 0, 0, 0.12))
+	if wall_s:
+		draw_rect(Rect2(rect.position + Vector2(0, rect.size.y - 4), Vector2(rect.size.x, 4)), Color(0, 0, 0, 0.12))
+	# pooled shadow where two walls meet — grounds the room in its shell
+	for c in [[wall_n, wall_w, rect.position], [wall_n, wall_e, Vector2(rect.end.x - 24, rect.position.y)],
+			[wall_s, wall_w, Vector2(rect.position.x, rect.end.y - 24)], [wall_s, wall_e, rect.end - Vector2(24, 24)]]:
+		if c[0] and c[1]:
+			draw_rect(Rect2(c[2] as Vector2, Vector2(24, 24)), Color(0, 0, 0, 0.05))
+			draw_rect(Rect2((c[2] as Vector2) + Vector2(5, 5), Vector2(14, 14)), Color(0, 0, 0, 0.07))
+	# soft room light
 	draw_circle(rect.get_center(), minf(rect.size.x, rect.size.y) * 0.42,
 		Color(0.85, 0.92, 1.0, 0.05))
 	# (furniture draws in the depth passes — see _draw_depth)
@@ -1542,6 +1641,11 @@ func _draw_depth(behind: bool) -> void:
 		var st: Dictionary = _stations[i]
 		if st["kind"] == "expand" or st["kind"] == "npc":
 			continue   # npc bodies draw in the crew pass below
+		if st["kind"] == "exit":
+			# the airlock HATCH is flush floor plating — always UNDER the crew
+			if behind:
+				_draw_station_visual(st, i == _active)
+			continue
 		var sp: Array = STATION_PROP[st["kind"]]
 		var base_y2: float = (st["pos"] as Vector2).y + _prop_h(sp[0], sp[1]) * 0.5 \
 			- (sp[1] as float) * 0.15 - 4.0

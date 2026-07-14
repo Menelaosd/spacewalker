@@ -5,10 +5,14 @@ extends Node2D
 ## common canvas so the animation never jitters. No physics bodies indoors:
 ## we just integrate position and clamp to the hull bounds.
 
-const SPEED := 205.0
+const SPEED := 160.0
 const TARGET_H := 38.0   # world px for the full frame canvas
 const FOOT_Y := 16.0     # feet line below the node origin (shadow sits here)
-const WALK_FPS := 6.0   # 4-frame cycle → ~1.5 cycles/s; 10 was frantic
+# The walk clock is driven by DISTANCE, not time: a time-driven cycle let the
+# body glide ~137px per cycle while the drawn stride covers ~40px — feet
+# slid 3x their stride across the deck (skating). Advancing the cycle per
+# pixel traveled phase-locks the feet to the ground at any speed.
+const STRIDE_PX := 18.0  # ground distance per animation frame-beat
 
 # frame sets built in _ready. Each direction keeps TWO opposite-leg contact
 # poses; the walk cycle interleaves the idle as the passing frame —
@@ -49,6 +53,7 @@ func _process(delta: float) -> void:
 		"up": input = Vector2.UP
 		"down": input = Vector2.DOWN
 	var motion := input * SPEED * delta
+	var before := position
 	if walk_check.is_valid():
 		# axis-separated so you slide along unbuilt hull instead of sticking
 		var nx := position + Vector2(motion.x, 0)
@@ -70,9 +75,12 @@ func _process(delta: float) -> void:
 			_dir = "right" if facing.x > 0.0 else "left"
 		else:
 			_dir = "back" if facing.y < 0.0 else "front"
+		# advance the cycle by GROUND ACTUALLY COVERED (blocked by a wall =
+		# no travel = no stepping), so the feet never slide
+		var traveled := position.distance_to(before)
 		var cycle := float(WALK[_dir].size())
 		var beat_was := int(_step * 2.0 / cycle)
-		_step += delta * WALK_FPS
+		_step += traveled / STRIDE_PX
 		# two footfalls per cycle
 		if int(_step * 2.0 / cycle) != beat_was:
 			Sfx.play("step", -22.0, randf_range(0.85, 1.15))

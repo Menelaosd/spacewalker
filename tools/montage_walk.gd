@@ -8,9 +8,9 @@ const ROWS := [
 	["back_0", "back_1", "back_2", "back_3", "back_idle"],
 ]
 func _init() -> void:
-	var cw := (82 + 6) * 2
-	var ch := (123 + 6) * 2
-	var out := Image.create(cw * 5, ch * ROWS.size(), false, Image.FORMAT_RGBA8)
+	var cw := (78 + 6) * 2
+	var ch := (122 + 6) * 2
+	var out := Image.create(cw * 7, ch * ROWS.size(), false, Image.FORMAT_RGBA8)
 	out.fill(Color(0.35, 0.35, 0.38))
 	for r in ROWS.size():
 		for c in ROWS[r].size():

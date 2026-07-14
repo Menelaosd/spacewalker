@@ -528,6 +528,7 @@ func _build_hud() -> void:
 	box.add_child(_pos_label)
 	_cargo_label = Label.new()
 	_cargo_label.modulate = Color(1, 1, 1, 0.75)
+	_cargo_label.add_theme_font_size_override("font_size", 11)
 	box.add_child(_cargo_label)
 
 	_prompt_label = KeyPrompt.new()
@@ -538,8 +539,12 @@ func _build_hud() -> void:
 	_msg_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_msg_label.modulate.a = 0.0
 	root.add_child(_msg_label)
+	# same toast band as the other HUDs — clear of prompts and gear cards
 	_msg_label.set_anchors_and_offsets_preset(
-		Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_MINSIZE, 70)
+		Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_MINSIZE, 150)
+	# text is set later — grow from the center anchor so it STAYS centered
+	_msg_label.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_msg_label.grow_vertical = Control.GROW_DIRECTION_BEGIN
 
 	var hint := HintBar.new()
 	hint.items = Keymap.hint("flight")
@@ -566,7 +571,7 @@ func _update_hud() -> void:
 	elif GameState.rescued_count() < GameState.RESCUES.size():
 		line += "   ·   ✦ NEXT SIGNAL NEEDS DRIVE PART %d" % (GameState.rescued_count() + 1)
 	_pos_label.text = line
-	_cargo_label.text = "Banked ore: %d" % GameState.banked
+	_cargo_label.text = "BANKED ORE   %d" % GameState.banked
 	if _near_beacon:
 		_prompt_label.set_prompt("E    Board the wreck — %s, %s" % [
 			GameState.rescue_target()["name"], GameState.rescue_target()["role"]])

@@ -80,8 +80,12 @@ func _ready() -> void:
 	_msg_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_msg_label.modulate.a = 0.0
 	root.add_child(_msg_label)
+	# above the dock/helm prompts (96/120 from bottom) so toasts never overlap
 	_msg_label.set_anchors_and_offsets_preset(
-		Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_MINSIZE, 80)
+		Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_MINSIZE, 150)
+	# text is set later — grow from the center anchor so it STAYS centered
+	_msg_label.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_msg_label.grow_vertical = Control.GROW_DIRECTION_BEGIN
 
 	# flare warning banner, top-center — hazard stripes when it hits
 	_flare_banner = Control.new()

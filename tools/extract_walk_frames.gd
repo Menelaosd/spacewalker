@@ -9,25 +9,36 @@ extends SceneTree
 ## so animation never jitters from per-frame crop differences.
 ## Run: godot --headless -s tools/extract_walk_frames.gd --path .
 
-const SRC := "C:/Users/menel/OneDrive/Έγγραφα/Games/game-assets/spacewalker/frames2/ChatGPT Image Jul 14, 2026, 12_52_23 AM.png"
+const SRC := "C:/Users/menel/OneDrive/Έγγραφα/Games/game-assets/spacewalker/frames5/ChatGPT Image Jul 14, 2026, 02_30_48 AM (10).png"
 const OUT := "res://assets/sprites/walk"
 const MERGE_PAD := 8       # px gap that still counts as the same figure
 const MIN_AREA := 900      # ignore stray specks
+const MIN_FIG_H := 80      # anything shorter is a row LABEL (white text), not a figure
 const HELMET_W := 68.0     # normalise every frame so the helmet is this wide —
                            # pose-independent, so the astronaut stays ONE size
                            # across frames, directions and idle/walk switches
 const ROW_H := 120.0       # second pass: each direction's MEDIAN body height →
                            # this, so turning never snaps the figure bigger or
                            # smaller; within-row stride bob is preserved
-# frames2 sheet layout: rows 0-3 each hold 4 WALK frames + 1 STILL at the end
-# (right, left, DOWN-labelled=back, UP-labelled=front — labels are camera-
-# inverted for top-down, we name by pixels). Row 4 repeats the 4 stills; skip.
+# frames5 sheet layout (same as frames4): 4 rows (RIGHT / LEFT / FRONT /
+# BACK), 4 walk figures + 1 STILL at the row's end. KEEP order IS playback
+# order — derived with tools/analyze_walk.gd (pairwise-diff BEST LOOP) plus
+# a gait read tracking BOTH legs across frames (contact → push-off → trail
+# lift → swing → plant). right/front/back share the sheet's convention;
+# left's sheet order already IS the cycle (optimizer agrees, cost 0.493).
+const IDLE_INDEX := 4
+# hand-picked from sheet (10) of frames5 — the only sheet drawn per-direction
+# ("SIDE VIEW RIGHT/LEFT", "FRONT VIEW", "BACK VIEW"), judged across all ten
+# at 2x zoom. Sides play in sheet order; front/back use the optimizer's loop.
 const KEEP := {
 	"right": [0, 1, 2, 3],
 	"left": [0, 1, 2, 3],
-	"front": [0, 1, 2, 3],
-	"back": [0, 1, 2, 3],
+	"front": [0, 3, 1, 2],
+	"back": [0, 3, 1, 2],
 }
+# per-frame scale corrections where the helmet detector mis-measured (hand
+# verified against siblings): left walk frame 0 came out ~8% oversized
+const REFIT := {"left": {0: 0.944}}
 
 var _img: Image
 var _w := 0
@@ -36,8 +47,10 @@ var _seen := {}
 
 
 func _green(c: Color) -> bool:
-	# bright green screen — green clearly dominates both other channels
-	return c.g > 0.30 and c.g > c.r * 1.45 and c.g > c.b * 1.45
+	# green screen — green clearly dominates both other channels. Threshold is
+	# LOW so the dark-green feet shadows painted on the screen key out too
+	# (the game draws its own foot shadow; baked ones would double up)
+	return c.g > 0.16 and c.g > c.r * 1.35 and c.g > c.b * 1.35
 
 
 func _init() -> void:
@@ -55,9 +68,11 @@ func _init() -> void:
 
 	# connected components (grid-coarsened for speed), merged with a pad
 	var comps: Array = _components()
-	# drop the black LABEL boxes: components that are mostly near-black
+	# drop the row LABELS: black boxes (older sheets) or short white text runs
 	var frames: Array = []
-	for r in comps:
+	for r: Rect2i in comps:
+		if r.size.y < MIN_FIG_H:
+			continue
 		if _black_frac(r) > 0.35:
 			continue
 		frames.append(r)
@@ -114,6 +129,17 @@ func _init() -> void:
 			img.resize(int(round(img.get_width() * k2)),
 				int(round(img.get_height() * k2)), Image.INTERPOLATE_LANCZOS)
 
+	# hand scale corrections (REFIT) — applied on top of the two auto passes
+	var rnames := ["right", "left", "front", "back"]
+	for i in mini(rows.size(), 4):
+		var fixes: Dictionary = REFIT.get(rnames[i], {})
+		for j in fixes:
+			if j < scaled[i].size():
+				var fimg: Image = scaled[i][j]
+				var fk: float = fixes[j]
+				fimg.resize(int(round(fimg.get_width() * fk)),
+					int(round(fimg.get_height() * fk)), Image.INTERPOLATE_LANCZOS)
+
 	# ONE canvas for every frame: global max w/h of the NORMALISED figures
 	var cw := 0
 	var ch := 0
@@ -123,10 +149,8 @@ func _init() -> void:
 			ch = maxi(ch, img.get_height())
 	print("common canvas: %dx%d" % [cw, ch])
 
-	# rows in sheet order: RIGHT, LEFT, DOWN-labelled(=back), UP-labelled(=front),
-	# then the 4 stills (right, left, back-still, front-still).
-	# Walk rows keep only the KEEP subset (dedup), renumbered densely.
-	var names := ["right", "left", "back", "front"]
+	# rows in sheet order — frames3 labels are correct: RIGHT, LEFT, FRONT, BACK
+	var names := ["right", "left", "front", "back"]
 	var out_dir := ProjectSettings.globalize_path(OUT)
 	DirAccess.make_dir_recursive_absolute(out_dir)
 	for f in DirAccess.get_files_at(out_dir):   # wipe stale frames first
@@ -135,14 +159,13 @@ func _init() -> void:
 	for i in rows.size():
 		var out_row: Array = scaled[i]
 		if i < 4:
-			# 4 walk frames + the row's own STILL as the last figure
+			# frame IDLE_INDEX is the standing still; KEEP lists the cycle
 			var keep: Array = KEEP[names[i]]
 			for j in keep.size():
 				_save(out_row[keep[j]], cw, ch, "%s_%d" % [names[i], j])
-			_save(out_row[out_row.size() - 1], cw, ch, "%s_idle" % names[i])
+			_save(out_row[IDLE_INDEX], cw, ch, "%s_idle" % names[i])
 			print("row %s: kept %d walk + idle (of %d)" % [
 				names[i], keep.size(), out_row.size()])
-		# row 4 repeats the four stills — skipped
 	quit(0)
 
 

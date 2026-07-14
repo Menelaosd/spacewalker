@@ -11,6 +11,10 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_build()
 	visible = false
+	# debug: SW_PAUSE=1 opens the pause menu at boot for screenshots
+	if OS.get_environment("SW_PAUSE") != "":
+		await get_tree().process_frame
+		toggle()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -51,7 +55,7 @@ func _build() -> void:
 	var title := Label.new()
 	title.text = "◈  SYSTEMS PAUSED"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 17)
+	title.add_theme_font_size_override("font_size", 15)
 	title.modulate = UITheme.ACCENT
 	box.add_child(title)
 	var sep := HSeparator.new()

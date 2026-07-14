@@ -95,6 +95,8 @@ const ROOM_TYPES := {
 	"engine":       {"name": "Engine Room",   "floor": Color(0.22, 0.15, 0.13), "buildable": false},
 	"cargo":        {"name": "Cargo Hold",    "floor": Color(0.16, 0.17, 0.21), "buildable": false},
 	"airlock":      {"name": "Airlock",       "floor": Color(0.15, 0.18, 0.22), "buildable": false},
+	"medbay":       {"name": "Medical Bay",   "floor": Color(0.14, 0.19, 0.23), "buildable": false},
+	"botany":       {"name": "Hydroponics",   "floor": Color(0.13, 0.19, 0.15), "buildable": false},
 	# the one buildable for now: plain room space. Specialized rooms
 	# (greenhouse etc.) exist below but are deferred — not offered in-game.
 	"room":         {"name": "Room",          "floor": Color(0.16, 0.18, 0.24), "buildable": true,
@@ -124,8 +126,8 @@ const HULL_MASK := [
 # starting rooms — a connected cluster amidships; everything else is
 # bare hull you expand into, one adjacent cell at a time
 const DEFAULT_ROOMS := {
-	1: "quarters", 8: "engine", 9: "upgrade", 10: "bridge",
-	16: "airlock", 17: "cargo",
+	1: "quarters", 2: "medbay", 8: "engine", 9: "upgrade", 10: "bridge",
+	16: "airlock", 17: "cargo", 18: "botany",
 }
 
 

@@ -18,10 +18,17 @@ const MARGIN_X := 90.0
 const TEXT_SIZE := 13
 const LINE_H := 18.0
 
-# characters whose figure art faces AWAY from the player's side —
-# mirror them so the two are actually talking to each other
+# characters whose OLD single-figure art faces AWAY from the player's side —
+# mirror them so the two are actually talking to each other. Only used on the
+# fallback path now: the conditioned dialog/ expression art was verified to
+# face screen-LEFT (toward the captain) for all five crew, so it never flips.
 # (verified per head: JUNO + VEGA gaze screen-right, SOLA is frontal)
 const FLIP := {"HALE": true, "MIRA": true, "JUNO": true, "VEGA": true}
+
+# per-line expression art. Every set shares ONE canvas per character with the
+# body feet-anchored at the same spot, so swapping textures never moves or
+# resizes the body — the swap is a hard cut (no motion; captain's orders).
+const EXPR_DIR := "res://assets/sprites/crew/dialog/"
 
 var _font: Font = ThemeDB.fallback_font
 var _boxes := {}                # texture -> Rect2 opaque-content bbox cache
@@ -33,6 +40,10 @@ var _t := 0.0                   # time since start() — figure fade-in
 var _figure: Texture2D = null
 var _bg: Texture2D = null       # the crew member's ship interior, full-screen
 var _player: Texture2D = null   # the captain, back view, left side
+var _exprs := {}                # slug -> Texture2D, the crew's expression art
+var _pexprs := {}               # slug -> Texture2D, the captain's poses
+var _fig_base: Texture2D = null     # crew "neutral" — scale/anchor reference
+var _player_base: Texture2D = null  # captain "neutral" — scale/anchor reference
 var _fading_out := false
 var _fade_t := 0.0
 var _done := false              # finished() already emitted
@@ -58,7 +69,21 @@ func start(char_name: String) -> void:
 	_bg = load("res://assets/sprites/crew/" + char_name.to_lower() + "_inside.png")
 	if _player == null:
 		_player = load("res://assets/sprites/crew/player_figure.png")
+	# preload every expression this conversation references (plus neutral) so
+	# per-line swaps are instant — no disk hit, no hitch, no motion
+	_exprs.clear()
+	_pexprs.clear()
+	_fig_base = _load_expr(char_name.to_lower(), "neutral", _exprs)
+	_player_base = _load_expr("player", "neutral", _pexprs)
+	for l in _lines:
+		_load_expr(char_name.to_lower(), str((l as Dictionary).get("expr", "")), _exprs)
+		_load_expr("player", str((l as Dictionary).get("pexpr", "")), _pexprs)
 	_idx = 0
+	# debug: SW_DIALOG_LINE=N opens the conversation at line N — pairs with
+	# flight.gd's SW_DIALOG hook so screenshots can verify per-line expressions
+	var dbg_line := OS.get_environment("SW_DIALOG_LINE")
+	if dbg_line != "" and dbg_line.is_valid_int() and not _lines.is_empty():
+		_idx = clampi(int(dbg_line), 0, _lines.size() - 1)
 	_chars = 0.0
 	_t = 0.0
 	_fading_out = false
@@ -73,6 +98,21 @@ func start(char_name: String) -> void:
 	if _lines.is_empty():
 		_begin_fade_out()   # nothing to say — fade straight through
 	queue_redraw()
+
+
+func _load_expr(fig_name: String, slug: String, into: Dictionary) -> Texture2D:
+	## Load one conditioned expression texture into a cache. Missing art is
+	## fine — callers fall back to the static <name>_figure.png, so a bad or
+	## absent slug can never crash the scene.
+	if slug == "" or into.has(slug):
+		return into.get(slug)
+	var path := EXPR_DIR + fig_name + "_" + slug + ".png"
+	if not ResourceLoader.exists(path):
+		return null
+	var tex: Texture2D = load(path)
+	if tex != null:
+		into[slug] = tex
+	return tex
 
 
 func _begin_fade_out() -> void:
@@ -96,12 +136,27 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 
+func _needed_chars(text: String) -> int:
+	## The _chars budget at which the WRAPPED text is fully rendered. The
+	## renderer spends len+1 per wrapped line (the +1 is the space the wrap
+	## consumed), so completion needs text length PLUS one per extra line —
+	## comparing against text.length() alone let Space skip to the next line
+	## while the tail of a wrapped line still looked mid-typing.
+	var text_w := get_viewport_rect().size.x - MARGIN_X * 2.8 - 52.0
+	var wrapped := _wrap(text, text_w)
+	var n := 0
+	for wl in wrapped:
+		n += wl.length() + 1
+	return maxi(n - 1, 0)
+
+
 func _advance() -> void:
 	if _fading_out or _lines.is_empty():
 		return
 	var text := str((_lines[_idx] as Dictionary).get("text", ""))
-	if int(_chars) < text.length():
-		_chars = float(text.length())   # finish the reveal
+	var need := _needed_chars(text)
+	if int(_chars) < need:
+		_chars = float(need)   # finish the reveal — first press NEVER advances
 	elif _idx < _lines.size() - 1:
 		_idx += 1
 		_chars = 0.0
@@ -191,48 +246,69 @@ func _draw() -> void:
 
 	# who's speaking? the active side draws bright, the listener dims a touch
 	var speaking_you := false
+	var line_expr := ""
+	var line_pexpr := ""
 	if not _lines.is_empty() and _idx < _lines.size():
-		speaking_you = str((_lines[_idx] as Dictionary).get("who", "")) == "YOU"
+		var cur: Dictionary = _lines[_idx]
+		speaking_you = str(cur.get("who", "")) == "YOU"
+		line_expr = str(cur.get("expr", ""))
+		line_pexpr = str(cur.get("pexpr", ""))
 	var fade := clampf(_t / FIGURE_FADE, 0.0, 1.0)
 
-	# BOTH figures scale by their opaque CONTENT box (not the canvas — canvas
+	# BOTH figures scale by an opaque CONTENT box (not the canvas — canvas
 	# padding differs per art, which used to render every character a
-	# different size) and bottom-anchor on the content's real feet.
+	# different size) and bottom-anchor on the content's real feet. With
+	# expression art the box comes from the set's NEUTRAL texture: every
+	# expression in a set shares one canvas with the body feet-anchored, so
+	# one reference box keeps the body dead still across per-line swaps.
 
 	# the captain — back view, LEFT side, sunk below the screen bottom so he
 	# reads planted (nearer the camera), never hovering
-	if _player != null:
-		var pbb := _content_box(_player)
+	var ptex: Texture2D = _pexprs.get(line_pexpr, _player_base)
+	var pref := _player_base
+	if ptex == null or pref == null:      # expression art missing — old figure
+		ptex = _player
+		pref = _player
+	if ptex != null:
+		var pbb := _content_box(pref)
 		var ps := vp.y * 0.92 / pbb.size.y
-		var pdsz := _player.get_size() * ps
+		var pdsz := ptex.get_size() * ps
 		# sunk so his HEAD lines up with the crew's across the box (he's the
 		# bigger figure — without the extra sink he towers a head above them)
 		var ppos := Vector2(56.0 - pbb.position.x * ps,
 			vp.y + vp.y * 0.20 - pbb.end.y * ps)
 		var pcol := Color(1, 1, 1, fade) if speaking_you \
 			else Color(0.62, 0.66, 0.74, fade)
-		draw_texture_rect(_player, Rect2(ppos, pdsz), false, pcol)
+		draw_texture_rect(ptex, Rect2(ppos, pdsz), false, pcol)
 
 	# character figure, right side — smaller than the captain (they stand a
 	# step further back) and sunk below the bottom edge so their feet never
-	# hover over the floor. FLIP mirrors art that faces away.
-	if _figure != null:
-		var bb := _content_box(_figure)
+	# hover over the floor. The conditioned dialog art already faces the
+	# captain; FLIP only mirrors the old fallback art that faces away.
+	var ctex: Texture2D = _exprs.get(line_expr, _fig_base)
+	var cref := _fig_base
+	var flip := false
+	if ctex == null or cref == null:      # expression art missing — old figure
+		ctex = _figure
+		cref = _figure
+		flip = FLIP.get(_who, false)
+	if ctex != null:
+		var bb := _content_box(cref)
 		var s := vp.y * 0.84 / bb.size.y
-		var dsz := _figure.get_size() * s
+		var dsz := ctex.get_size() * s
 		var ccol := Color(0.62, 0.66, 0.74, fade) if speaking_you \
 			else Color(1, 1, 1, fade)
 		var top := vp.y + vp.y * 0.13 - bb.end.y * s   # feet sunk off-screen
-		if FLIP.get(_who, false):
+		if flip:
 			# mirror around the CONTENT span so the visible art (not the
 			# padded canvas) lands right-edge at the same anchor
 			var anchor := vp.x - 120.0 + bb.position.x * s
 			draw_set_transform(Vector2(anchor, top), 0.0, Vector2(-1, 1))
-			draw_texture_rect(_figure, Rect2(Vector2.ZERO, dsz), false, ccol)
+			draw_texture_rect(ctex, Rect2(Vector2.ZERO, dsz), false, ccol)
 			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		else:
 			var pos := Vector2(vp.x - 120.0 - bb.end.x * s, top)
-			draw_texture_rect(_figure, Rect2(pos, dsz), false, ccol)
+			draw_texture_rect(ctex, Rect2(pos, dsz), false, ccol)
 
 	# dialog box — a compact sci panel along the bottom (lines are short;
 	# a third of the screen was way too much box)
@@ -282,7 +358,7 @@ func _draw() -> void:
 			y += LINE_H
 
 		# "more" pulse once the line is fully revealed (alpha sine — no motion)
-		if int(_chars) >= text.length():
+		if int(_chars) >= _needed_chars(text):
 			var pa := 0.35 + 0.45 * (0.5 + 0.5 * sin(_t * 4.0))
 			draw_string(_font, Vector2(box.end.x - 34.0, box.end.y - 22.0), "▼",
 				HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(ac.r, ac.g, ac.b, pa))
