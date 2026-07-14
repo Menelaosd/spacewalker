@@ -8,11 +8,16 @@ extends Node2D
 const SPEED := 160.0
 const TARGET_H := 38.0   # world px for the full frame canvas
 const FOOT_Y := 16.0     # feet line below the node origin (shadow sits here)
-# The walk clock is driven by DISTANCE, not time: a time-driven cycle let the
-# body glide ~137px per cycle while the drawn stride covers ~40px — feet
-# slid 3x their stride across the deck (skating). Advancing the cycle per
-# pixel traveled phase-locks the feet to the ground at any speed.
-const STRIDE_PX := 18.0  # ground distance per animation frame-beat
+# The walk clock is driven by DISTANCE, not time: advancing the cycle per pixel
+# traveled makes cadence independent of frame rate and holds a steady stride.
+# CYCLE_PX is ground px per FULL cycle (two footfalls), so 4- and 8-frame
+# directions walk at the same rate — more frames just subdivide the stride.
+# It sets BOTH cadence (footfalls/min = 120*SPEED/CYCLE_PX) and foot slide: the
+# chibi's drawn stride (~16 world px/cycle, tiny next to any playable SPEED)
+# can't cover the ground, so some slide is unavoidable at every setting. Too
+# small a value churns the legs frantically (72 = ~267/min, a scurry); 120 lands
+# ~160/min — a brisk but natural walk — for the least slide that reads as a walk.
+const CYCLE_PX := 120.0
 
 # frame sets built in _ready. Each direction keeps TWO opposite-leg contact
 # poses; the walk cycle interleaves the idle as the passing frame —
@@ -47,14 +52,20 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	var input := Input.get_vector("move_left", "move_right", "move_up", "move_down")
-	match OS.get_environment("SW_WALK"):   # debug: hold a direction for screenshots
+	var sw := OS.get_environment("SW_WALK")   # debug: hold a direction for screenshots
+	match sw:
 		"right": input = Vector2.RIGHT
 		"left": input = Vector2.LEFT
 		"up": input = Vector2.UP
 		"down": input = Vector2.DOWN
 	var motion := input * SPEED * delta
 	var before := position
-	if walk_check.is_valid():
+	if sw != "":
+		# debug capture only: free-walk through the hull so the distance-locked
+		# cycle keeps advancing (real collision freezes travel at a wall, which
+		# would stall _step and show a single frozen frame in screenshots)
+		position += motion
+	elif walk_check.is_valid():
 		# axis-separated so you slide along unbuilt hull instead of sticking
 		var nx := position + Vector2(motion.x, 0)
 		if walk_check.call(nx):
@@ -80,7 +91,7 @@ func _process(delta: float) -> void:
 		var traveled := position.distance_to(before)
 		var cycle := float(WALK[_dir].size())
 		var beat_was := int(_step * 2.0 / cycle)
-		_step += traveled / STRIDE_PX
+		_step += traveled * cycle / CYCLE_PX
 		# two footfalls per cycle
 		if int(_step * 2.0 / cycle) != beat_was:
 			Sfx.play("step", -22.0, randf_range(0.85, 1.15))
@@ -89,11 +100,46 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 
+# cycle EASING: contact poses hold longer than passing poses — even per-frame
+# timing reads as a metronome robot; walks ease (contact is the weight-bearing
+# beat). Boundaries are cumulative sums. HOLD8 follows the researched gait
+# weights [1.30, 1.10, 0.85, 0.75]×2 (real walks spend ~60% of the cycle in
+# stance; the up frame is shortest — the body FALLS fast into the next contact).
+const HOLD4 := [0.0, 0.30, 0.50, 0.80, 1.0]
+const HOLD8 := [0.0, 0.1625, 0.30, 0.40625, 0.50, 0.6625, 0.80, 0.90625, 1.0]
+
+
+func _phase() -> float:
+	## walk-cycle phase 0..1 (contacts at 0 and .5 — the beat grid)
+	var cycle := float(WALK[_dir].size())
+	return fmod(_step, cycle) / cycle
+
+
 func _frame() -> Texture2D:
 	if _moving:
 		var frames: Array = WALK[_dir]
+		var holds: Array = HOLD4 if frames.size() == 4 else (
+			HOLD8 if frames.size() == 8 else [])
+		if not holds.is_empty():
+			var p := _phase()
+			for i in frames.size():
+				if p < holds[i + 1]:
+					return frames[i]
+			return frames[frames.size() - 1]
 		return frames[int(_step) % frames.size()]
 	return IDLE[_dir]
+
+
+func _bob() -> float:
+	## stride bob: the body sits LOWEST on the contact holds and rises through
+	## the passing frames — the missing ingredient that makes a flat glide
+	## read as actual steps. ~1px = ~2.5% of body height (more reads as a
+	## bouncing balloon on a helmet-heavy chibi). Phase-shifted so the dips
+	## centre on the contact frames' display windows.
+	if not _moving:
+		return 0.0
+	var dip := 0.08 if WALK[_dir].size() == 8 else 0.15
+	return 1.0 * absf(sin((_phase() - dip) * TAU))
 
 
 func _draw() -> void:
@@ -109,7 +155,9 @@ func _draw() -> void:
 	var tw := tex.get_size().x
 	var th := tex.get_size().y
 	if _moving:
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2(s, s))
+		# stride bob lifts the whole body between contacts (shadow stays put,
+		# which grounds the feet)
+		draw_set_transform(Vector2(0.0, -_bob()), 0.0, Vector2(s, s))
 		draw_texture(tex, Vector2(-tw * 0.5, FOOT_Y / s - th))
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	else:

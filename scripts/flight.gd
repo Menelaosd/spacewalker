@@ -4,7 +4,8 @@ extends Node2D
 ## the same stars and asteroid fields), and fields get richer with distance
 ## from the origin. Park near a field (E) to move your dive site there, then
 ## spacewalk it. Q hands back the helm and returns inside.
-## All visuals are placeholder _draw() shapes.
+## Ships and debris are real sprite art; the space backdrop (stars, nebulae,
+## fields, HUD) is still placeholder _draw() shapes.
 
 const HintBar := preload("res://scripts/hint_bar.gd")
 const Keymap := preload("res://scripts/keymap.gd")
@@ -12,11 +13,11 @@ const KeyPrompt := preload("res://scripts/key_prompt.gd")
 const THRUST := 560.0
 const THRUST_REV := 260.0
 const TURN_RATE := 2.6          # rad/s — A/D yaw
-const MAX_SPEED := 720.0
+const MAX_SPEED := 1152.0        # crossing the ~2.2× vaster universe stays epic, not a slog
 const DAMP := 0.45
 const STAR_CHUNK := 640.0
-const FIELD_CHUNK := 1600.0
-const PARK_REACH := 140.0        # extra reach beyond a field's radius
+const FIELD_CHUNK := 3600.0      # big chunks = scavenge zones sit far apart, open space between
+const PARK_REACH := 80.0         # extra reach beyond a field's (now ~half-size) radius
 const INVENTORY_SCREEN := preload("res://scripts/inventory_screen.gd")
 const FLOAT_TEXT := preload("res://scripts/float_text.gd")
 const RADAR_PANEL := preload("res://scripts/radar_panel.gd")
@@ -30,6 +31,11 @@ const SCRAP_METALS := [
 	["Cu", 10], ["Ag", 4], ["Au", 1],
 ]
 const TRASH_COLLECT_RADIUS := 70.0
+const TRASH_SPRITE_DIR := "res://assets/sprites/trash/"
+# Debris is SPACE TRASH — tiny next to the ~156px ship hull. Every crop is
+# normalised so its longest side draws at this many px (~1/5.5 of the ship),
+# whatever its source resolution, so a huge crop and a small one both read small.
+const TRASH_DRAW_MAX := 28.0
 
 # Derelict WRECKS — whole dead ships (salvage-sheet art), much rarer than
 # loose junk. Stripping one pays a real scrap haul and can recover a lost
@@ -59,6 +65,11 @@ var _turn := 0.0    # -1..1  A / D
 var _field_cache := {}
 var _trash_cache := {}
 var _wreck_cache := {}
+# Real debris sprites (the croppers drop trash_*.png in TRASH_SPRITE_DIR).
+# Loaded dynamically in _ready() so ANY count works — no hardcoded filenames.
+# Left empty when the PNGs aren't imported yet; _draw_trash then falls back to
+# the placeholder polygons so the game never breaks.
+var _trash_tex: Array[Texture2D] = []
 var _recipe_banner: Control
 var _dialog: Control        # first-meeting conversation overlay
 var _in_dialog := false     # helm frozen while the meeting plays
@@ -84,7 +95,10 @@ const FLIGHT_ZOOM := 0.68   # <1 = pulled back; see much more space while flying
 
 
 func _ready() -> void:
-	texture_filter = TEXTURE_FILTER_LINEAR   # painted hull, not pixel art
+	# painted hull/debris, not pixel art — mipmaps keep small-scaled debris and
+	# derelicts from shimmering as the camera drifts
+	texture_filter = TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	_load_trash_sprites()
 	ship_pos = GameState.sector
 	_flight_origin = ship_pos
 	cam.position = ship_pos
@@ -284,6 +298,30 @@ func _field_in_chunk(cx: int, cy: int) -> Dictionary:
 	return field
 
 
+func _load_trash_sprites() -> void:
+	## Scan the trash sprite folder and load every PNG into _trash_tex. Dynamic
+	## on purpose — the croppers decide how many sprites exist, and this picks up
+	## whatever landed. Result is sorted by path so the per-piece sprite roll maps
+	## to a STABLE index across runs. Empty result => placeholder fallback.
+	_trash_tex.clear()
+	if not DirAccess.dir_exists_absolute(TRASH_SPRITE_DIR):
+		return
+	var seen := {}
+	for f in DirAccess.get_files_at(TRASH_SPRITE_DIR):
+		# in the editor the listing includes .import sidecars — map them back to
+		# their source PNG, and dedupe so each sprite is loaded exactly once
+		var fname := f.trim_suffix(".import")
+		if not fname.to_lower().ends_with(".png") or seen.has(fname):
+			continue
+		seen[fname] = true
+		var path := TRASH_SPRITE_DIR + fname
+		if ResourceLoader.exists(path):
+			var tex := ResourceLoader.load(path) as Texture2D
+			if tex != null:
+				_trash_tex.append(tex)
+	_trash_tex.sort_custom(func(a, b): return a.resource_path < b.resource_path)
+
+
 func _trash_in_chunk(cx: int, cy: int) -> Array:
 	var key := Vector2i(cx, cy)
 	if _trash_cache.has(key):
@@ -316,7 +354,12 @@ func _trash_in_chunk(cx: int, cy: int) -> Array:
 			pieces.append({
 				"pos": origin + Vector2(rng.randf_range(60, FIELD_CHUNK - 60),
 					rng.randf_range(60, FIELD_CHUNK - 60)),
-				"kind": rng.randi_range(0, 3),
+				"kind": rng.randi_range(0, 3),   # placeholder shape (fallback only)
+				# which real sprite to draw — a stable [0,1) roll hashed from the
+				# piece key, NOT off the shared rng, so it survives the chunk cache
+				# and load timing without shifting the metal/units rolls above.
+				# Mapped to a texture index at draw time.
+				"sprite_roll": float(hash("%d:%d:%d:spr" % [cx, cy, i]) % 100000) / 100000.0,
 				"metal": metal,
 				"units": rng.randi_range(1, 3),
 				"spin": rng.randf_range(-0.6, 0.6),
@@ -607,6 +650,7 @@ func _draw() -> void:
 	# the visible world is bigger than the viewport by 1/zoom — expand the cull
 	# bounds to match, or stars/fields pop in at the edges
 	var half := get_viewport_rect().size * 0.5 / cam.zoom.x + Vector2(STAR_CHUNK, STAR_CHUNK)
+	_draw_deep_space(center, half)
 	_draw_nebulae(center, half)
 	_draw_stars(center, half)
 	_draw_fields(center, half)
@@ -652,30 +696,56 @@ func _draw_trash(center: Vector2, half: Vector2) -> void:
 					continue
 				var p: Vector2 = piece["pos"]
 				var mcol: Color = Elements.hue_of(piece["metal"])
-				var ang: float = _t * piece["spin"]
-				draw_set_transform(p, ang, Vector2.ONE)
-				match int(piece["kind"]):
-					0:   # hull shard
-						draw_colored_polygon(PackedVector2Array([
-							Vector2(-9, -4), Vector2(10, -7), Vector2(4, 8), Vector2(-6, 6)]),
-							Color(0.5, 0.54, 0.62))
-						draw_polyline(PackedVector2Array([
-							Vector2(-9, -4), Vector2(10, -7), Vector2(4, 8), Vector2(-6, 6), Vector2(-9, -4)]),
-							Color(0.2, 0.22, 0.28), 1.5)
-					1:   # dead solar panel
-						draw_rect(Rect2(-12, -7, 24, 14), Color(0.16, 0.24, 0.42))
-						draw_rect(Rect2(-12, -7, 24, 14), Color(0.45, 0.5, 0.6), false, 1.5)
-						draw_line(Vector2(0, -7), Vector2(0, 7), Color(0.45, 0.5, 0.6), 1.0)
-						draw_line(Vector2(-12, 0), Vector2(12, 0), Color(0.45, 0.5, 0.6), 1.0)
-					2:   # cargo ring
-						draw_arc(Vector2.ZERO, 8.0, 0.0, TAU, 20, Color(0.55, 0.58, 0.66), 3.5)
-					3:   # bent strut
-						draw_line(Vector2(-10, -6), Vector2(2, 2), Color(0.5, 0.54, 0.62), 3.0)
-						draw_line(Vector2(2, 2), Vector2(10, -2), Color(0.5, 0.54, 0.62), 3.0)
+				if _trash_tex.is_empty():
+					# sprites not imported yet — placeholder polygons keep it alive
+					_draw_trash_placeholder(p, mcol, piece)
+					continue
+				# real debris sprite. Map the stable per-piece roll to a texture
+				# index — deterministic, and unaffected by how many sprites loaded.
+				var idx: int = clampi(int(piece["sprite_roll"] * _trash_tex.size()),
+					0, _trash_tex.size() - 1)
+				var tex: Texture2D = _trash_tex[idx]
+				var ts := tex.get_size()
+				# normalise the longest side to TRASH_DRAW_MAX so any source
+				# resolution draws SMALL (~28px, ~1/5.5 of the ~156px ship)
+				var s: float = TRASH_DRAW_MAX / maxf(ts.x, maxf(ts.y, 1.0))
+				# faint glow in the metal's colour, behind the sprite — a subtle
+				# tell for which scrap element this piece yields on pickup
+				draw_circle(p, TRASH_DRAW_MAX * 0.55, Color(mcol.r, mcol.g, mcol.b, 0.10))
+				# STATIC per-piece tilt (piece["spin"] as a fixed angle, NOT *_t) —
+				# detailed sprites spinning continuously read as nauseating; tumbled
+				# but still looks like real drifting debris
+				draw_set_transform(p, piece["spin"], Vector2(s, s))
+				draw_texture(tex, -ts * 0.5, Color(0.86, 0.88, 0.94))
 				draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-				# faint glint in its metal's color
-				draw_circle(p, 14.0, Color(mcol.r, mcol.g, mcol.b, 0.10))
-				draw_circle(p + Vector2(3, -4), 1.5, Color(1, 1, 1, 0.7))
+
+
+func _draw_trash_placeholder(p: Vector2, mcol: Color, piece: Dictionary) -> void:
+	## Fallback when no trash sprites are imported: the original hand-drawn
+	## polygon shapes so the salvage field is never invisible.
+	draw_set_transform(p, _t * piece["spin"], Vector2.ONE)
+	match int(piece["kind"]):
+		0:   # hull shard
+			draw_colored_polygon(PackedVector2Array([
+				Vector2(-9, -4), Vector2(10, -7), Vector2(4, 8), Vector2(-6, 6)]),
+				Color(0.5, 0.54, 0.62))
+			draw_polyline(PackedVector2Array([
+				Vector2(-9, -4), Vector2(10, -7), Vector2(4, 8), Vector2(-6, 6), Vector2(-9, -4)]),
+				Color(0.2, 0.22, 0.28), 1.5)
+		1:   # dead solar panel
+			draw_rect(Rect2(-12, -7, 24, 14), Color(0.16, 0.24, 0.42))
+			draw_rect(Rect2(-12, -7, 24, 14), Color(0.45, 0.5, 0.6), false, 1.5)
+			draw_line(Vector2(0, -7), Vector2(0, 7), Color(0.45, 0.5, 0.6), 1.0)
+			draw_line(Vector2(-12, 0), Vector2(12, 0), Color(0.45, 0.5, 0.6), 1.0)
+		2:   # cargo ring
+			draw_arc(Vector2.ZERO, 8.0, 0.0, TAU, 20, Color(0.55, 0.58, 0.66), 3.5)
+		3:   # bent strut
+			draw_line(Vector2(-10, -6), Vector2(2, 2), Color(0.5, 0.54, 0.62), 3.0)
+			draw_line(Vector2(2, 2), Vector2(10, -2), Color(0.5, 0.54, 0.62), 3.0)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	# faint glint in its metal's color
+	draw_circle(p, 14.0, Color(mcol.r, mcol.g, mcol.b, 0.10))
+	draw_circle(p + Vector2(3, -4), 1.5, Color(1, 1, 1, 0.7))
 
 
 func _draw_nebulae(center: Vector2, half: Vector2) -> void:
@@ -720,6 +790,9 @@ func _draw_nebulae(center: Vector2, half: Vector2) -> void:
 ## so far layers crawl and near layers sweep past — cheap, convincing 3D.
 const STAR_LAYERS := [
 	# [depth, count/chunk, size lo, size hi, alpha, tint]
+	# NOTE: the nearest (brightest, glinted) layer must stay LAST — the glint
+	# flag keys off the final index. Add deeper layers at the FRONT.
+	[0.05, 75, 0.2, 0.5, 0.22, Color(0.62, 0.7, 0.95)],  # deepest micro-dust — packs the black
 	[0.12, 80, 0.3, 0.8, 0.32, Color(0.7, 0.78, 1.0)],   # far dust
 	[0.25, 55, 0.4, 1.0, 0.5, Color(0.75, 0.85, 1.0)],
 	[0.55, 34, 0.8, 1.7, 0.72, Color(0.9, 0.95, 1.0)],
@@ -768,6 +841,49 @@ func _draw_stars(center: Vector2, half: Vector2) -> void:
 					if st[3]:
 						draw_line(p + Vector2(-4, 0), p + Vector2(4, 0), Color(1, 1, 1, 0.35), 1.0)
 						draw_line(p + Vector2(0, -4), p + Vector2(0, 4), Color(1, 1, 1, 0.35), 1.0)
+
+
+# ==================================================================
+# Deep-space dressing — fills the open space between destinations so the
+# vast (~2.2×) universe reads RICH, never empty. A far parallax layer BEHIND
+# the stars: tiny distant rock specks (distant asteroids too far to reach).
+# No new art, no shaders. Everything is STATIC in world space and only
+# crawls via ship-driven parallax — no wobble/rotation/pulse (motion-sickness
+# safe). Generated once per coarse chunk and cached, like the star patterns.
+const DEEP_CHUNK := 2400.0
+const DEEP_DEPTH := 0.18          # < STAR_LAYERS' nearest depths, so it sits behind
+var _deep_cache := {}
+
+
+func _deep_chunk(cx: int, cy: int) -> Dictionary:
+	var key := Vector2i(cx, cy)
+	if _deep_cache.has(key):
+		return _deep_cache[key]
+	if _deep_cache.size() > 512:
+		_deep_cache.clear()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = _chunk_seed(cx, cy, 40)
+	var d := {}
+	var origin := Vector2(cx, cy) * DEEP_CHUNK
+	# a scatter of far-off rock specks — distant asteroids too far to reach
+	var specks: Array = []
+	for i in rng.randi_range(6, 12):
+		specks.append([origin + Vector2(rng.randf(), rng.randf()) * DEEP_CHUNK,
+			rng.randf_range(0.8, 2.4), rng.randf_range(0.25, 0.55)])
+	d["specks"] = specks
+	_deep_cache[key] = d
+	return d
+
+
+func _draw_deep_space(center: Vector2, half: Vector2) -> void:
+	var shift := center * (1.0 - DEEP_DEPTH)   # parallax: far layer crawls
+	var vc := center - shift                   # pattern-space view center
+	for cy in range(floori((vc.y - half.y) / DEEP_CHUNK), floori((vc.y + half.y) / DEEP_CHUNK) + 1):
+		for cx in range(floori((vc.x - half.x) / DEEP_CHUNK), floori((vc.x + half.x) / DEEP_CHUNK) + 1):
+			var d := _deep_chunk(cx, cy)
+			for sp in d["specks"]:
+				draw_circle((sp[0] as Vector2) + shift, sp[1],
+					Color(0.5, 0.52, 0.58, sp[2]))
 
 
 var _ast_cache := {}
@@ -829,8 +945,10 @@ func _draw_fields(center: Vector2, half: Vector2) -> void:
 				else:
 					draw_circle(p, r, Color(0.42, 0.4, 0.38))
 			if not _near_field.is_empty() and _near_field["center"] == fc:
+				# faint 1px hint of the park extent — the "E · Park" prompt carries
+				# the affordance; the captain dislikes bold drawn circles
 				draw_arc(fc, f["radius"] + PARK_REACH, 0.0, TAU, 64,
-					Color(0.35, 0.8, 1.0, 0.25), 2.0)
+					Color(0.35, 0.8, 1.0, 0.08), 1.0)
 
 
 func _draw_beacon(center: Vector2) -> void:

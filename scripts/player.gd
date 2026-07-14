@@ -197,6 +197,53 @@ const ASTRO: Array[Texture2D] = [
 ]
 const ASTRO_SCALE := 0.5
 
+# Multi-frame LOOP animations play over the static a-frames for the states
+# that got hand-painted cycles. Same canvas/centering as their a-frame source
+# (idle→a1/a2, thrust→a3, aim→a5, reach→a6) so every gameplay anchor — muzzle,
+# tether clip, the _suit_state transform — lands exactly where it did before.
+# The states with no cycle (brake a4, debris-hit a7, blackout a8) keep drawing
+# their single a-frame. Clocked off _anim_t (advanced by delta in _physics_process).
+const IDLE_ANIM: Array[Texture2D] = [
+	preload("res://assets/sprites/astro/anim/idle_0.png"),
+	preload("res://assets/sprites/astro/anim/idle_1.png"),
+	preload("res://assets/sprites/astro/anim/idle_2.png"),
+	preload("res://assets/sprites/astro/anim/idle_3.png"),
+	preload("res://assets/sprites/astro/anim/idle_4.png"),
+	preload("res://assets/sprites/astro/anim/idle_5.png"),
+	preload("res://assets/sprites/astro/anim/idle_6.png"),
+	preload("res://assets/sprites/astro/anim/idle_7.png"),
+]
+const THRUST_ANIM: Array[Texture2D] = [
+	preload("res://assets/sprites/astro/anim/thrust_0.png"),
+	preload("res://assets/sprites/astro/anim/thrust_1.png"),
+	preload("res://assets/sprites/astro/anim/thrust_2.png"),
+	preload("res://assets/sprites/astro/anim/thrust_3.png"),
+	preload("res://assets/sprites/astro/anim/thrust_4.png"),
+	preload("res://assets/sprites/astro/anim/thrust_5.png"),
+]
+const AIM_ANIM: Array[Texture2D] = [
+	preload("res://assets/sprites/astro/anim/aim_0.png"),
+	preload("res://assets/sprites/astro/anim/aim_1.png"),
+	preload("res://assets/sprites/astro/anim/aim_2.png"),
+	preload("res://assets/sprites/astro/anim/aim_3.png"),
+	preload("res://assets/sprites/astro/anim/aim_4.png"),
+	preload("res://assets/sprites/astro/anim/aim_5.png"),
+]
+const REACH_ANIM: Array[Texture2D] = [
+	preload("res://assets/sprites/astro/anim/reach_0.png"),
+	preload("res://assets/sprites/astro/anim/reach_1.png"),
+	preload("res://assets/sprites/astro/anim/reach_2.png"),
+	preload("res://assets/sprites/astro/anim/reach_3.png"),
+	preload("res://assets/sprites/astro/anim/reach_4.png"),
+	preload("res://assets/sprites/astro/anim/reach_5.png"),
+]
+# fps per loop — idle floats SLOW and serene (weightless drift, ~3.2s per
+# 8-frame cycle), the active poses tick faster. All loop seamlessly.
+const IDLE_FPS := 2.5
+const THRUST_FPS := 9.0
+const AIM_FPS := 9.0
+const REACH_FPS := 9.0
+
 var _anim_t := 0.0
 var _hit_t := 0.0
 var _dying := false
@@ -221,7 +268,7 @@ func _pick_frame() -> int:
 		return 5   # reaching for the line
 	if thrust_input.length() > 0.1:
 		return 2
-	return 0 if fmod(_anim_t, 1.3) < 0.65 else 1
+	return 0   # idle drift — visual comes from the IDLE_ANIM loop, not a1/a2
 
 
 func _suit_state() -> Dictionary:
@@ -309,10 +356,27 @@ func _draw_tether(st: Dictionary) -> void:
 				draw_on = not draw_on
 
 
+func _loop_tex(frames: Array[Texture2D], fps: float) -> Texture2D:
+	## The current frame of a looping cycle, driven by the shared _anim_t clock.
+	return frames[int(_anim_t * fps) % frames.size()]
+
+
+func _state_texture(frame: int) -> Texture2D:
+	## The texture drawn for a state index: a playing loop for the animated
+	## poses, else the single static a-frame. Loop frames match their source
+	## a-frame's canvas/centering, so the draw offset and anchors are unchanged.
+	match frame:
+		0, 1: return _loop_tex(IDLE_ANIM, IDLE_FPS)    # idle drift (was a1/a2)
+		2: return _loop_tex(THRUST_ANIM, THRUST_FPS)   # jetpack cruise (a3)
+		4: return _loop_tex(AIM_ANIM, AIM_FPS)         # mining aim (a5)
+		5: return _loop_tex(REACH_ANIM, REACH_FPS)     # tether reach (a6)
+		_: return ASTRO[frame]                         # brake/debris-hit/blackout
+
+
 func _draw_suit(st: Dictionary) -> void:
 	var frame: int = st["frame"]
 	var xf: Transform2D = st["xf"]
-	var tex: Texture2D = ASTRO[frame]
+	var tex: Texture2D = _state_texture(frame)
 	# thruster flame fires from the BOTTOM of the backpack, opposite the burn
 	if thrust_input.length() > 0.1 and not _dying:
 		var pack: Vector2 = xf * Vector2(-13, 2)   # backpack nozzle, pose-aware
@@ -339,14 +403,8 @@ func _draw_suit(st: Dictionary) -> void:
 	if not _dying and thrust_input.length() <= 0.1 and not braking and not laser_on:
 		bob = sin(_anim_t * 1.6) * 1.3
 	draw_set_transform_matrix(xf.translated(Vector2(0, bob)))
-	if frame <= 1:
-		# idle drift: CROSSFADE the two idle frames instead of hard-toggling,
-		# so the float reads as a smooth loop rather than a two-frame flicker
-		var blend := 0.5 + 0.5 * sin(_anim_t * 1.4)
-		draw_texture(ASTRO[0], -ASTRO[0].get_size() * 0.5, Color(1, 1, 1, 1.0 - blend))
-		draw_texture(ASTRO[1], -ASTRO[1].get_size() * 0.5, Color(1, 1, 1, blend))
-	else:
-		draw_texture(tex, -tex.get_size() * 0.5)
+	# frames are centred — every state (looping or static) draws the same way
+	draw_texture(tex, -tex.get_size() * 0.5)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 

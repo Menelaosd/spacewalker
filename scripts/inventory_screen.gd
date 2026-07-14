@@ -5,11 +5,13 @@ extends Control
 ## category strip, on-suit badge. Mouse wheel scrolls, hover for details.
 
 const FACTS_DB := preload("res://scripts/element_facts.gd")
-const SUIT_TEX := preload("res://assets/sprites/astronaut.png")
-const ICON_HELMET := preload("res://assets/icons/helmet.svg")
-const ICON_LINE := preload("res://assets/icons/line.svg")
-const ICON_TANK := preload("res://assets/icons/tank.svg")
-const ICON_LASER := preload("res://assets/icons/laser.svg")
+# holographic hero suit — background keyed transparent (see process_assets tool)
+const SUIT_TEX := preload("res://assets/sprites/suit_wireframe.png")
+# full-colour gear props (green screen keyed out), mapped one-per-slot by content
+const ICON_HELMET := preload("res://assets/sprites/gear/helmet.png")
+const ICON_LINE := preload("res://assets/sprites/gear/lifeline.png")
+const ICON_TANK := preload("res://assets/sprites/gear/o2.png")
+const ICON_LASER := preload("res://assets/sprites/gear/laser.png")
 
 const PANEL_W := 920.0
 const PANEL_H := 512.0
@@ -119,7 +121,7 @@ func _draw() -> void:
 	var panel := Rect2((vp.x - PANEL_W) * 0.5, (vp.y - PANEL_H) * 0.5, PANEL_W, PANEL_H)
 	UITheme.draw_sci_panel(self, panel)
 	UITheme.draw_headline(self, Rect2(panel.position.x + PANEL_W * 0.5 - 130,
-		panel.position.y - 14, 260, 30), "INVENTORY", _font, 13)
+		panel.position.y - 14, 260, 30), "INVENTORY", _font, 12)
 	_draw_suit_column(Rect2(panel.position + Vector2(20, 28), Vector2(LEFT_W, PANEL_H - 48)))
 	_draw_elements_area(Rect2(panel.position + Vector2(LEFT_W + 40, 28),
 		Vector2(PANEL_W - LEFT_W - 60, PANEL_H - 48)))
@@ -153,9 +155,9 @@ func _draw_detail(vp: Vector2, e: Array) -> void:
 	var tx := p.position.x + 176.0
 	var ty := p.position.y + 40.0
 	# symbol + name
-	draw_string(_font, Vector2(tx, ty), sym, HORIZONTAL_ALIGNMENT_LEFT, -1, 34, acc)
-	draw_string(_font, Vector2(tx + 74, ty), str(e[1]),
-		HORIZONTAL_ALIGNMENT_LEFT, pw - 250, 18, UITheme.TEXT)
+	draw_string(_font, Vector2(tx, ty), sym, HORIZONTAL_ALIGNMENT_LEFT, -1, 28, acc)
+	draw_string(_font, Vector2(tx + 62, ty), str(e[1]),
+		HORIZONTAL_ALIGNMENT_LEFT, pw - 240, 15, UITheme.TEXT)
 	# identity line
 	var ident := "Atomic no. %d   ·   %s" % [e[2],
 		"SYNTHETIC · collection only" if not craftable else Elements.category(sym).to_upper()]
@@ -168,7 +170,7 @@ func _draw_detail(vp: Vector2, e: Array) -> void:
 		Color(acc.r, acc.g, acc.b, 0.3), 1.0)
 	# the trivia, wrapped
 	draw_multiline_string(_font, Vector2(tx, ty + 56), FACTS_DB.fact(sym),
-		HORIZONTAL_ALIGNMENT_LEFT, pw - 200, 14, -1, UITheme.TEXT)
+		HORIZONTAL_ALIGNMENT_LEFT, pw - 200, 13, -1, UITheme.TEXT)
 	# footer
 	var status := ""
 	if craftable:
@@ -187,9 +189,7 @@ func _draw_detail(vp: Vector2, e: Array) -> void:
 # ------------------------------------------------------------------
 func _draw_suit_column(rect: Rect2) -> void:
 	UITheme.draw_header(self, rect.position + Vector2(0, 18), "EXOSUIT", _font,
-		13, UITheme.ACCENT, rect.size.x)
-	var cx := rect.position.x + rect.size.x * 0.5
-	draw_texture_rect(SUIT_TEX, Rect2(cx - 52, rect.position.y + 44, 104, 104), false)
+		12, UITheme.ACCENT, rect.size.x)
 
 	var rows := [
 		["SUIT", "Mk I pressure suit", "—", ICON_HELMET],
@@ -200,29 +200,78 @@ func _draw_suit_column(rect: Rect2) -> void:
 		["LASER", "%d output" % int(GameState.laser_dps),
 			"LV %d" % (GameState.laser_level + 1), ICON_LASER],
 	]
-	var y := rect.position.y + 168.0
-	for row in rows:
-		var slot_rect := Rect2(rect.position.x, y, rect.size.x, 54)
-		UITheme.draw_sub_panel(self, slot_rect)
-		UITheme.draw_icon(self, row[3], slot_rect.position + Vector2(26, 27), 24.0)
-		draw_string(_font, slot_rect.position + Vector2(52, 23), row[0],
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 12, UITheme.TEXT)
-		draw_string(_font, slot_rect.position + Vector2(52, 40), row[1],
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 10, UITheme.TEXT_DIM)
-		draw_string(_font, slot_rect.position + Vector2(0, 33), row[2],
-			HORIZONTAL_ALIGNMENT_RIGHT, slot_rect.size.x - 12, 12, UITheme.ACCENT_WARM)
-		y += 60.0
 
-	# discovery gauge
+	# Layout bottom-up so nothing can spill past the column: the discovery
+	# gauge is pinned to the column's own bottom edge (which already sits ~20px
+	# inside the panel), the gear rows stack just above it, and the hero suit
+	# fills whatever height is left between the header and the rows.
+	var row_h := 42.0
+	var row_gap := 6.0
+	var gauge_h := 54.0
+	var gauge_top := rect.end.y - gauge_h
+	var block_h := rows.size() * row_h + (rows.size() - 1) * row_gap
+	var gear_top := gauge_top - 12.0 - block_h
+
+	# hero suit — premium holographic readout, aspect preserved, centred
+	_draw_suit(Rect2(rect.position.x, rect.position.y + 38.0,
+		rect.size.x, gear_top - 14.0 - (rect.position.y + 38.0)))
+
+	# gear rows with full-colour prop icons (no tint — they're painted art)
+	var y := gear_top
+	for row in rows:
+		var slot_rect := Rect2(rect.position.x, y, rect.size.x, row_h)
+		UITheme.draw_sub_panel(self, slot_rect)
+		_draw_fit(row[3], Rect2(slot_rect.position + Vector2(7, 5),
+			Vector2(row_h - 10, row_h - 10)))
+		draw_string(_font, slot_rect.position + Vector2(46, 19), row[0],
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 12, UITheme.TEXT)
+		draw_string(_font, slot_rect.position + Vector2(46, 33), row[1],
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 9, UITheme.TEXT_DIM)
+		draw_string(_font, slot_rect.position + Vector2(0, 26), row[2],
+			HORIZONTAL_ALIGNMENT_RIGHT, slot_rect.size.x - 12, 11, UITheme.ACCENT_WARM)
+		y += row_h + row_gap
+
+	# discovery gauge — compact ring on the left, stat + label to its right
 	var owned := GameState.discovered.size()
-	UITheme.draw_ring_gauge(self, Vector2(cx - 54, y + 54), 30.0,
-		float(owned) / float(maxi(_sorted.size(), 1)), UITheme.ACCENT, _font)
-	draw_string(_font, Vector2(cx - 14, y + 46), "%d / %d" % [owned, _sorted.size()],
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 13, UITheme.TEXT)
-	draw_string(_font, Vector2(cx - 14, y + 62), "ELEMENTS",
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 10, UITheme.TEXT_DIM)
-	draw_string(_font, Vector2(cx - 14, y + 74), "DISCOVERED",
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 10, UITheme.TEXT_DIM)
+	var gcy := gauge_top + gauge_h * 0.5
+	var ring_c := Vector2(rect.position.x + 26.0, gcy)
+	UITheme.draw_ring_gauge(self, ring_c, 22.0,
+		float(owned) / float(maxi(_sorted.size(), 1)), UITheme.ACCENT, _font, false)
+	draw_string(_font, ring_c + Vector2(-22.0, 4.0),
+		"%d%%" % int(100.0 * float(owned) / float(maxi(_sorted.size(), 1))),
+		HORIZONTAL_ALIGNMENT_CENTER, 44.0, 10, UITheme.ACCENT.lightened(0.3))
+	var tx := rect.position.x + 58.0
+	draw_string(_font, Vector2(tx, gcy - 6.0), "%d / %d" % [owned, _sorted.size()],
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 12, UITheme.TEXT)
+	draw_string(_font, Vector2(tx, gcy + 12.0), "ELEMENTS DISCOVERED",
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 9, UITheme.TEXT_DIM)
+
+
+func _draw_suit(area: Rect2) -> void:
+	## The wireframe astronaut, framed like a hologram scan — aspect preserved,
+	## centred in `area`, with a soft glow disc, a base scan-line and corner
+	## brackets so the tall portrait reads as a deliberate hero element.
+	var tsz := SUIT_TEX.get_size()
+	var s := minf(area.size.x / tsz.x, area.size.y / tsz.y)
+	var dsz := tsz * s
+	var img := Rect2(area.position + (area.size - dsz) * 0.5, dsz)
+	var c := img.get_center()
+	var a := UITheme.ACCENT
+	draw_circle(c, dsz.y * 0.40, Color(a.r, a.g, a.b, 0.05))
+	draw_texture_rect(SUIT_TEX, img, false)
+	draw_line(Vector2(c.x - dsz.x * 0.5, img.end.y + 3.0),
+		Vector2(c.x + dsz.x * 0.5, img.end.y + 3.0), Color(a.r, a.g, a.b, 0.35), 1.0)
+	UITheme.draw_brackets(self, img.grow(2.0), a, 11.0, 4.0)
+
+
+func _draw_fit(tex: Texture2D, box: Rect2) -> void:
+	## Draw a texture fitted inside `box`, aspect preserved, centred, untinted.
+	if tex == null:
+		return
+	var tsz := tex.get_size()
+	var s := minf(box.size.x / tsz.x, box.size.y / tsz.y)
+	var dsz := tsz * s
+	draw_texture_rect(tex, Rect2(box.position + (box.size - dsz) * 0.5, dsz), false)
 
 
 # ------------------------------------------------------------------
@@ -236,7 +285,7 @@ func _draw_elements_area(rect: Rect2) -> void:
 	if samples > 0:
 		held_note = "   ·   %d SAMPLES ON SUIT — DOCK TO REFINE" % samples
 	UITheme.draw_header(self, rect.position + Vector2(0, 18), "ELEMENTS", _font,
-		13, UITheme.ACCENT, rect.size.x)
+		12, UITheme.ACCENT, rect.size.x)
 	draw_string(_font, rect.position + Vector2(0, 42),
 		"REAL SOLAR ABUNDANCE%s" % held_note,
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 10, UITheme.TEXT_DIM)
@@ -272,21 +321,21 @@ func _draw_elements_area(rect: Rect2) -> void:
 		if not he[4]:
 			# synthetic — collectible for the set, but no natural abundance
 			var syn_have := GameState.discovered.has(he[0])
-			draw_circle(Vector2(rect.position.x + 8, fy + 6), 5.0, Color(0.85, 0.4, 0.85))
-			draw_string(_font, Vector2(rect.position.x + 20, fy + 11),
+			draw_circle(Vector2(rect.position.x + 7, fy + 5), 3.5, Color(0.85, 0.4, 0.85))
+			draw_string(_font, Vector2(rect.position.x + 17, fy + 9),
 				"%s — %s   ·   Z %d   ·   SYNTHETIC — salvaged from old reactor cores, collection only (not craftable)   ·   %s   ·   click for trivia" % [
 					he[0], he[1], he[2], "FOUND" if syn_have else "NOT YET FOUND"],
-				HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.82, 0.7, 0.86))
+				HORIZONTAL_ALIGNMENT_LEFT, -1, 8, Color(0.82, 0.7, 0.86))
 		else:
 			var hcol: Color = Elements.hue_of(he[0])
-			draw_circle(Vector2(rect.position.x + 8, fy + 6), 5.0, hcol)
+			draw_circle(Vector2(rect.position.x + 7, fy + 5), 3.5, hcol)
 			var status := "DISCOVERED" if GameState.discovered.has(he[0]) else "NOT YET FOUND"
-			draw_string(_font, Vector2(rect.position.x + 20, fy + 11),
+			draw_string(_font, Vector2(rect.position.x + 17, fy + 9),
 				"%s — %s   ·   Z %d   ·   %s   ·   stored %d / %d   ·   abundance %s%%   ·   %s   ·   click for trivia" % [
 					he[0], he[1], he[2], Elements.category(he[0]).to_upper(),
 					int(GameState.elements.get(he[0], 0)), GameState.ELEMENT_CAP,
 					String.num_scientific(he[3]), status],
-				HORIZONTAL_ALIGNMENT_LEFT, -1, 11, UITheme.TEXT)
+				HORIZONTAL_ALIGNMENT_LEFT, -1, 8, UITheme.TEXT)
 	else:
 		var gx := rect.position.x + 8.0
 		draw_string(_font, Vector2(gx, fy + 13), "hover a card for details",

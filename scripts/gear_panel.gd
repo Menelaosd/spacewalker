@@ -6,10 +6,11 @@ extends Control
 const TILE := 66.0
 const GAP := 7.0
 
-const ICON_HELMET := preload("res://assets/icons/helmet.svg")
-const ICON_LINE := preload("res://assets/icons/line.svg")
-const ICON_TANK := preload("res://assets/icons/tank.svg")
-const ICON_LASER := preload("res://assets/icons/laser.svg")
+# painted gear icons (match the inventory screen's exosuit rows)
+const ICON_HELMET := preload("res://assets/sprites/gear/helmet.png")
+const ICON_LINE := preload("res://assets/sprites/gear/lifeline.png")
+const ICON_TANK := preload("res://assets/sprites/gear/o2.png")
+const ICON_LASER := preload("res://assets/sprites/gear/laser.png")
 
 var _flash := 0.0
 var _font: Font = ThemeDB.fallback_font
@@ -65,8 +66,8 @@ func _draw_tile(i: int, title: String, value: String, level: int,
 	# title
 	draw_string(_font, Vector2(x, 13), title, HORIZONTAL_ALIGNMENT_CENTER,
 		TILE, 9, UITheme.TEXT_DIM)
-	# SVG icon, cyan
-	UITheme.draw_icon(self, icon, Vector2(x + TILE * 0.5, 34.0), 26.0)
+	# painted gear icon, drawn untinted so its own colours show
+	_draw_icon_fit(icon, Vector2(x + TILE * 0.5, 34.0), 34.0)
 	# value
 	draw_string(_font, Vector2(x, TILE - 2), value, HORIZONTAL_ALIGNMENT_CENTER,
 		TILE, 13, Color(0.7, 0.95, 1.0, 0.95))
@@ -80,4 +81,9 @@ func _draw_tile(i: int, title: String, value: String, level: int,
 			(UITheme.ACCENT_WARM if maxed else UITheme.ACCENT) if on else Color(1, 1, 1, 0.13))
 
 
-# icons are SVG assets (assets/icons/), tinted via UITheme.draw_icon
+func _draw_icon_fit(tex: Texture2D, center: Vector2, box: float) -> void:
+	## Centered, aspect-preserved, untinted — painted icons keep their colours.
+	var ts := tex.get_size()
+	var s := box / maxf(ts.x, ts.y)
+	var sz := ts * s
+	draw_texture_rect(tex, Rect2(center - sz * 0.5, sz), false)

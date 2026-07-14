@@ -124,9 +124,14 @@ const HULL_MASK := [
 	"#####...",
 ]
 # starting rooms — a connected cluster amidships; everything else is
-# bare hull you expand into, one adjacent cell at a time
+# bare hull you expand into, one adjacent cell at a time.
+# QUARTERS is the one room that spans TWO cells: the top-left corner (0) and
+# the cell beside it (1). Cell 0 already sits inside the hull mask — it was
+# just never a room, which is why it read as blank/unusable. The interior
+# treats 0 + 1 as one open room (no wall between them); see ship_interior.gd
+# QUARTERS_ANCHOR / QUARTERS_MEMBERS.
 const DEFAULT_ROOMS := {
-	1: "quarters", 2: "medbay", 8: "engine", 9: "upgrade", 10: "bridge",
+	0: "quarters", 1: "quarters", 2: "medbay", 8: "engine", 9: "upgrade", 10: "bridge",
 	16: "airlock", 17: "cargo", 18: "botany",
 }
 
@@ -253,11 +258,11 @@ func rescue_beacon() -> Vector2:
 	## Deterministic distress-beacon position for the current target —
 	## planted in their region, in rescue order.
 	match rescued.size():
-		0: return Vector2.from_angle(TAU * 0.62) * 7400.0            # The Belt
+		0: return Vector2.from_angle(TAU * 0.62) * 16280.0           # The Belt
 		1: return nebula_center(3) + Vector2(620.0, -340.0)          # Viridian Veil
 		2: return nebula_center(2) + Vector2(-520.0, 430.0)          # Ember Reach
 		3: return nebula_center(1) + Vector2(340.0, 520.0)           # Cerulean Shallows
-		4: return Vector2.from_angle(TAU * 0.87) * 11500.0           # The Expanse
+		4: return Vector2.from_angle(TAU * 0.87) * 25300.0           # The Expanse
 	return Vector2.ZERO
 
 
@@ -341,31 +346,42 @@ var flare_phase := ""       # "", "warn", "burn" — set by the dive scene
 # hand-placed crystal-rich landmark destinations, and The Expanse is
 # deliberately vast and empty so finding a field out there means something.
 # ------------------------------------------------------------------
-# Nine landmark clouds, each with its own size and palette — from small
-# pale wisps to giants that swallow the horizon. Positions stay planned
-# (angle formula + per-nebula distance), not noise.
+# Landmark clouds, each with its own size and palette — from small pale
+# wisps to giants that swallow the horizon. Positions stay planned (angle
+# formula + per-nebula distance), not noise.
+# The universe was scaled up ~2.2x so the rescue missions sit far apart:
+# every `dist` below is the raw plan distance x2.2, and every `radius` was
+# nudged up x1.3 so the bigger clouds don't read as pinpricks in the vast
+# space. New clouds were appended (see below) to keep the sky full, not empty.
 const NEBULAE := [
-	{"name": "Rosefield Nebula", "color": Color(0.85, 0.35, 0.6), "radius": 2400.0, "dist": 5200.0},
-	{"name": "Cerulean Shallows", "color": Color(0.3, 0.65, 0.95), "radius": 1900.0, "dist": 8800.0},
-	{"name": "Ember Reach", "color": Color(0.95, 0.6, 0.25), "radius": 2700.0, "dist": 12400.0},
-	{"name": "Viridian Veil", "color": Color(0.35, 0.85, 0.55), "radius": 2100.0, "dist": 16000.0},
-	{"name": "Amethyst Deep", "color": Color(0.62, 0.4, 0.98), "radius": 3400.0, "dist": 10500.0},
-	{"name": "Carmine Hollow", "color": Color(0.95, 0.32, 0.38), "radius": 1400.0, "dist": 7000.0},
-	{"name": "Gilded Drift", "color": Color(0.95, 0.78, 0.42), "radius": 1700.0, "dist": 13800.0},
-	{"name": "Ghostlight Shoal", "color": Color(0.78, 0.88, 0.98), "radius": 1200.0, "dist": 18500.0},
-	{"name": "Tyrian Abyss", "color": Color(0.82, 0.32, 0.92), "radius": 3800.0, "dist": 22500.0},
+	{"name": "Rosefield Nebula", "color": Color(0.85, 0.35, 0.6), "radius": 3120.0, "dist": 11440.0},
+	{"name": "Cerulean Shallows", "color": Color(0.3, 0.65, 0.95), "radius": 2470.0, "dist": 19360.0},
+	{"name": "Ember Reach", "color": Color(0.95, 0.6, 0.25), "radius": 3510.0, "dist": 27280.0},
+	{"name": "Viridian Veil", "color": Color(0.35, 0.85, 0.55), "radius": 2730.0, "dist": 35200.0},
+	{"name": "Amethyst Deep", "color": Color(0.62, 0.4, 0.98), "radius": 4420.0, "dist": 23100.0},
+	{"name": "Carmine Hollow", "color": Color(0.95, 0.32, 0.38), "radius": 1820.0, "dist": 15400.0},
+	{"name": "Gilded Drift", "color": Color(0.95, 0.78, 0.42), "radius": 2210.0, "dist": 30360.0},
+	{"name": "Ghostlight Shoal", "color": Color(0.78, 0.88, 0.98), "radius": 1560.0, "dist": 40700.0},
+	{"name": "Tyrian Abyss", "color": Color(0.82, 0.32, 0.92), "radius": 4940.0, "dist": 49500.0},
 	# --- appended (indices 9+): more clouds to fill the void. The first
 	# nine are load-bearing (rescue regions 1/2/3); never reorder those. ---
-	{"name": "Molten Wisp", "color": Color(0.98, 0.5, 0.28), "radius": 1500.0, "dist": 6300.0},
-	{"name": "Sapphire Mist", "color": Color(0.32, 0.55, 0.98), "radius": 2200.0, "dist": 9600.0},
-	{"name": "Verdant Bloom", "color": Color(0.42, 0.9, 0.62), "radius": 1600.0, "dist": 14600.0},
-	{"name": "Coral Expanse", "color": Color(0.98, 0.55, 0.6), "radius": 2900.0, "dist": 19800.0},
-	{"name": "Indigo Veil", "color": Color(0.48, 0.42, 0.92), "radius": 1900.0, "dist": 11300.0},
-	{"name": "Aureate Cloud", "color": Color(0.96, 0.82, 0.42), "radius": 1400.0, "dist": 15900.0},
-	{"name": "Frostlight Reach", "color": Color(0.65, 0.9, 0.98), "radius": 2100.0, "dist": 21200.0},
-	{"name": "Crimson Drift", "color": Color(0.9, 0.28, 0.34), "radius": 1700.0, "dist": 24000.0},
-	{"name": "Halcyon Mote", "color": Color(0.6, 0.95, 0.85), "radius": 1300.0, "dist": 4700.0},
-	{"name": "Obsidian Bloom", "color": Color(0.7, 0.4, 0.85), "radius": 2500.0, "dist": 26500.0},
+	{"name": "Molten Wisp", "color": Color(0.98, 0.5, 0.28), "radius": 1950.0, "dist": 13860.0},
+	{"name": "Sapphire Mist", "color": Color(0.32, 0.55, 0.98), "radius": 2860.0, "dist": 21120.0},
+	{"name": "Verdant Bloom", "color": Color(0.42, 0.9, 0.62), "radius": 2080.0, "dist": 32120.0},
+	{"name": "Coral Expanse", "color": Color(0.98, 0.55, 0.6), "radius": 3770.0, "dist": 43560.0},
+	{"name": "Indigo Veil", "color": Color(0.48, 0.42, 0.92), "radius": 2470.0, "dist": 24860.0},
+	{"name": "Aureate Cloud", "color": Color(0.96, 0.82, 0.42), "radius": 1820.0, "dist": 34980.0},
+	{"name": "Frostlight Reach", "color": Color(0.65, 0.9, 0.98), "radius": 2730.0, "dist": 46640.0},
+	{"name": "Crimson Drift", "color": Color(0.9, 0.28, 0.34), "radius": 2210.0, "dist": 52800.0},
+	{"name": "Halcyon Mote", "color": Color(0.6, 0.95, 0.85), "radius": 1690.0, "dist": 10340.0},
+	{"name": "Obsidian Bloom", "color": Color(0.7, 0.4, 0.85), "radius": 3250.0, "dist": 58300.0},
+	# --- new clouds (indices 19+) added with the 2.2x expansion so the wider
+	# sky stays rich, not empty; spread across the far reaches. ---
+	{"name": "Nacre Halo", "color": Color(0.92, 0.87, 0.72), "radius": 2100.0, "dist": 29000.0},
+	{"name": "Cobalt Reef", "color": Color(0.24, 0.46, 0.9), "radius": 2700.0, "dist": 38000.0},
+	{"name": "Emberfall Veil", "color": Color(0.96, 0.44, 0.22), "radius": 2000.0, "dist": 46000.0},
+	{"name": "Violet Cascade", "color": Color(0.6, 0.34, 0.95), "radius": 3100.0, "dist": 54000.0},
+	{"name": "Silverwake Drift", "color": Color(0.82, 0.9, 0.94), "radius": 1700.0, "dist": 62000.0},
 ]
 
 
@@ -393,14 +409,17 @@ func region_at(p: Vector2) -> Dictionary:
 			var n: Dictionary = NEBULAE[i]
 			return {"name": n["name"], "chance": 0.6, "size": 1.1,
 				"rich": 0.18, "tint": n["color"], "nebula": true}
+	# Concentric-zone radii scaled with the 2.2x universe expansion so these
+	# bands grow with everything else (keeps rescue beacon 0 in The Belt and
+	# beacon 4 out in The Expanse). Richness curve in richness_at is untouched.
 	var r := p.length()
-	if r < 3000.0:
+	if r < 6600.0:
 		return {"name": "The Reach", "chance": 0.3, "size": 0.8,
 			"rich": -0.04, "tint": null, "nebula": false}
-	if r < 6000.0:
+	if r < 13200.0:
 		return {"name": "The Drift", "chance": 0.45, "size": 1.0,
 			"rich": 0.0, "tint": null, "nebula": false}
-	if r < 9000.0:
+	if r < 19800.0:
 		return {"name": "The Belt", "chance": 0.85, "size": 1.25,
 			"rich": 0.08, "tint": Color(0.52, 0.46, 0.4), "nebula": false}
 	return {"name": "The Expanse", "chance": 0.08, "size": 1.7,
@@ -417,12 +436,25 @@ func sector_richness() -> float:
 	return richness_at(sector)
 
 
+# Dive-site zones draw at this fraction of their raw radius. The captain
+# wanted the scavenge circles a lot smaller, but WITHOUT rerolling the field.
+# So every random draw (angle, distance, size, richness), the overlap
+# placement check, and the per-vein seeding all run at FULL scale exactly as
+# before — only the position handed back to the callers is pulled toward the
+# centre. Same seed → same rocks → same elements → same count; they just sit
+# in a tighter cluster. 0.5 raw-position scale lands the field radius at
+# ~52% of the old radius (the unscaled rock radius adds a little back).
+const ZONE_SHRINK := 0.5
+
+
 func dive_field(center: Vector2) -> Array:
 	## THE single source of truth for a dive site's asteroids — so the flight
 	## preview and the actual spacewalk field are the SAME rocks (same count,
 	## positions, sizes, elements, mined-state). Deterministic per site:
 	## seeded by the rounded centre, veins seeded per rock key (identical to
 	## asteroid.gd's own derivation, so the spawned rock matches this preview).
+	## Placement runs at full scale; the emitted position is scaled by
+	## ZONE_SHRINK so the identical field just clusters tighter around centre.
 	var sx := int(round(center.x))
 	var sy := int(round(center.y))
 	var region := region_at(center)
@@ -458,7 +490,7 @@ func dive_field(center: Vector2) -> Array:
 		var roll := vrng.randf()
 		var sym: String = Elements.sample_crystal_element(roll) if rich \
 			else Elements.sample_rock_element(roll)
-		out.append({"pos": pos, "r": r, "rich": rich, "key": key,
+		out.append({"pos": pos * ZONE_SHRINK, "r": r, "rich": rich, "key": key,
 			"sym": sym, "cat": Elements.category(sym), "mined": mined.has(key)})
 	return out
 

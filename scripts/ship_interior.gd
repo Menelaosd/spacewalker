@@ -95,7 +95,13 @@ const P := {
 	"seedling": preload("res://assets/craft/seedling_table.png"),
 	"terrarium": preload("res://assets/craft/terrarium_dome.png"),
 	"plant": preload("res://assets/craft/potted_plant.png"),
+	"rug_round": preload("res://assets/craft/rug_round.png"),
 }
+
+# ROOM_PROPS keys that are FLOOR DECALS, not standing furniture: they draw flat
+# on the deck (squashed, always in the behind pass, under everything) and are
+# NEVER added to the obstacle set — the crew walks straight over them.
+const FLAT_PROPS := ["rug_round"]
 
 # per-room floor tile + furniture: [tex key, offset from cell center, width px]
 const ROOM_FLOOR := {
@@ -105,11 +111,47 @@ const ROOM_FLOOR := {
 	"room": "fl_plain",
 }
 const ROOM_PROPS := {
+	# QUARTERS spans TWO cells (0 + 1) and is furnished like real crew berths.
+	# Offsets are relative to the COMBINED 2-cell centre (see _prop_center) —
+	# x runs -190..+190 across the 380px-wide room, y runs -80..+80. Doorways
+	# open on the BOTTOM wall to Engine (x~-95) and Upgrade (x~+95), and on the
+	# RIGHT wall to Medbay (y~0); the whole LEFT wall (x=-190) is exterior and
+	# free to furnish. Everything hugs the walls/corners so the mid + lower
+	# floor stays an open walkable lane to all three doors and the bunk-wake
+	# spawn (0,+24). Layout:
+	#   • THREE double beds along the top plating (heads to the wall), each a
+	#     pair of bunks, with two tall lockers standing between them, plus a
+	#     nightstand at each row end as a bedside table.
+	#   • LEFT wall = personal nook: a wardrobe, a reading chair, a pin/tool
+	#     board, and a potted plant in the bottom-left corner.
+	#   • LOWER-RIGHT = a workbench desk with a chair (clear of the Medbay door
+	#     at y~0 above it and the Upgrade door at x~+95 to its left), with a
+	#     potted plant in the corner beside it.
+	#   • a round RUG anchors the open mid-floor as a cosy centrepiece. It is a
+	#     FLOOR DECAL (see FLAT_PROPS): drawn flat + non-blocking, listed FIRST
+	#     so it lies UNDER every standing piece.
 	"quarters": [
-		["bunk", Vector2(-54, -8), 62.0],
-		["nightstand", Vector2(10, 40), 34.0],
-		["locker", Vector2(66, -38), 28.0],
-		["medkit", Vector2(70, 28), 26.0],
+		["rug_round", Vector2(0, 20), 96.0],
+		["bunk", Vector2(-140, -46), 40.0],
+		["bunk", Vector2(-100, -46), 40.0],
+		["bunk", Vector2(-20, -46), 40.0],
+		["bunk", Vector2(20, -46), 40.0],
+		["bunk", Vector2(100, -46), 40.0],
+		["bunk", Vector2(140, -46), 40.0],
+		["locker", Vector2(-60, -42), 26.0],
+		["locker", Vector2(60, -42), 26.0],
+		# bedside tables at the ends of the bunk row (top corners)
+		["nightstand", Vector2(-172, -33), 18.0],
+		["nightstand", Vector2(172, -33), 18.0],
+		# left-wall personal nook (replaces the old left-wall locker)
+		["wardrobe", Vector2(-172, -4), 34.0],
+		["chair", Vector2(-146, 24), 18.0],
+		["toolboard", Vector2(-176, 40), 28.0],
+		["plant", Vector2(-176, 64), 22.0],
+		# desk nook in the lower-right corner
+		["workbench", Vector2(158, 52), 40.0],
+		["chair", Vector2(137, 61), 18.0],
+		["plant", Vector2(182, 66), 20.0],
 	],
 	"engine": [
 		["batteries", Vector2(-60, 42), 52.0],
@@ -156,13 +198,18 @@ const ROOM_PROPS := {
 	"room": [],
 }
 
-# rescued crew live aboard: room type, offset in that room, suit tint
+# rescued crew live aboard: room type, offset in that room, suit tint.
+# Offsets land on CLEAR floor — never on a prop's footprint, never in a
+# doorway lane. Verified walkable via SW_NPCDBG (see _ready).
 const NPC_SPOTS := {
-	"JUNO": ["upgrade", Vector2(-40, 50), Color(1.15, 1.0, 0.72)],
+	# the Engineer, at her reactor — stands mid-deck, clear of the reactor
+	# (top), batteries/generator (bottom) and the east/south doorways
+	"JUNO": ["engine", Vector2(6, 8), Color(1.15, 1.0, 0.72)],
 	"MIRA": ["botany", Vector2(10, 30), Color(0.78, 1.12, 0.85)],   # the Botanist, home turf
-	"HALE": ["cargo", Vector2(-58, -6), Color(0.8, 1.0, 1.15)],
-	"SOLA": ["medbay", Vector2(-64, 30), Color(1.15, 0.85, 0.85)],  # the Medic, on shift
-	"VEGA": ["bridge", Vector2(-66, -40), Color(1.0, 0.88, 1.2)],
+	"HALE": ["cargo", Vector2(-16, 14), Color(0.8, 1.0, 1.15)],
+	"SOLA": ["medbay", Vector2(-40, 34), Color(1.15, 0.85, 0.85)],  # the Medic, on shift
+	# the Navigator, beside the helm/nav console (not on it)
+	"VEGA": ["bridge", Vector2(34, 22), Color(1.0, 0.88, 1.2)],
 }
 
 # ambient light halos drawn IN FRONT of glowing props: [color, radius]
@@ -187,6 +234,77 @@ const GLOWS := {
 	"ecg": [Color(0.4, 1.0, 0.6), 16.0],
 	"grow_rack": [Color(0.55, 1.0, 0.5), 20.0],
 	"terrarium": [Color(0.45, 0.95, 0.6), 18.0],
+}
+
+# Free-standing ambient point-glows placed around each room type — NOT tied to
+# a prop — to give every room a distinct colour wash. Each entry is
+# [offset-from-cell-centre, colour, radius]; spawned as soft PointLight2D pools
+# by _spawn_lights, animated by the same calm breathe/flicker as prop halos.
+# Offsets are cell-centre-relative (±95 x, ±80 y); quarters is the merged 2-cell
+# room so its offsets run the wider ±190 x about the combined centre.
+const ROOM_AMBIENT := {
+	# engine — hot reactor bay: warm orange/red wash, corner to corner
+	"engine": [
+		[Vector2(-72, 58), Color(1.0, 0.42, 0.18), 32.0],
+		[Vector2(78, -46), Color(1.0, 0.55, 0.25), 26.0],
+		[Vector2(-40, -30), Color(1.0, 0.36, 0.14), 24.0],
+	],
+	# medbay — clinical but WARM: soft rose pulse + warm overhead white so the
+	# ward reads inviting against the cool steel of the neighbouring decks
+	"medbay": [
+		[Vector2(-64, 44), Color(1.0, 0.6, 0.58), 30.0],
+		[Vector2(60, 50), Color(1.0, 0.82, 0.76), 28.0],
+		[Vector2(-8, -28), Color(1.0, 0.88, 0.82), 26.0],
+	],
+	# bridge — cool cyan/blue command deck, washed across the whole floor
+	"bridge": [
+		[Vector2(-70, 40), Color(0.26, 0.54, 1.0), 30.0],
+		[Vector2(58, 54), Color(0.3, 0.8, 1.0), 26.0],
+		[Vector2(-6, -26), Color(0.34, 0.68, 1.0), 28.0],
+	],
+	# botany — grow lights: rich green with a magenta LED accent
+	"botany": [
+		[Vector2(-70, 52), Color(0.32, 1.0, 0.38), 30.0],
+		[Vector2(70, 50), Color(0.96, 0.28, 0.9), 28.0],
+		[Vector2(2, -40), Color(0.46, 1.0, 0.42), 28.0],
+	],
+	# quarters — cosy amber berths (wide, merged 2-cell room). Amber pools low
+	# AND up by the bunks so the whole berth reads warm against its purple deck
+	"quarters": [
+		[Vector2(-150, 58), Color(1.0, 0.7, 0.38), 32.0],
+		[Vector2(150, 58), Color(1.0, 0.68, 0.36), 32.0],
+		[Vector2(0, 42), Color(1.0, 0.76, 0.48), 30.0],
+		[Vector2(-72, -18), Color(1.0, 0.72, 0.42), 28.0],
+		[Vector2(72, -18), Color(1.0, 0.7, 0.4), 28.0],
+	],
+	# cargo — neutral steel working light, faintly warm
+	"cargo": [
+		[Vector2(-60, -30), Color(0.82, 0.84, 0.92), 26.0],
+		[Vector2(60, 46), Color(0.9, 0.86, 0.8), 24.0],
+	],
+	# airlock — cold exterior light bleeding in, with a hazard-amber warning wash
+	"airlock": [
+		[Vector2(58, 40), Color(0.55, 0.78, 1.0), 24.0],
+		[Vector2(-44, -28), Color(1.0, 0.74, 0.28), 26.0],
+		[Vector2(30, -40), Color(1.0, 0.66, 0.2), 22.0],
+	],
+	# upgrade / workshop — green-lit bench area
+	"upgrade": [
+		[Vector2(60, 42), Color(0.55, 0.95, 0.68), 24.0],
+		[Vector2(-40, -20), Color(0.6, 0.92, 0.72), 22.0],
+	],
+	# generic player-built room — neutral cool fill
+	"room": [
+		[Vector2(0, 42), Color(0.78, 0.85, 0.98), 26.0],
+	],
+}
+
+# per-room halo TEMPO: multiplies the breathe/sway rate (not amplitude, so no
+# jarring motion). Calm rooms drift slowly; the engine bay pulses a touch more.
+const ROOM_TEMPO := {
+	"quarters": 0.7, "botany": 0.72, "medbay": 0.85,
+	"engine": 1.25, "bridge": 1.0, "cargo": 0.9, "airlock": 0.9,
+	"upgrade": 1.0, "room": 0.9,
 }
 
 @onready var crew: Node2D = $Crew
@@ -245,6 +363,39 @@ func cell_at(p: Vector2) -> int:
 
 func _built(cell: int) -> bool:
 	return GameState.rooms.has(cell)
+
+
+# --- Multi-cell room support -------------------------------------------------
+# Quarters is the one room that occupies TWO grid cells: cell 0 (top-left
+# corner) and cell 1 (top row, 2nd col). Floor, walls and walkability fall out
+# of the normal per-cell rules for free — adjacent BUILT cells never wall each
+# other off (see _draw_room_cell / _is_walkable) and share continuous deck.
+# Only two things need care: (a) ROOM_PROPS is keyed by room TYPE, so its
+# furniture would otherwise be painted once per cell; and (b) the nameplate /
+# doorway threshold between 0 and 1 must not split the open room. We paint the
+# quarters props + label ONCE, anchored at the combined footprint's centre.
+const QUARTERS_ANCHOR := 0
+const QUARTERS_MEMBERS := [0, 1]
+
+
+func _quarters_merged() -> bool:
+	return GameState.rooms.get(0, "") == "quarters" and GameState.rooms.get(1, "") == "quarters"
+
+
+func _draws_props(cell: int) -> bool:
+	## false only for the NON-anchor member of the merged quarters, so its
+	## ROOM_PROPS and nameplate are drawn a single time across both cells
+	if cell != QUARTERS_ANCHOR and cell in QUARTERS_MEMBERS and _quarters_merged():
+		return false
+	return true
+
+
+func _prop_center(cell: int) -> Vector2:
+	## the point a cell's ROOM_PROPS lay out from: the COMBINED centre for the
+	## quarters anchor (so beds/lockers span both cells), else the cell centre
+	if cell == QUARTERS_ANCHOR and _quarters_merged():
+		return (cell_rect(0).get_center() + cell_rect(1).get_center()) * 0.5
+	return cell_rect(cell).get_center()
 
 
 # directional wall margins: the sprite is ~33px above the feet, so the
@@ -315,9 +466,13 @@ func _glow(pos: Vector2, col: Color, radius: float) -> void:
 func _build_obstacles() -> void:
 	_obstacles = []
 	for cell in GameState.rooms:
-		var c := cell_rect(cell).get_center()
+		if not _draws_props(cell):
+			continue   # merged quarters: its props collide once, from the anchor
+		var c := _prop_center(cell)
 		var type: String = GameState.rooms[cell]
 		for f in ROOM_PROPS.get(type, []):
+			if f[0] in FLAT_PROPS:
+				continue   # floor decals (rugs) are walked over, never collide
 			var tex: Texture2D = P[f[0]]
 			var w: float = f[2]
 			var h: float = w * tex.get_size().y / tex.get_size().x
@@ -439,8 +594,8 @@ func _ready() -> void:
 
 	if GameState.wake_on_bunk:
 		GameState.wake_on_bunk = false
-		# beside the bunk — the bunk itself is solid now
-		crew.position = cell_rect(_find_cell("quarters")).get_center() + Vector2(32, 10)
+		# open floor at the foot of the middle bed — the beds are solid now
+		crew.position = _prop_center(_find_cell("quarters")) + Vector2(0, 24)
 		if GameState.last_lost > 0:
 			GameState.say("You black out... and wake in your bunk. The %d ore you carried is gone." %
 				GameState.last_lost)
@@ -510,6 +665,41 @@ func _ready() -> void:
 					["sofa", 0, 3], ["potted_plant", 4, 2]]:
 				GameState.recipes_unlocked[pick[0]] = true
 				GameState.place_furniture(rc, pick[0], pick[1], pick[2])
+	# SW_NPCDBG=1: rescue everyone, then print each aboard-NPC's spot,
+	# walkability and any feet-box overlap with a prop — placement QA for the
+	# crew idles (env-gated; harmless in normal play). DELETE BEFORE SHIPPING.
+	if OS.get_environment("SW_NPCDBG") != "":
+		for rn2 in NPC_SPOTS:
+			GameState.rescued[rn2] = true
+		_define_stations()
+		for nn in NPC_SPOTS:
+			var sp2: Array = NPC_SPOTS[nn]
+			var np: Vector2 = cell_rect(_find_cell(sp2[0])).get_center() + (sp2[1] as Vector2)
+			var fbox := Rect2(np.x + 12.0 - 6.0, np.y + 12.0 - 3.0, 12.0, 6.0)
+			var hit := "clear"
+			for o in _obstacles:
+				if o.intersects(fbox):
+					hit = "OVERLAP %s" % str(o)
+					break
+			print("NPCDBG %s room=%s off=%s walkable=%s feet=%s" % [
+				nn, sp2[0], str(sp2[1]), str(_is_walkable(np)), hit])
+		# capture aid: freeze the player, pull the camera back and centre it so
+		# a single windowed frame shows every room + crew at once. Fit is
+		# computed from the ACTUAL built-cell bounds and the viewport size, so it
+		# frames correctly at any window/DPI (a fixed zoom cropped at 200% DPI).
+		crew.set_process(false)
+		var bb := Rect2()
+		for cell in GameState.rooms:
+			bb = cell_rect(cell) if bb.size == Vector2.ZERO else bb.merge(cell_rect(cell))
+		if bb.size == Vector2.ZERO:
+			bb = Rect2(ORIGIN, Vector2(CELL_W, CELL_H))
+		crew.position = bb.get_center()
+		var cam := crew.get_node_or_null("Camera") as Camera2D
+		if cam != null:
+			cam.position_smoothing_enabled = false
+			var vp := get_viewport().get_visible_rect().size
+			var z := minf(vp.x / (bb.size.x + 160.0), vp.y / (bb.size.y + 160.0))
+			cam.zoom = Vector2(z, z)
 
 
 func _debug_build_room() -> int:
@@ -670,6 +860,7 @@ func _draw_doorway(mid: Vector2, rot: float, edge_half: float,
 func _process(delta: float) -> void:
 	_reactor += delta
 	_animate_lights()
+	_update_npcs()
 	if _ending_t > 0.0:
 		_ending_t += delta
 		if _ending_t > 8.0:
@@ -711,6 +902,34 @@ func _process(delta: float) -> void:
 		_prompt_label.modulate.a = 0.0
 	queue_redraw()
 	_overlay.queue_redraw()
+
+
+func _update_npcs() -> void:
+	## Drive the crew's rest/gesture state machine. Each NPC rests (frame 0 +
+	## breath) for a RANDOM 7-15s, then plays its gesture ONCE, then rests again.
+	## First trigger is randomised per NPC so they stagger and never sync.
+	for nname in NPC_SPOTS:
+		if not GameState.rescued.has(nname):
+			continue
+		var a: Dictionary = _npc_anim.get(nname, {})
+		if a.is_empty():
+			a = {"mode": "rest", "gstart": 0.0,
+				"next": _reactor + randf_range(2.0, NPC_REST_MAX)}
+			_npc_anim[nname] = a
+		var frames := _npc_idle_frames(nname)
+		if a["mode"] == "rest":
+			if _reactor >= float(a["next"]):
+				if frames.size() > 1:
+					a["mode"] = "gesture"
+					a["gstart"] = _reactor
+				else:
+					# no real gesture to play (token/single frame) — just wait again
+					a["next"] = _reactor + randf_range(NPC_REST_MIN, NPC_REST_MAX)
+		else:
+			var gdur := float(maxi(frames.size(), 1)) / NPC_GESTURE_FPS
+			if _reactor - float(a["gstart"]) >= gdur:
+				a["mode"] = "rest"
+				a["next"] = _reactor + randf_range(NPC_REST_MIN, NPC_REST_MAX)
 
 
 func _update_active_station() -> void:
@@ -1075,6 +1294,13 @@ func _build_hud() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.theme = UITheme.make_theme()
 	layer.add_child(root)
+
+	# crew roster indicator — five circular portraits, self-anchored to the
+	# top-right corner (the info panel lives top-left, so they never overlap on
+	# the 1280-wide viewport). Colour when rescued, dark until then.
+	var roster := preload("res://scripts/crew_roster.gd").new()
+	root.add_child(roster)
+
 	_inventory = INVENTORY_SCREEN.new()
 	# the inventory is a full-screen layer — never let it stack over a modal,
 	# the rename box or fabricator placement
@@ -1445,15 +1671,19 @@ func _draw() -> void:
 			_prop_rect("elb_en", Rect2(cross.x - 9, cross.y + 9 - bh, bw, bh))
 		else:
 			_prop_rect("elb_wn", Rect2(cross.x + 9 - bw, cross.y + 9 - bh, bw, bh))
-	# a viewport window on the quarters' top hull wall — stars behind glass
-	var qr := cell_rect(_find_cell("quarters"))
-	var win_pos := Vector2(qr.get_center().x + 38.0, qr.position.y - 3)
+	# a viewport window on the quarters' top hull wall — stars behind glass.
+	# Centred on the COMBINED 2-cell room so it sits over the middle bed.
+	var qc := _prop_center(_find_cell("quarters"))
+	var win_pos := Vector2(qc.x, cell_rect(_find_cell("quarters")).position.y - 3)
 	_prop("window", win_pos, 66.0)
 	_glow(win_pos + Vector2(0, 10), (GLOWS["window"][0] as Color), GLOWS["window"][1])
 	# doorway thresholds between built neighbours
 	var dcols := GameState.SHIP_COLS
 	for cell in GameState.rooms:
 		for n in GameState.cell_neighbors(cell):
+			# no threshold WITHIN the merged quarters — 0 and 1 are one open room
+			if cell in QUARTERS_MEMBERS and n in QUARTERS_MEMBERS and _quarters_merged():
+				continue
 			if n > cell and _built(n):
 				var mid := (cell_rect(cell).get_center() + cell_rect(n).get_center()) * 0.5
 				var horizontal := absi(n - cell) == 1
@@ -1539,10 +1769,12 @@ func _draw_room_cell(cell: int) -> void:
 	draw_circle(rect.get_center(), minf(rect.size.x, rect.size.y) * 0.42,
 		Color(0.85, 0.92, 1.0, 0.05))
 	# (furniture draws in the depth passes — see _draw_depth)
-	# name plate bottom-left, where no prop or station covers it
-	draw_string(_font, rect.position + Vector2(8, CELL_H - 8),
-		GameState.room_display_name(cell).to_upper(),
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.55, 0.9, 1.0, 0.6))
+	# name plate bottom-left, where no prop or station covers it. The merged
+	# quarters shows ONE label (only its anchor cell draws it).
+	if _draws_props(cell):
+		draw_string(_font, rect.position + Vector2(8, CELL_H - 8),
+			GameState.room_display_name(cell).to_upper(),
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.55, 0.9, 1.0, 0.6))
 
 
 # ------------------------------------------------------------------
@@ -1550,7 +1782,7 @@ func _draw_room_cell(cell: int) -> void:
 # carries a PointLight2D — so the light actually falls on the crew and
 # neighbouring props, dancing with the same rhythm as the halos.
 # ------------------------------------------------------------------
-var _lights: Array = []   # [node, base_pos, phase, base_energy]
+var _lights: Array = []   # [node, base_pos, phase, base_energy, tempo]
 var _light_tex: GradientTexture2D
 
 
@@ -1570,22 +1802,31 @@ func _spawn_lights() -> void:
 		_light_tex.width = 256
 		_light_tex.height = 256
 	for cell in GameState.rooms:
-		var c := cell_rect(cell).get_center()
-		for f in ROOM_PROPS.get(GameState.rooms[cell], []):
+		if not _draws_props(cell):
+			continue
+		var c := _prop_center(cell)
+		var type: String = GameState.rooms[cell]
+		var tempo: float = ROOM_TEMPO.get(type, 1.0)
+		for f in ROOM_PROPS.get(type, []):
 			if GLOWS.has(f[0]):
-				_add_light(c + (f[1] as Vector2), GLOWS[f[0]][0], GLOWS[f[0]][1])
+				_add_light(c + (f[1] as Vector2), GLOWS[f[0]][0], GLOWS[f[0]][1], tempo)
+		# free-standing coloured ambient pools — the room's colour character.
+		# Brightened (e_scale) so each room's tint reads over the cool steel base.
+		for amb in ROOM_AMBIENT.get(type, []):
+			_add_light(c + (amb[0] as Vector2), amb[1], amb[2], tempo, 1.65)
 	for st in _stations:
 		if STATION_PROP.has(st["kind"]):
 			var gk: String = STATION_PROP[st["kind"]][0]
 			if GLOWS.has(gk):
 				_add_light(st["pos"], (GLOWS[gk][0] as Color), GLOWS[gk][1])
-	# the quarters viewport spills starlight
-	var qr := cell_rect(_find_cell("quarters"))
-	_add_light(Vector2(qr.get_center().x + 38.0, qr.position.y + 8.0),
+	# the quarters viewport spills starlight (centred on the merged room)
+	var qc := _prop_center(_find_cell("quarters"))
+	_add_light(Vector2(qc.x, cell_rect(_find_cell("quarters")).position.y + 8.0),
 		(GLOWS["window"][0] as Color), GLOWS["window"][1])
 
 
-func _add_light(pos: Vector2, col: Color, glow_r: float) -> void:
+func _add_light(pos: Vector2, col: Color, glow_r: float, tempo := 1.0,
+		e_scale := 1.0) -> void:
 	var l := PointLight2D.new()
 	l.texture = _light_tex
 	l.position = pos
@@ -1594,7 +1835,7 @@ func _add_light(pos: Vector2, col: Color, glow_r: float) -> void:
 	l.texture_scale = glow_r * 6.0 / 256.0
 	add_child(l)
 	_lights.append([l, pos, pos.x * 0.7 + pos.y * 1.3,
-		clampf(glow_r / 34.0, 0.5, 1.4)])
+		clampf(glow_r / 34.0, 0.5, 1.4) * e_scale, tempo])
 
 
 func _animate_lights() -> void:
@@ -1602,12 +1843,13 @@ func _animate_lights() -> void:
 	for l in _lights:
 		var lt: PointLight2D = l[0]
 		var ph: float = l[2]
-		var a := 0.72 + 0.18 * sin(t * 1.8 + ph) + 0.10 * sin(t * 5.3 + ph * 2.0)
+		var rate: float = l[4]   # per-room tempo — scales speed, never amplitude
+		var a := 0.72 + 0.18 * sin(t * 1.8 * rate + ph) + 0.10 * sin(t * 5.3 * rate + ph * 2.0)
 		if fmod(t * 0.9 + ph, 9.0) < 0.07:
 			a *= 0.35   # rare electrical flicker
 		lt.energy = (l[3] as float) * a
 		lt.position = (l[1] as Vector2) \
-			+ Vector2(sin(t * 1.1 + ph) * 3.0, cos(t * 1.7 + ph * 0.7) * 2.0)
+			+ Vector2(sin(t * 1.1 * rate + ph) * 3.0, cos(t * 1.7 * rate + ph * 0.7) * 2.0)
 
 
 func _feet_y() -> float:
@@ -1620,10 +1862,20 @@ func _draw_depth(behind: bool) -> void:
 	## in front of the crew. Recomputed every frame as the crew walks.
 	var fy := _feet_y()
 	for cell in GameState.rooms:
+		if not _draws_props(cell):
+			continue
 		var type: String = GameState.rooms[cell]
-		var c := cell_rect(cell).get_center()
+		var c := _prop_center(cell)
 		for f in ROOM_PROPS.get(type, []):
 			var pos: Vector2 = c + (f[1] as Vector2)
+			if f[0] in FLAT_PROPS:
+				# floor decal (rug): lies flat, squashed to a floor ellipse,
+				# always in the behind pass so it sits under crew + furniture
+				if behind:
+					var rw: float = f[2]
+					var rh: float = _prop_h(f[0], rw) * 0.55
+					_prop_rect(f[0], Rect2(pos.x - rw * 0.5, pos.y - rh * 0.5, rw, rh))
+				continue
 			# depth line = the COLLISION bottom (obstacle shrink + foot box),
 			# so "standing at its face" and "in front of it" always agree
 			var base_y: float = pos.y + _prop_h(f[0], f[2]) * 0.5 \
@@ -1708,6 +1960,22 @@ func _draw_furniture(fy: float, behind: bool, flats: bool) -> void:
 
 
 var _token_cache := {}
+var _idle_cache := {}   # name -> Array[{tex, feet}] idle frames ([] = none yet)
+var _npc_anim := {}     # name -> {mode:"rest"/"gesture", next, gstart}
+const NPC_TALL := 40.0  # aboard crew height in px — crew-scale, feet on floor
+# aboard crew whose sprite art faces RIGHT but who should stand facing LEFT:
+# their frames are mirrored horizontally about the figure's centre (feet/shadow
+# stay put — the shadow is symmetric). The rest keep their native right-facing.
+const NPC_FACE_LEFT := {"JUNO": true, "MIRA": true}
+# The crew STAND STILL and breathe. They are NOT a looping animation: 90% of
+# the time they hold frame 0 (resting) with a subtle chest breath; every 7-15s
+# (randomised + staggered per NPC so they never sync) they play their 6-frame
+# gesture ONCE, slowly, then settle back to resting. No left/right flipping ever.
+const NPC_GESTURE_FPS := 3.0    # deliberate one-shot gesture (was a fast 5fps loop)
+const NPC_BREATH_RATE := 0.85   # rad/s — a slow, calm chest breath
+const NPC_BREATH_AMT := 0.055   # chest band widens up to ~5.5% on the inhale
+const NPC_REST_MIN := 7.0       # seconds resting between gestures
+const NPC_REST_MAX := 15.0
 
 
 func _npc_token(nname: String) -> Texture2D:
@@ -1717,33 +1985,136 @@ func _npc_token(nname: String) -> Texture2D:
 	return _token_cache[nname]
 
 
+func _npc_idle_frames(nname: String) -> Array:
+	## Glob res://assets/sprites/crew/idle/<name>_idle_*.png, sorted, and cache
+	## each as {tex, feet} where `feet` is the fraction of the canvas height at
+	## which the FEET sit (bottom of the opaque pixels). Anchoring by this — not
+	## the raw canvas bottom — plants the feet on the deck even when a frame has
+	## transparent padding below them (hale/juno carry ~8px). Returns [] if none
+	## are generated/imported yet (other agents make these concurrently) — the
+	## draw then falls back to the static token, so nothing ever breaks.
+	if _idle_cache.has(nname):
+		return _idle_cache[nname]
+	var frames: Array = []
+	var dir := "res://assets/sprites/crew/idle"
+	var prefix := nname.to_lower() + "_idle_"
+	var d := DirAccess.open(dir)
+	if d != null:
+		var names: Array = []
+		for f in d.get_files():
+			if f.ends_with(".png") and f.begins_with(prefix):
+				names.append(f)
+		names.sort()   # _idle_0..5 sort correctly as strings
+		for f in names:
+			var path := "%s/%s" % [dir, f]
+			# only load once the .import exists, or load() errors on the raw png
+			if ResourceLoader.exists(path):
+				var tex: Texture2D = load(path)
+				if tex != null:
+					frames.append({"tex": tex, "feet": _feet_frac(tex)})
+	_idle_cache[nname] = frames
+	return frames
+
+
+func _feet_frac(tex: Texture2D) -> float:
+	## fraction of the canvas height where the opaque figure's FEET are (1.0 =
+	## feet flush with the canvas bottom). Falls back to 1.0 if the image can't
+	## be read on the CPU.
+	var im := tex.get_image()
+	if im == null:
+		return 1.0
+	var ch := im.get_height()
+	if ch <= 0:
+		return 1.0
+	var ur := im.get_used_rect()
+	return float(ur.position.y + ur.size.y) / float(ch)
+
+
 func _draw_npc(nname: String, pos: Vector2, tint: Color) -> void:
-	## the crew member's OWN conditioned token art — the generic tinted kit
-	## astronaut only remains as a fallback if the art is missing
-	var phase := pos.x * 0.31
-	var bob := sin(_reactor * 1.5 + phase) * 1.4
-	_ci.draw_set_transform(pos + Vector2(0, 12), 0.0, Vector2(1.0, 0.42))
-	_ci.draw_circle(Vector2.ZERO, 9.0, Color(0, 0, 0, 0.25))
+	## the crew member, standing aboard: feet planted on the deck, a soft ground
+	## shadow beneath them, and a subtle chest breath. They hold their RESTING
+	## pose (frame 0) almost all the time; the gesture plays once, slowly, when
+	## _update_npcs flips them to "gesture" mode (see there). Each faces one FIXED
+	## direction: right by default, or left if listed in NPC_FACE_LEFT (JUNO/MIRA)
+	## — the mirror is a clean reflection about the figure's centre (see
+	## _draw_npc_frame), so feet + the symmetric ground shadow stay planted. Falls
+	## back to the static token, then the generic tinted kit astronaut, if their
+	## own frames aren't imported yet.
+	# feet sit at pos.y + 12 (the deck line); a soft elliptical ground shadow
+	# hugs it, a hair above — two stacked low-alpha circles, flattened, exactly
+	# like interior_player's, so the crew read as grounded on any floor
+	_ci.draw_set_transform(pos + Vector2(0, 11.0), 0.0, Vector2(1.0, 0.42))
+	_ci.draw_circle(Vector2.ZERO, 12.0, Color(0, 0, 0, 0.18))
+	_ci.draw_circle(Vector2.ZERO, 9.0, Color(0, 0, 0, 0.28))
 	_ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-	var tok := _npc_token(nname)
-	if tok != null:
-		# token canvases are bottom-anchored; feet land at pos + 12 (the
-		# same feet line the shadow sits on). ~40px tall — crew-scale.
-		var s := 40.0 / tok.get_size().y
-		var dw := tok.get_size().x * s
-		var flip: bool = sin(_reactor * 0.23 + phase) > 0.0
-		var rect := Rect2(pos.x + (dw * 0.5 if flip else -dw * 0.5),
-			pos.y + 12.0 - 40.0 + bob, -dw if flip else dw, 40.0)
-		_ci.draw_texture_rect(tok, rect, false)
+
+	var feet_y := pos.y + 12.0
+	var phase := pos.x * 0.31
+	var breath := maxf(sin(_reactor * NPC_BREATH_RATE + phase), 0.0) * NPC_BREATH_AMT
+	var flip: bool = NPC_FACE_LEFT.get(nname, false)
+	var frames := _npc_idle_frames(nname)
+	if not frames.is_empty():
+		var anim: Dictionary = _npc_anim.get(nname, {})
+		var gesturing: bool = anim.get("mode", "rest") == "gesture"
+		if gesturing:
+			# ONE slow pass through the gesture, then _update_npcs settles back
+			var gi := int((_reactor - float(anim["gstart"])) * NPC_GESTURE_FPS)
+			var f: Dictionary = frames[clampi(gi, 0, frames.size() - 1)]
+			_draw_npc_frame(f["tex"], pos.x, feet_y, float(f["feet"]), 0.0, flip)
+		else:
+			# resting pose — hold frame 0, only the chest breathes
+			var f0: Dictionary = frames[0]
+			_draw_npc_frame(f0["tex"], pos.x, feet_y, float(f0["feet"]), breath, flip)
 	else:
-		var tex: Texture2D = P["crew_npc"]
-		var s2 := 34.0 / tex.get_size().y
-		_ci.draw_set_transform(pos + Vector2(0, bob), 0.0,
-			Vector2(-s2 if sin(_reactor * 0.23 + phase) > 0.0 else s2, s2))
-		_ci.draw_texture(tex, -tex.get_size() * 0.5, tint)
-		_ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		var tok := _npc_token(nname)
+		if tok != null:
+			# token canvases are bottom-anchored (feet at the canvas bottom)
+			_draw_npc_frame(tok, pos.x, feet_y, 1.0, breath, flip)
+		else:
+			var tex: Texture2D = P["crew_npc"]
+			var s2 := 34.0 / tex.get_size().y
+			_ci.draw_set_transform(Vector2(pos.x, feet_y - 17.0), 0.0,
+				Vector2(s2, s2))
+			_ci.draw_texture(tex, -tex.get_size() * 0.5, tint)
+			_ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	_ci.draw_string(_font, pos + Vector2(-40, -34), nname,
 		HORIZONTAL_ALIGNMENT_CENTER, 80, 9, Color(0.55, 0.9, 1.0, 0.5))
+
+
+func _draw_npc_frame(tex: Texture2D, cx: float, feet_y: float,
+		feet_frac: float, breath: float, flip := false) -> void:
+	## Draw one crew frame NPC_TALL px tall, its feet planted on feet_y (using
+	## the frame's own feet fraction, so transparent padding never floats it).
+	## `breath` (>0) puffs the chest band a hair wider — feet and head hold still.
+	## `flip` mirrors the figure horizontally ABOUT its centre line cx: the
+	## reflection (translate 2*cx, x-scale -1, y-scale +1) leaves feet_y and all
+	## vertical geometry untouched, so the crew turns to face left without any
+	## positional shift. Wraps every inner draw, which use absolute cx coords.
+	var s := NPC_TALL / tex.get_size().y
+	var dw := tex.get_size().x * s
+	var top := feet_y - feet_frac * NPC_TALL   # canvas top in world space
+	if flip:
+		_ci.draw_set_transform(Vector2(2.0 * cx, 0.0), 0.0, Vector2(-1.0, 1.0))
+	if breath <= 0.0:
+		_ci.draw_texture_rect(tex, Rect2(cx - dw * 0.5, top, dw, NPC_TALL), false)
+	else:
+		var tw := tex.get_size().x
+		var th := tex.get_size().y
+		_npc_band(tex, cx, top, dw, tw, th, 0.0, 0.38, 1.0)               # head — still
+		_npc_band(tex, cx, top, dw, tw, th, 0.38, 0.62, 1.0 + breath)     # chest — breathes
+		_npc_band(tex, cx, top, dw, tw, th, 0.62, 1.0, 1.0)              # legs — still
+	if flip:
+		_ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+func _npc_band(tex: Texture2D, cx: float, top: float, dw: float,
+		tw: float, th: float, a: float, b: float, w: float) -> void:
+	## one horizontal band of the sprite, its WIDTH scaled by w about cx (no
+	## vertical move — the feet stay put)
+	var src := Rect2(0, th * a, tw, th * (b - a))
+	var ddw := dw * w
+	_ci.draw_texture_rect_region(tex,
+		Rect2(cx - ddw * 0.5, top + NPC_TALL * a, ddw, NPC_TALL * (b - a)), src)
 
 
 func _draw_expansions() -> void:

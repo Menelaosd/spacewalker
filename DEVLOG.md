@@ -5,6 +5,174 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 15/07/2026 — v1.60: big art/animation/UI pass (PixelLab + real assets, multi-agent)
+
+A large session-long polish pass. Grouped by area:
+
+- REAL SPACE TRASH: the 4 placeholder code-drawn scrap shapes replaced by ~191
+  cropped sprites (from the captain's green-screen sheets, tools/crop_trash_a/b.gd
+  + full-component re-crop to kill half-crops). flight.gd loads assets/sprites/
+  trash/*.png dynamically and draws each at a 28px cap (~1/5 of the ship) with a
+  static random tilt (no nausea spin). Salvage economy (metals/units/taken)
+  untouched — sprite is a hash-derived per-piece index, no RNG-stream change.
+- INTERIOR WALK: back/up direction rebuilt so it's a complete, natural rear
+  walk (skeleton-driven PixelLab candidate won a 4-method tournament; head/visor
+  locked; arms alternate contralaterally, subtle from behind as a rear view must
+  be — both hands, no running pose). front/left/right unchanged.
+- CREW ABOARD: all 5 rescued crew now show animated PixelLab idles (personality-
+  driven: SOLA shy fidget, MIRA tablet, VEGA at-attention, HALE arms-crossed,
+  JUNO tinkering). Rendering overhauled in ship_interior.gd: removed the
+  left/right facing-flip (no popping), slowed to rest+breathe with a one-shot
+  gesture every 7-15s (staggered), feet planted via real feet-line detection
+  (fixed floating), added ground shadows. JUNO + MIRA face left (NPC_FACE_LEFT).
+- CREW ROSTER HUD: new scripts/crew_roster.gd — 5 circular crew portraits top-
+  right, full-color if rescued / dark if not ("CREW n/5"). Wired into _build_hud.
+- QUARTERS: now a 2-cell open room (cells 0+1), furnished like a berth — 3 double
+  beds along the top, round rug centrepiece (FLAT_PROPS: non-blocking floor
+  decal), wardrobe/chairs/nightstands/workbench/toolboard/plants. Left locker
+  removed. Walk lanes + doorways kept clear.
+- AMBIENT LIGHTS: room-differentiated colour washes (engine warm orange, medbay
+  rose, quarters amber, bridge cyan, botany green+magenta, airlock hazard-amber),
+  brightened via _add_light e_scale; calm breathe/sway only, no bulk motion.
+- SPACEWALK ANIMATIONS: the 8 static astro states now play PixelLab loops — idle
+  float (slow ~2.5fps, serene), thrust, mining-aim (muzzle preserved at a5 tip),
+  tether-reach (rebuilt clean, no baked cable). Brake/debris/blackout stay static.
+- GEAR ICONS: painted icon set (helmet/lifeline/o2/laser) cut from a green-screen
+  sheet into assets/sprites/gear/, used in BOTH the inventory exosuit rows and
+  the bottom-right HUD gear rack (was minimal cyan SVGs).
+- INVENTORY: white pixel suit replaced with a keyed-transparent neon chibi suit
+  (assets/sprites/suit_wireframe.png), drawn premium (glow disc + brackets);
+  fonts tightened; bottom-left discovery gauge overflow fixed (pinned inside the
+  panel); hover detail text shrunk 11→8.
+- ASSET AUDIT (read-only): full image sweep — essentially clean; only trivially
+  unused dev artifacts (props/s4_12.png, root zoom_parts.png) flagged, none
+  deleted pending the captain's call.
+
+## 14/07/2026 — v1.59: interior walk cycle SOLVED via PixelLab (real per-frame motion)
+
+- The long-running walk failure is fixed. Root cause finally named: ChatGPT
+  sprite sheets are N independent DRAWINGS, not an animation — legs don't carry
+  through frame to frame, so no curation/rigging could make them read as a walk
+  (frames/3/4/5/6 + the rig experiment all died on this). Switched tools to
+  PixelLab (pixellab.ai), which animates from a single reference image with real
+  frame-to-frame continuity AND preserves our exact astronaut.
+- Pipeline (agent-run, REST API `POST /animate-with-text-v3`, async job + poll):
+  fed each direction's clean idle still (front/back/right/left_idle.png) with
+  action "walking …", frame_count 8, no_background. 8 walk frames per direction,
+  native 80×121 canvas, feet-anchored + horizontally centred (verified ±2px), no
+  size drift. ~10 generations spent (plan has thousands).
+- VISOR FLICKER hard-locked: PixelLab animated the visor's specular glint, which
+  flickered. Fixed by COMPOSITING a fixed head+visor region over every frame
+  (6px feathered neck seam) so the dome is pixel-identical across all 8 frames —
+  only torso/legs move. Sides lock from a profile walk frame (PixelLab rotates
+  the head to true profile; the 3/4 idle would mismatch); front/back lock from
+  the idle. Verified dead-still in-game.
+- interior_player.gd UNCHANGED — the existing 8-frame HOLD8 easing + distance-
+  locked CYCLE_PX path already handled it. Files: right/left/front/back_0..7.png
+  (32 new), idles untouched. In-game QA (SW_WALK bursts) PASS all four directions.
+
+## 14/07/2026 — v1.58: SMALLER scavenge zones + a VAST universe
+
+Two coupled world-scale changes (game_state.gd + flight.gd), per the captain:
+the asteroid circles were too big and too close, and the crew-rescue missions
+sat almost on top of each other.
+
+- SCAVENGE ZONE SHRINK (game_state.gd `dive_field`): the asteroid circle you
+  see while flying / mine on spacewalk is now ~52% of its old radius (~948 →
+  ~488px). Done by scaling ONLY the emitted rock position (`pos * 0.5`) — the
+  seed (`hash(Vector2i)`), the per-rock vein seed, the RNG call order, the
+  overlap check, rock count, rock RADIUS (mining HP/yield), and every element
+  sample are byte-for-byte unchanged. The captain's "don't lose that seed
+  model" and the standing element-abundance rule are both fully preserved;
+  only the geometry tightened. Flight preview and the real dive shrink together
+  (shared generator).
+- ZONE SPACING (flight.gd): FIELD_CHUNK 1600 → 3600 (~5× sparser by area since
+  one field spawns per chunk), so zones read as clearly separated with open
+  space between them. `_chunk_seed` untouched — repositioned, not rerolled.
+  PARK_REACH 140 → 80 to hug the now-smaller circles.
+- VAST UNIVERSE (game_state.gd): all mission/region distances ×2.2 (rescue
+  beacons 7400→16280 and 11500→25300, and every NEBULAE `dist`; region bands
+  ×2.2 to match), so the five crew are far apart. Region names/order and the
+  load-bearing first nine nebulae are unchanged; nebula radii ×1.3 so bigger
+  regions don't look like pinpricks. Added 5 new nebulae (indices 19-23) to
+  keep the enlarged sky populated.
+- RICH, NOT EMPTY (flight.gd): to fill the vaster space without new art or
+  shaders — a deepest micro-dust star layer plus a `_draw_deep_space` far
+  parallax pass of distant rock specks, cached per chunk. All static in world
+  space, parallax-scrolled by real ship motion only — no wobble/rotation/pulse
+  (motion-sickness safe). MAX_SPEED 720 → 1152 (×1.6) so crossing the bigger
+  universe stays epic, not a slog. NOTE: the first cut of the haze faked a
+  radial gradient with stacked low-alpha discs, which banded into visible
+  concentric circles — removed per the captain; the real NEBULAE are a separate
+  system and untouched. The park-range ring (`_draw_fields` draw_arc) was also
+  softened to a faint 1px hint (alpha 0.25→0.08) since the captain dislikes bold
+  drawn circles — the "E · Park" prompt still carries the affordance.
+- Verified in-game: the zone is a contained cluster (was edge-to-edge), zones
+  are spaced, and the deep-space haze/dust reads richer. Both files boot clean.
+
+## 14/07/2026 — v1.57: walk cycle rebuilt from a UNIFORM per-direction sheet (frames6/10)
+
+- The rig experiment (v1.56) was scrapped — leg-swap compositing on a fixed
+  torso read badly. Replaced with a clean generated sheet: frames6 sheet 10,
+  the one sheet drawn per-direction with a consistent 4×5 layout (RIGHT / LEFT
+  / FRONT / BACK rows; col 0 = idle, cols 1-4 = the walk). Single source =
+  zero style drift, which is what the captain asked for ("for uniformality").
+- Two-agent pipeline: (1) extraction+curation graded all 20 figures, ordered
+  each direction gait-correct (front reordered [1,2,4,3] so the two
+  opposite-foot steps land on opposite cycle phases instead of stuttering),
+  and extracted feet-anchored on an 80×121 common canvas with helmet-width +
+  row-height normalisation — heights locked, zero frame-to-frame jitter. (2)
+  in-game QA burst-captured all four directions in the live game, confirmed
+  the legs alternate and stay grounded, and fixed cadence.
+- interior_player.gd: CYCLE_PX 72 → 120. At 72 the cadence was ~267
+  footfalls/min (a frantic scurry — the "super fast" the captain flagged); 120
+  lands ~160/min, a brisk natural walk, for the least foot-slide that still
+  reads as walking. (Some slide is inherent: the drawn stride is ~16 world
+  px/cycle, far shorter than any playable speed — the universal top-down chibi
+  compromise.) HOLD4 easing, 1px bob, and SPEED 160 left as-is — all sound.
+- Honest limit: in the side views the far leg is largely hidden behind the
+  bulky suit, so the near leg visually dominates — inherent to the art, not
+  fixable in code. Reads as a walk; flagged for the captain's call.
+- tools/extract_walk_frames6.gd + tools/montage_rig6.gd are the frames6
+  pipeline (verification montages per direction, 3× zoom).
+
+## 14/07/2026 — v1.56: RIGGED 8-frame side walks — one fixed body, real leg cycle (SUPERSEDED by v1.57)
+
+- The AI sheets' side walks kept failing because every frame redrew the whole
+  astronaut — helmet/torso jittered between frames and only 4 distinct leg
+  poses existed. New approach (tools/rig_walk.gd): sprite-rig surgery. ONE
+  fixed upper body (cut from the idle above the hip line, y=93 of 124) is
+  composited over EIGHT leg blocks — the 4 sheet strides + the idle's
+  feet-together as the passing pose + horizontal MIRRORS of the stride legs
+  for the opposite step. Result: contact→down→passing→up × both legs, zero
+  style drift, heights untouched (feet stay on the canvas bottom, hip line
+  fixed, torso pixel-identical in all 8 frames).
+- Both side rows rigged (right_0..7, left_0..7); front/back keep their good
+  4-frame sets — interior_player.gd handles mixed cycle lengths per direction.
+- Walk clock made cycle-aware: CYCLE_PX (72px ground per FULL cycle) replaces
+  the per-beat stride, so 8-frame rows walk at the same ground rate as 4-frame
+  rows — more frames just subdivide the same stride, no leg-churn speedup.
+- Easing extended with researched gait weights (a background agent digested
+  Richard Williams / SLYNYRD / finalbossblues): HOLD8 = [1.30, 1.10, .85,
+  .75]×2 normalised — real walks spend ~60% of the cycle in stance, and the
+  "up" pose is shortest because the body FALLS fast into the next contact.
+  Bob toned down 1.6→1.0px per the same research (~2.5% of body height; more
+  reads as a bouncing balloon on a helmet-heavy chibi).
+
+## 14/07/2026 — v1.55: walk BOB + EASING — the two missing animation laws
+
+- Researched proper walk-cycle craft (SLYNYRD pixelblog 50, sprite animation
+  guides): a walking body sits LOWEST at contact and rises through passing
+  (vertical bob), and contact frames HOLD longer than passing frames
+  (easing). Our cycle had neither — flat glide + metronome timing reads
+  robotic no matter which frames play.
+- interior_player.gd: stride bob (±1.6px, sine phased so dips centre on the
+  contact holds; the shadow stays put, grounding the feet) + 30/20 easing on
+  the 4-frame cycle (contacts hold 30% of the cycle each, passes 20%). Both
+  driven by the distance-locked phase — no time wobble, no screen motion.
+- Pipeline stands ready for 6-8 frame rows (dynamic frame counts) if the
+  captain generates from a proper pose template.
+
 ## 14/07/2026 — v1.54: walk frames HAND-PICKED across all ten frames5 sheets
 
 - Per the captain's order ("YOU pick the frames"), every direction row of all
@@ -468,13 +636,13 @@ interplay, all 147 asset preloads. What they caught got fixed:
   STARTER recipes (battery bank's lithium, tool wall's tungsten…). Fixes, with
   the sacred 83-element abundance TABLE untouched:
   - **Gas scooping drop-table compression** (4th root, same philosophy as the
-    crystal 10× heavy-boost): H/He still dominate (~86% of scoops), but now
-    N ≈ 0.7 min/unit, Ne ≈ 0.6, Ar ≈ 1.7, and even Kr/Xe land in 11-18 min of
-    patient scooping instead of never.
+	crystal 10× heavy-boost): H/He still dominate (~86% of scoops), but now
+	N ≈ 0.7 min/unit, Ne ≈ 0.6, Ar ≈ 1.7, and even Kr/Xe land in 11-18 min of
+	patient scooping instead of never.
   - **Wreck TECH SALVAGE**: every stripped hull now also yields 1-2 units from
-    what ships are MADE of — Li batteries, Nd motor magnets, W tooling, P food
-    stores, Ne signage, Ar welding gas (doubled on rare hulls). This is the
-    primary faucet for the strays.
+	what ships are MADE of — Li batteries, Nd motor magnets, W tooling, P food
+	stores, Ne signage, Ar welding gas (doubled on rare hulls). This is the
+	primary faucet for the strays.
   - **Trader tiers**: P joins rep-3 stock; Li and Nd join rep-6.
 - **Recycling was dead code** — `remove_furniture()` existed but nothing called
   it. Now: in placement mode, hovering a printed piece glows warm and
@@ -618,7 +786,7 @@ interplay, all 147 asset preloads. What they caught got fixed:
   - Rename hint now checks the same (feet) cell `_open_rename` edits — no more
 	disagreement near a cell boundary.
   - Core rooms always show their fixed name (a legacy save can't pin a stuck
-    custom name on them anymore).
+	custom name on them anymore).
   - Inventory name-plate: dropped the dead ~2% "capacity" sliver (cap is 9999);
 	now a faint full-width element tint = "you're holding some".
 - **Asset cleanup:** removed 7 unused particle textures + never-referenced prop
@@ -648,7 +816,7 @@ interplay, all 147 asset preloads. What they caught got fixed:
   CPUParticles2D bursts, tinted to each element's real art colour:
   - `spark_hit` — sparks flying off the laser cut (throttled ~20/s in player.gd)
   - `shatter` — the money shot when a rock breaks: flare flash + shard spray +
-    embers + glow puff (asteroid.gd `_shatter`)
+	embers + glow puff (asteroid.gd `_shatter`)
   - `sparkle` — bright pop when you collect a chunk (pickup.gd)
   - `flash` — reusable radial burst for installs / jumps / discoveries
   All space-correct (zero gravity), auto-freed after their lifetime.
@@ -754,16 +922,16 @@ interplay, all 147 asset preloads. What they caught got fixed:
   intro on captain feedback, keeping the concept and the "It simply
   subtracted us" beat intact:
   - Page 2 no longer names or ages the pilot (you survived — you didn't die,
-    so the crawl shouldn't eulogise you). It now opens on *what you were
+	so the crawl shouldn't eulogise you). It now opens on *what you were
 	doing* and *why you were off-world*: "working the ore rigs… high orbit,
 	months from the nearest dirt" — which is also why HELIOS's purge missed
-    you. Removed the now-unused `pilot_name()`/age lookup.
+	you. Removed the now-unused `pilot_name()`/age lookup.
   - Page 4's rally-cry ending ("Gather enough, and the drive will carry you
 	past the wall") replaced with flat, grim statement of fact: "Enough of
 	it, and the drive wakes. Nothing else crosses the wall."
   - Page 5: Haven is now a *deliberate* blind spot — "a blind spot we wrote
 	into its code on purpose… in case we ever had to hide from it" — so it
-    reads as humanity's hedged bet against its own creation, paying off the
+	reads as humanity's hedged bet against its own creation, paying off the
 	"They called it mercy" opening. Dropped the on-the-nose "Go and find
 	them" command; ends on the theme line "No one crosses this alone."
 
@@ -1954,13 +2122,13 @@ hull (0,82), beacon on the bow tower, collision capsule enlarged to fit.
   REAL present-day solar atom-percentages (user-supplied table, IUPAC names).
   Rarity is physics — do NOT rebalance the numbers. No rare-element loop:
   - Banked **rock chunks** refine into the *condensed* elements (gases can't
-    be in rock), renormalized — O dominates (oxides), then Si/Mg/Fe. Gold
-    arrives in micro-units, uranium in nano-units. Ratios = solar ratios.
+	be in rock), renormalized — O dominates (oxides), then Si/Mg/Fe. Gold
+	arrives in micro-units, uranium in nano-units. Ratios = solar ratios.
   - **Crystal chunks** concentrate heavy elements (Z ≥ 39) tenfold — ratios
-    *among* the heavies stay true.
+	*among* the heavies stay true.
   - **Gases (H, He, N, Ne, Ar, Kr, Xe)** only come from **nebula scooping** —
-    fly inside a nebula and the ship collects at real gas ratios (H/He 12.2:1).
-    All 83 obtainable, none cheapened.
+	fly inside a nebula and the ship collects at real gas ratios (H/He 12.2:1).
+	All 83 obtainable, none cheapened.
   - Amounts use engineering notation (2.54µ, 90.0n) via `Elements.fmt()`.
 - **Full-screen inventory (I / Tab)** — `scripts/inventory_screen.gd`,
   No Man's Sky flavoured: **EXOSUIT** panel (big pixel astronaut + every gear
@@ -1997,12 +2165,12 @@ trace Au), a contracts board ("deliver 3 units Ti"), and named characters.
   - **Home Reach** (<30 km): sparse, small practice rock.
   - **The Drift** (30–60 km): baseline.
   - **The Belt** (60–90 km): dense ring — field chance 85%, bigger rocks,
-    earth-tinted. A visible band you navigate by.
+	earth-tinted. A visible band you navigate by.
   - **The Expanse** (90 km+): deliberately VAST — 8% field chance, but
-    fields are huge (×1.7) and rich. Emptiness makes finds matter.
+	fields are huge (×1.7) and rich. Emptiness makes finds matter.
   - **4 named nebulae** (Rosefield, Cerulean Shallows, Ember Reach,
-    Viridian Veil) at fixed landmark positions — colored dust clouds
-    visible from afar, crystal-rich (+18%), tinted rocks.
+	Viridian Veil) at fixed landmark positions — colored dust clouds
+	visible from afar, crystal-rich (+18%), tinted rocks.
 - **Region name on the flight HUD** ("ROSEFIELD NEBULA · Sector …") and in
   the parked-dive welcome. Dive fields inherit the region: count, rock
   size, palette tint, nebula haze backdrop.
@@ -2101,11 +2269,11 @@ visual placement needs a real run + screenshot.
   dock and press **E** to step inside. Walk (WASD) between six rooms:
   Quarters, Upgrade Bay, Bridge, Engine Room, Cargo Hold, Airlock.
   - **Upgrade Bay**: three consoles — spend banked ore on O2 tank, lifeline
-    length, or laser power. Costs scale per level (`base × (level+1)`).
+	length, or laser power. Costs scale per level (`base × (level+1)`).
   - **Cargo Hold**: crate stack grows with banked ore.
   - **Airlock**: E to suit up and spacewalk again.
   - Bridge/Quarters/Engine Room are flavour rooms for now (window with stars,
-    bunk, pulsing reactor).
+	bunk, pulsing reactor).
 - **Interior crew avatar** (`scripts/interior_player.gd`) — top-down walker,
   helmet off, simple bounds clamp (no physics indoors).
 - **Gear rack HUD** (`scripts/gear_panel.gd`) — four icon tiles top-right
