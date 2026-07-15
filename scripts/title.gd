@@ -13,10 +13,10 @@ const BG_TEX := preload("res://assets/sprites/title_bg.png")
 const LOGO_TEX := preload("res://assets/sprites/logo.png")
 
 const MENU_X := 70.0
-const MENU_TOP := 322.0
-const ITEM_W := 340.0
-const ITEM_H := 50.0
-const ITEM_GAP := 12.0
+const MENU_TOP := 342.0
+const ITEM_W := 280.0
+const ITEM_H := 38.0
+const ITEM_GAP := 9.0
 
 var _font: Font = ThemeDB.fallback_font
 var _t := 0.0
@@ -321,12 +321,12 @@ func _draw_menu() -> void:
 	# panel behind the command list
 	var top := _item_rect(0)
 	var bot := _item_rect(_menu.size() - 1)
-	var panel := Rect2(top.position.x - 22, top.position.y - 40,
-		ITEM_W + 44, (bot.end.y - top.position.y) + 58)
+	var panel := Rect2(top.position.x - 18, top.position.y - 30,
+		ITEM_W + 36, (bot.end.y - top.position.y) + 44)
 	UITheme.draw_sci_panel(self, panel)
 	UITheme.draw_brackets(self, panel, UITheme.ACCENT, 12.0, 3.0)
-	draw_string(_font, panel.position + Vector2(20, 26), "◈ " + _menu_title,
-		HORIZONTAL_ALIGNMENT_LEFT, ITEM_W, 13,
+	draw_string(_font, panel.position + Vector2(16, 21), "◈ " + _menu_title,
+		HORIZONTAL_ALIGNMENT_LEFT, ITEM_W, 11,
 		Color(UITheme.ACCENT.r, UITheme.ACCENT.g, UITheme.ACCENT.b, 0.8))
 	# hazard ticks top-right of the panel
 	for k in 5:
@@ -366,14 +366,14 @@ func _draw_item(i: int) -> void:
 	if on:
 		draw_colored_polygon(pts, Color(acc.r, acc.g, acc.b, 0.06))
 	# icon
-	_draw_menu_icon(str(it["icon"]), Vector2(p.x + 34, r.get_center().y), 16.0,
+	_draw_menu_icon(str(it["icon"]), Vector2(p.x + 28, r.get_center().y), 13.0,
 		Color(acc.r, acc.g, acc.b, 1.0 if enabled else 0.5))
 	# label
 	var tcol := UITheme.TEXT if enabled else Color(1, 1, 1, 0.35)
 	if on:
 		tcol = Color.WHITE
-	draw_string(_font, Vector2(p.x + 62, r.get_center().y + 6), str(it["label"]),
-		HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 92, 17, tcol)
+	draw_string(_font, Vector2(p.x + 50, r.get_center().y + 5), str(it["label"]),
+		HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 76, 12, tcol)
 	# animated chevron on the active row
 	if on:
 		UITheme.draw_chevrons(self, Vector2(e.x - 26, r.get_center().y), 2, 10.0,

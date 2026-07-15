@@ -20,6 +20,9 @@ var _t := 0.0                                 # clock for the beacon pulse
 
 
 func _ready() -> void:
+	# process while the tree is paused, so the chart still animates + takes input
+	# when it pauses the sim (below) — the ship must not fly under the open map
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	visible = OS.get_environment("SW_CHART") != ""   # screenshot aid (like SW_SHOW_INV)
 	if visible:
 		# reveal a spread of nebulae so the captured chart isn't empty
@@ -48,10 +51,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		if not visible and not can_open.call():
 			return
 		visible = not visible
+		get_tree().paused = visible   # freeze the sim under the open map
 		queue_redraw()
 		get_viewport().set_input_as_handled()
 	elif event.physical_keycode == KEY_ESCAPE and visible:
 		visible = false
+		get_tree().paused = false
 		queue_redraw()
 		get_viewport().set_input_as_handled()
 

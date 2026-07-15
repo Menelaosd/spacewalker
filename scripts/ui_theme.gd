@@ -13,8 +13,9 @@ const BG := Color(0.016, 0.075, 0.105, 0.92)   # panel interior
 const BG_LIGHT := Color(0.035, 0.125, 0.17, 0.94)
 const TEXT := Color(0.88, 0.99, 1.0)
 const TEXT_DIM := Color(0.88, 0.99, 1.0, 0.6)
-const CUT := 18.0                              # big corner slant
-const UI_SCALE := 0.70                          # global HUD shrink factor
+const CUT := 14.0                              # corner slant
+const UI_SCALE := 0.60                          # global HUD shrink factor
+const RADAR_SCALE := 0.85                       # radar rides its OWN scale (bigger)
 
 
 static func shrink(c: Control, right: bool, bottom: bool, s := UI_SCALE) -> void:
@@ -252,13 +253,13 @@ static func draw_key_chip(ci: CanvasItem, center: Vector2, key: String,
 # ------------------------------------------------------------------
 static func key_width(label: String, font: Font, size := 11) -> float:
 	var tw := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
-	return maxf(tw + 12.0, size + 9.0)
+	return maxf(tw + 8.0, size + 6.0)
 
 
 static func draw_key(ci: CanvasItem, pos: Vector2, label: String,
 		font: Font, size := 11, accent := ACCENT) -> float:
 	## Draw a keycap with its top-left at `pos`; returns the cap's width.
-	var h := size + 9.0
+	var h := size + 6.0
 	var w := key_width(label, font, size)
 	var r := Rect2(pos, Vector2(w, h))
 	ci.draw_rect(r, Color(0.06, 0.14, 0.19, 0.96))
@@ -284,7 +285,7 @@ static func draw_hints_at(ci: CanvasItem, pos: Vector2, items: Array,
 	## Left-aligned row of "[cap] label" pairs starting at pos (row top-left);
 	## returns the total width. items = [[key, label], ...].
 	var gap := 15.0
-	var kh := size + 9.0
+	var kh := size + 6.0
 	var x := pos.x
 	for it in items:
 		var kw := draw_key(ci, Vector2(x, pos.y), it[0], font, size)
@@ -298,7 +299,7 @@ static func draw_hints_at(ci: CanvasItem, pos: Vector2, items: Array,
 static func draw_hints(ci: CanvasItem, center: Vector2, items: Array,
 		font: Font, size := 11, dim := TEXT_DIM) -> void:
 	## Centered row of "[cap] label" pairs.
-	var kh := size + 9.0
+	var kh := size + 6.0
 	var x := center.x - hints_width(items, font, size) * 0.5
 	draw_hints_at(ci, Vector2(x, center.y - kh * 0.5), items, font, size, dim)
 
@@ -342,17 +343,17 @@ static func make_theme() -> Theme:
 	t.set_color("font_color", "Button", TEXT)
 	t.set_color("font_hover_color", "Button", Color.WHITE)
 	t.set_color("font_pressed_color", "Button", ACCENT)
-	t.set_font_size("font_size", "Button", 14)
+	t.set_font_size("font_size", "Button", 12)
 
 	var panel := StyleBoxFlat.new()
 	panel.bg_color = BG
 	panel.border_color = Color(ACCENT.r, ACCENT.g, ACCENT.b, 0.55)
 	panel.set_border_width_all(1)
 	panel.skew = Vector2(0.12, 0.0)
-	panel.set_content_margin_all(12.0)
-	panel.content_margin_left = 18.0
-	panel.content_margin_right = 18.0
+	panel.set_content_margin_all(8.0)
+	panel.content_margin_left = 12.0
+	panel.content_margin_right = 12.0
 	t.set_stylebox("panel", "PanelContainer", panel)
 	t.set_color("font_color", "Label", TEXT)
-	t.set_font_size("font_size", "Label", 13)
+	t.set_font_size("font_size", "Label", 11)
 	return t

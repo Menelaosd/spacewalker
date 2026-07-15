@@ -5,6 +5,27 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 16/07/2026 — v1.67: UI slim pass + radar resize + 2-agent audit fixes
+
+- UI SLIM (ui_theme.gd, global): Label font 13→11, Button 14→12, panel content
+  margins 12/18→8/12, corner CUT 18→14, UI_SCALE 0.70→0.60 — slims every corner
+  HUD panel (banked-ore, vitals, gear cards) at once. Keycaps de-chunked: draw_key
+  padding size+9→size+6, width tw+12→tw+8.
+- TITLE MENU (title.gd): shrunk — ITEM_W 340→280, ITEM_H 50→38, gap 12→9, label
+  17→12, icon 16→13, panel padding tightened (was "way too big").
+- RADAR pulled off the global scale onto its OWN `RADAR_SCALE` 0.85 (bigger than the
+  old 0.70); quest/objectives panel re-spaced (offset 150→188) to clear it, in both
+  flight.gd (helm) and hud.gd (spacewalk).
+- ZONE ELEMENTS (asteroid.gd): ICON_MAX 26→16 (52px→32px) so mining nodes sit near
+  the ~26px EVA astronaut, not dwarfing it.
+- AUDIT FIXES (2 read-only agents — flow+functionality clean, views found 1 regression):
+  * title slot labels were clipping after the menu narrowed — label font 13→12 +
+    ITEM_W 280 so "SLOT 1 — NAME · DRIVE n/5" fits without cutting the tail.
+  * STAR CHART now pauses the sim while open (process_mode ALWAYS + get_tree().paused)
+    — the ship no longer flies / docks under the open map.
+  Agents confirmed no crashes, soft-locks, save-corruption (incl. seen_regions round-
+  trip), input-eating, or determinism breaks.
+
 ## 15/07/2026 — v1.66: star chart + radar crew/derelict markers ("bigger" pack, slice 1)
 
 First slice of the "feel bigger" work — a knowledge backbone + its flagship view.

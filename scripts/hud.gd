@@ -36,15 +36,15 @@ func _ready() -> void:
 	root.add_child(radar)
 	radar.set_anchors_and_offsets_preset(
 		Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_MINSIZE, 18)
-	UITheme.shrink(radar, true, false)
+	UITheme.shrink(radar, true, false, UITheme.RADAR_SCALE)
 
-	# quest log, tucked under the radar (offset scaled to match)
+	# quest log, tucked under the (larger) radar
 	var qlog := QUEST_LOG.new()
 	root.add_child(qlog)
 	qlog.set_anchors_and_offsets_preset(
 		Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_MINSIZE, 18)
-	qlog.offset_top += 150.0
-	qlog.offset_bottom += 150.0
+	qlog.offset_top += 188.0
+	qlog.offset_bottom += 188.0
 	UITheme.shrink(qlog, true, false)
 
 	# gear rack (bottom-right)
