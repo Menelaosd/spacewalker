@@ -5,6 +5,24 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 15/07/2026 — v1.62: real breathing loops + interior light cleanup
+
+- CREW BREATHING: replaced the code "breathing" (a chest-band width-scale that
+  read as an ugly enlarge effect and was barely visible) with real PixelLab
+  breathing animations — a subtle 6-frame chest-rise LOOP per crew (30 frames),
+  head HARD-LOCKED (fixed head composited over every frame so face/goggles/
+  glasses/visor are pixel-identical and only the chest/torso moves — the raw
+  text-to-animate output otherwise turned heads / opened mouths / dropped VEGA's
+  visor). Seamless palindrome loops. ship_interior.gd rest state now plays the
+  `<name>_breathe_*` loop continuously (NPC_BREATHE_FPS 3.5) until the next
+  random gesture; falls back to a static frame if absent. All the NPC_BREATH
+  band-scale code was removed.
+- Gesture cadence made more frequent (first 1.5-8s, rest 4.5-10s between
+  gestures), still independent per-NPC so they never sync.
+- INTERIOR LIGHTS: removed the free-standing ROOM_AMBIENT colour pools — they
+  rendered as ugly soft "opacity circles" in the middle of every room. Room
+  colour now comes only from glows on actual lit props (reactor, monitors, etc.).
+
 ## 15/07/2026 — v1.61: crew gesture variety + polish fixes (multi-agent)
 
 - CREW IDLE POOL: each of the 5 crew got 3 NEW personality idle gestures via
