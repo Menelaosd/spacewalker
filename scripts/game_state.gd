@@ -447,6 +447,11 @@ func sector_richness() -> float:
 const ZONE_SHRINK := 0.5
 
 
+# Fixed dive-field radius. MUST NOT depend on tether_length (a mutable upgrade):
+# the per-rock radial draw feeds overlap-rejection, which decides which rocks keep
+# an idx — so any change reshuffles the field and desyncs saved mined-state. The
+# tether upgrade grows your REACH; the field itself stays put. (= base 600 + 320.)
+const DIVE_FIELD_MAX_RADIUS := 920.0
 func dive_field(center: Vector2) -> Array:
 	## THE single source of truth for a dive site's asteroids — so the flight
 	## preview and the actual spacewalk field are the SAME rocks (same count,
@@ -471,7 +476,7 @@ func dive_field(center: Vector2) -> Array:
 	while placed.size() < count and tries < 800:
 		tries += 1
 		var ang := rng.randf() * TAU
-		var dist := rng.randf_range(280.0, tether_length + 320.0)
+		var dist := rng.randf_range(280.0, DIVE_FIELD_MAX_RADIUS)
 		var pos := Vector2.from_angle(ang) * dist
 		var r := rng.randf_range(17.0, 34.0) * size_mult
 		var rich := rng.randf() < rich_chance
@@ -1359,13 +1364,18 @@ func build_room(cell: int, type: String) -> bool:
 	if banked < cost:
 		return false
 	banked -= cost
+	# stat-granting rooms are build-ONCE: without this guard a second greenhouse/
+	# workshop would stack the bonus again (many free hull cells → unbounded).
+	var had_type: bool = rooms.values().has(type)
 	rooms[cell] = type
 	match type:
 		"greenhouse":
-			max_oxygen += 25.0
-			refill_oxygen(25.0)
+			if not had_type:
+				max_oxygen += 25.0
+				refill_oxygen(25.0)
 		"workshop":
-			laser_dps += 15.0
+			if not had_type:
+				laser_dps += 15.0
 	cargo_changed.emit(carried, banked)
 	gear_changed.emit()
 	save_game()

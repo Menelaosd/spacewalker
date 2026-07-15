@@ -555,6 +555,7 @@ func _ready() -> void:
 	# mipmapped filtering: hi-res prop art drawn small shimmers ("weird
 	# pixelation") under plain linear minification
 	texture_filter = TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	_load_device_anims()   # cache any device loop frames (silent if none on disk)
 	_define_stations()
 
 	# in-front-of-crew layer: added after Crew in the tree, so its draws
@@ -759,6 +760,90 @@ func _define_stations() -> void:
 	_build_obstacles()
 
 
+# ------------------------------------------------------------------
+# Animated device props — subtle looping machines. Frame sets live at
+# res://assets/sprites/device_anim/<id>_<n>.png (seamless loops, authored
+# at the device's static-sprite size/anchor). Loaded ONCE on _ready; any
+# device with no frames on disk silently keeps drawing its static sprite,
+# so this layer is fully non-destructive / fallback-safe.
+# ------------------------------------------------------------------
+const DEV_ANIM_DIR := "res://assets/sprites/device_anim"
+const DEV_ANIM_FPS := 3.0   # base loop speed; per-device rate jitter varies it
+# P-key / prop-key -> device_anim id, for the few FIXED room props whose kit
+# key differs from the craft-file stem the frames are named after. Craft
+# furniture (keyed by stem) and same-named props fall through to identity.
+const DEV_ANIM_ALIAS := {
+	"ecg": "ecg_monitor",
+	"hydro_tray": "hydroponic_tray",
+	"seedling": "seedling_table",
+	"terrarium": "terrarium_dome",
+}
+var _dev_anim := {}   # device id -> Array[Texture2D] (frames, sorted 0..n)
+var _dev_rate := {}   # device id -> per-device speed multiplier (desync)
+var _dev_phase := {}  # device id -> per-device start phase in loops (desync)
+
+
+func _load_device_anims() -> void:
+	## Scan device_anim/ ONCE and cache each <id>_<n>.png frame set, sorted by
+	## frame index. The id is everything before the LAST underscore (ids contain
+	## underscores, e.g. console_wide_3.png -> "console_wide"). Guarded on
+	## ResourceLoader.exists + a null check so missing / not-yet-imported frames
+	## are simply skipped — a device with no frames keeps its static sprite.
+	_dev_anim = {}
+	var d := DirAccess.open(DEV_ANIM_DIR)
+	if d == null:
+		return   # folder not present yet — everything falls back to static
+	var groups := {}   # id -> Array of [frame_index:int, filename:String]
+	for f in d.get_files():
+		if not f.ends_with(".png"):
+			continue
+		var base := f.substr(0, f.length() - 4)   # strip ".png"
+		var us := base.rfind("_")
+		if us < 0:
+			continue
+		var idx_str := base.substr(us + 1)
+		if not idx_str.is_valid_int():
+			continue
+		var id := base.substr(0, us)
+		if not groups.has(id):
+			groups[id] = []
+		(groups[id] as Array).append([int(idx_str), f])
+	for id in groups:
+		var list: Array = groups[id]
+		list.sort_custom(func(a, b): return int(a[0]) < int(b[0]))
+		var frames: Array = []
+		for e in list:
+			var path := "%s/%s" % [DEV_ANIM_DIR, e[1]]
+			if ResourceLoader.exists(path):   # .import present -> safe to load
+				var tex: Texture2D = load(path)
+				if tex != null:
+					frames.append(tex)
+		if not frames.is_empty():
+			_dev_anim[id] = frames
+			# per-device speed + start phase so no two devices ever step in
+			# unison (the old shared int(clock*fps) made them all flip together).
+			var hp := absi(hash(id))
+			_dev_phase[id] = float(hp % 997) / 997.0
+			_dev_rate[id] = 0.8 + float((hp / 997) % 401) / 1000.0
+
+
+func _dev_anim_id(key: String) -> String:
+	return DEV_ANIM_ALIAS.get(key, key)
+
+
+func _dev_frame(id: String) -> Texture2D:
+	## Current loop frame for a cached device. Each device advances on its own
+	## speed (_dev_rate) and start phase (_dev_phase) off the shared _reactor
+	## clock, so they drift and never pulse in sync. Single crisp frame per draw
+	## (no crossfade — a half-opaque tween frame ghosts badly when the ship
+	## scrolls). Loops forever.
+	var frames: Array = _dev_anim[id]
+	var n := frames.size()
+	var t: float = _reactor * DEV_ANIM_FPS * float(_dev_rate.get(id, 1.0)) \
+		+ float(_dev_phase.get(id, 0.0)) * float(n)
+	return frames[int(floor(t)) % n]
+
+
 # all kit drawing goes through _ci so the same helpers can paint on the
 # base canvas (behind the crew) or the overlay (in front of the crew)
 var _ci: CanvasItem = self
@@ -766,8 +851,14 @@ var _ci: CanvasItem = self
 
 func _prop(key: String, center: Vector2, width: float,
 		tint := Color.WHITE, flip_h := false, flip_v := false) -> void:
-	## Draw a kit prop centered at `center`, `width` px wide, aspect kept.
+	## Draw a kit prop centered at `center`, `width` px wide, aspect kept. If the
+	## prop is an ANIMATED device (frames cached in _dev_anim), the current loop
+	## frame is drawn in place of the static sprite — same position, width, aspect,
+	## flip and tint. Devices without frames fall through to the static P[key].
 	var tex: Texture2D = P[key]
+	var aid := _dev_anim_id(key)
+	if _dev_anim.has(aid):
+		tex = _dev_frame(aid)
 	var sz := tex.get_size()
 	var h := width * sz.y / sz.x
 	_ci.draw_set_transform(center, 0.0,
@@ -880,7 +971,7 @@ func _process(delta: float) -> void:
 		for k in done:
 			_prints.erase(k)
 	_update_active_station()
-	var rn := _room_at(crew.position)
+	var rn := _room_at(crew.position + Vector2(0, 12))   # feet cell — matches the rename target
 	# match the cell _open_rename() actually edits (the feet cell) so the hint
 	# and the R action never disagree near a cell boundary
 	var show_rename: bool = rn != "—" \
@@ -929,9 +1020,11 @@ func _update_npcs() -> void:
 		var pool := _npc_idle_pool(nname)
 		if a["mode"] == "rest":
 			if _reactor >= float(a["next"]):
-				if pool.size() >= 1 and (pool[0] as Array).size() > 1:
+				# gesture groups are pool[1..] (pool[0] is the resting/base idle):
+				# only gesture when a real one exists, and never pick the base group
+				if pool.size() >= 2:
 					# pick a RANDOM gesture from the pool, play it once
-					a["anim"] = rng2.randi_range(0, pool.size() - 1)
+					a["anim"] = rng2.randi_range(1, pool.size() - 1)
 					a["mode"] = "gesture"
 					a["gstart"] = _reactor
 				else:
@@ -1969,7 +2062,13 @@ func _draw_furniture(fy: float, behind: bool, flats: bool) -> void:
 					_ci.draw_rect(Rect2(cx - d.x * 0.5 - 6.0, ly - 3.5, d.x + 12.0, 7.0),
 						Color(0.45, 0.9, 1.0, 0.22))
 				continue
-			_ci.draw_texture_rect(tex, Rect2(cx - d.x * 0.5, base_y - d.y, d.x, d.y), false)
+			# ANIMATED device fixtures (fabricator craft, keyed by their stem)
+			# swap in the current loop frame; all others draw their static tex.
+			# (The <1s print-in reveal above stays static — a transient effect.)
+			var dtex: Texture2D = tex
+			if _dev_anim.has(p["id"]):
+				dtex = _dev_frame(p["id"])
+			_ci.draw_texture_rect(dtex, Rect2(cx - d.x * 0.5, base_y - d.y, d.x, d.y), false)
 
 
 var _token_cache := {}
@@ -2048,7 +2147,7 @@ func _npc_idle_pool(nname: String) -> Array:
 	var pool: Array = []
 	for gk in keys:
 		var names: Array = groups[gk]
-		names.sort()   # _<0..5> sort correctly as strings
+		names.sort_custom(func(a, b): return _trail_idx(a) < _trail_idx(b))
 		var frames: Array = []
 		for f in names:
 			var path := "%s/%s" % [dir, f]
@@ -2093,7 +2192,7 @@ func _npc_breathe_frames(nname: String) -> Array:
 		for f in d.get_files():
 			if f.ends_with(".png") and f.begins_with(base):
 				names.append(f)
-	names.sort()   # _<0..n> sort correctly as strings
+	names.sort_custom(func(a, b): return _trail_idx(a) < _trail_idx(b))
 	var frames: Array = []
 	for f in names:
 		var path := "%s/%s" % [dir, f]
@@ -2106,6 +2205,17 @@ func _npc_breathe_frames(nname: String) -> Array:
 	return frames
 
 
+func _trail_idx(fname: String) -> int:
+	## trailing integer of a frame filename ("hale_breathe_10.png" -> 10), so frame
+	## sets sort NUMERICALLY — a plain string sort puts "_10" before "_2".
+	var base := fname.get_basename()   # strip ".png"
+	var us := base.rfind("_")
+	if us < 0:
+		return 0
+	var s := base.substr(us + 1)
+	return int(s) if s.is_valid_int() else 0
+
+
 func _feet_frac(tex: Texture2D) -> float:
 	## fraction of the canvas height where the opaque figure's FEET are (1.0 =
 	## feet flush with the canvas bottom). Falls back to 1.0 if the image can't
@@ -2113,6 +2223,8 @@ func _feet_frac(tex: Texture2D) -> float:
 	var im := tex.get_image()
 	if im == null:
 		return 1.0
+	if im.is_compressed():
+		im.decompress()   # get_used_rect() errors on a VRAM-compressed image
 	var ch := im.get_height()
 	if ch <= 0:
 		return 1.0

@@ -120,7 +120,8 @@ func _draw() -> void:
 	var y := _panel.position.y + 34.0
 
 	# header: gear icon + name + level pips
-	UITheme.draw_icon(self, GEAR_ICON[kind], Vector2(px + 12, y + 5), 26.0)
+	if GEAR_ICON.has(kind):
+		UITheme.draw_icon(self, GEAR_ICON[kind], Vector2(px + 12, y + 5), 26.0)
 	draw_string(_font, Vector2(px + 38, y), "UPGRADE — %s" % \
 		str(GameState.UPGRADES[kind]["label"]).to_upper(),
 		HORIZONTAL_ALIGNMENT_LEFT, PANEL_W - 80, 15, UITheme.ACCENT)

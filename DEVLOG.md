@@ -5,6 +5,101 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 15/07/2026 — v1.65: bug-audit fixes (3-agent whole-game pass)
+
+Fixes from a read-only functional/logical audit of the whole codebase. Worst first:
+
+- DIVE-FIELD DETERMINISM (game_state.gd): `dive_field()` drew each rock's radius from
+  the live `tether_length` (a mutable upgrade). That feeds overlap-rejection, which
+  decides which rocks keep an `idx` — so upgrading the tether silently reshuffled every
+  field and desynced saved mined-state (mild ore/element dup + rocks reappearing). Now
+  a fixed `DIVE_FIELD_MAX_RADIUS` (920) — the field stays put; the tether grows REACH.
+- WALK-FRAME CRASH GUARDS (interior_player.gd): a missing/mis-named walk direction
+  (0 step frames, or a null `<dir>_idle.png`) caused modulo-by-zero / null-texture
+  crashes while walking. Now: idle falls back to frame 0, WALK never empties, and
+  `_phase`/`_frame`/`_process`/`_draw` guard empty sets. Latent today but sits right
+  where the PixelLab walk art is churning.
+- HELM-FADE RACE (main.gd): pressing E during the 0.6s take-the-helm fade wasn't gated
+  by `_leaving`, so it raced a second scene change and dumped you in the wrong scene.
+  E now checks `not _leaving` like F does.
+- BUILD-ONCE ROOMS (game_state.gd): greenhouse/workshop granted their flat stat bonus
+  on EVERY build (unbounded stacking if that UI is ever wired up). Guarded to first-build.
+- CREW GESTURES (ship_interior.gd): gesture picker could replay the resting/base pose;
+  now only fires when a real gesture group exists and never picks group 0.
+- NPC FRAME ORDER (ship_interior.gd): idle/breathe frame sets sorted as strings ("_10"
+  before "_2"); now numeric via `_trail_idx` (matters once a set hits ≥10 frames).
+- `_feet_frac` (ship_interior.gd): decompress a VRAM-compressed frame before `get_used_rect()`.
+- Minor: room-name label now uses the feet cell (matches the rename target); chargen
+  accepts numpad Enter; upgrade modal guards `GEAR_ICON[kind]`; SW_WRECK debug idx clamped.
+- DEFERRED (documented, not fixed): furniture doorway keep-out and station line-of-sight
+  are recoverable/rare and risk over-blocking valid actions — flagged for a focused pass.
+
+## 15/07/2026 — v1.64: living ship — animated device props + bigger trash
+
+The interior devices are now alive, and space trash reads at a proper size.
+
+- ANIMATED DEVICE PROPS: 20 ship devices now play subtle seamless PixelLab loops
+  in place of their static sprites — engine (reactor core breath, battery charge
+  bars, generator flicker, coolant shimmer), bridge (console data-flicker, radar
+  blips, monitor scanlines, holo-table projection), medbay (ECG waveform, sample-
+  fridge frost), cargo (fabricator build-beam, server-rack LEDs), and fabricator-
+  built fixtures (tesla-coil arcs, surgery light, grow-rack, hydroponic tray,
+  seedling table, terrarium, aquarium fish, fountain). Each is a 6-frame loop at
+  the source sprite's exact size; the botany/water set was motion-masked so only
+  the water/lights move and housings stay rock-solid (no boil, no drift — motion-
+  sickness rule). Loops live in `assets/sprites/device_anim/<id>_0..5.png`.
+- PLAYBACK (ship_interior.gd): a non-destructive layer loads any `device_anim/<id>`
+  frame set once in `_ready` and draws it in `_prop()` (room props + stations) and
+  `_draw_furniture()` (placed craft, keyed by craft id). Playback is tuned for calm,
+  smooth motion: base ~2fps, each device gets its own speed multiplier (0.8-1.2×)
+  AND start phase, both hash-derived, so no two ever step in unison (the first cut
+  shared one `int(clock*fps)` → everything flipped together, read as fast + synced).
+  Single crisp frame per draw — a crossfade tween was tried but a half-opaque N+1
+  frame ghosts badly when the ship scrolls, so it was dropped (these are already
+  GPU-composited; the fix was technique, not hardware). If no frames exist for an id
+  it draws the static sprite exactly as before — verified boot-clean with folder empty. A `DEV_ANIM_ALIAS` maps the
+  4 room-prop keys whose kit name differs from the craft stem (ecg→ecg_monitor,
+  hydro_tray→hydroponic_tray, seedling→seedling_table, terrarium→terrarium_dome).
+- TRASH: `TRASH_DRAW_MAX` 42 → 72 so debris reads at roughly half the ship rather
+  than a distant speck.
+- CRISPNESS FIX (all fabricated items, not just animated ones): every craft texture
+  (127 files) had `mipmaps/generate=false` while every prop had `=true` — so the
+  scene's `LINEAR_WITH_MIPMAPS` filter had no mip chain to sample and fabricated
+  items shimmered / mushed when drawn small (worst on thin lines: screens, grids,
+  consoles). Enabled mipmaps on all 127 craft + the 120 device_anim frames to match
+  the props → clean minification, no shimmer, across the whole catalogue.
+- Additionally, the 20 animated device sprites are high-res (e.g. console 407px,
+  radar 266px) but draw at 28-76px in-room (~4-7× minification). Their loop frames
+  were area-downscaled to ~2.2× the on-screen size so thin-line detail is baked at
+  display density (crisp base level) instead of being mip-blurred away. Native
+  frames backed up outside the repo.
+
+## 15/07/2026 — v1.63: flight smoothness — GPU-batched sky + movement fixes
+
+Fixed fast-travel stutter, the ship "kick-back", and the screen-darkening in
+space. All in flight.gd.
+
+- MOVEMENT: `_process` now clamps `delta` (≤0.05s). A frame hitch used to spike
+  delta, and the damp lerp `vel.lerp(0, 1-exp(-DAMP*delta))` then zeroed velocity
+  in one frame — the felt "kick-back" / lurch. Clamping keeps motion (and
+  turning) smooth through stutters; physics feel unchanged at normal frame rates.
+- GPU-BATCHED BACKGROUND (the "feels like no GPU" fix): the starfield, deep-space
+  specks and nebula fog were CPU immediate-mode (~9000 draw_circle/draw_texture
+  calls/frame). Now: each parallax STAR layer + the deep specks = one
+  MultiMeshInstance2D (thousands of stars in ONE draw call each, rolling chunk
+  window, per-frame cost = one node position set/layer); NEBULAE = Sprite2D nodes
+  (lazy-built). ~9000 draw calls → ~7. Generation is byte-identical (same seeded
+  chunks) so the sky is unchanged; near-layer glint crosses kept as a tiny
+  immediate overlay. Fast travel is now flat-cost/smooth.
+- Cache caps raised (stars 3k→12k, field/trash/wreck/deep 512→2048) so the full
+  cache-clears that caused the worst stalls are rare.
+- NEBULA FOG lightened (0.6 / 0.38) so flying through a cloud tints gently rather
+  than darkening the whole screen.
+- JEWEL STARS: a rare saturated tint on stars (per-layer ~1.5-6%, absent on faint
+  deep dust; gold/coral/ice-blue/magenta/teal palette, slightly bigger/brighter),
+  hash-rolled so the neutral field stays byte-identical — occasional colour, not
+  a rainbow.
+
 ## 15/07/2026 — v1.62: real breathing loops + interior light cleanup
 
 - CREW BREATHING: replaced the code "breathing" (a chest-band width-scale that

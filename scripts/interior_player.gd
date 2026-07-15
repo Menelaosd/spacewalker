@@ -44,10 +44,21 @@ func _ready() -> void:
 		while ResourceLoader.exists("res://assets/sprites/walk/%s_%d.png" % [d, i]):
 			steps.append(load("res://assets/sprites/walk/%s_%d.png" % [d, i]))
 			i += 1
-		var idle: Texture2D = load("res://assets/sprites/walk/%s_idle.png" % d)
+		var idle_path := "res://assets/sprites/walk/%s_idle.png" % d
+		var idle: Texture2D = load(idle_path) if ResourceLoader.exists(idle_path) else null
+		# never leave the idle null (a dropped / mis-named file would crash the
+		# draw) — fall back to the first walk frame when there is one
+		if idle == null and not steps.is_empty():
+			idle = steps[0]
 		IDLE[d] = idle
 		# 2 contact poses -> interleave the idle as the passing frame
-		WALK[d] = [steps[0], idle, steps[1], idle] if steps.size() == 2 else steps
+		if steps.size() == 2:
+			WALK[d] = [steps[0], idle, steps[1], idle]
+		elif steps.is_empty():
+			# no walk frames for this dir: degrade to a static idle, never []
+			WALK[d] = [idle] if idle != null else []
+		else:
+			WALK[d] = steps
 
 
 func _process(delta: float) -> void:
@@ -90,11 +101,12 @@ func _process(delta: float) -> void:
 		# no travel = no stepping), so the feet never slide
 		var traveled := position.distance_to(before)
 		var cycle := float(WALK[_dir].size())
-		var beat_was := int(_step * 2.0 / cycle)
-		_step += traveled * cycle / CYCLE_PX
-		# two footfalls per cycle
-		if int(_step * 2.0 / cycle) != beat_was:
-			Sfx.play("step", -22.0, randf_range(0.85, 1.15))
+		if cycle > 0.0:
+			var beat_was := int(_step * 2.0 / cycle)
+			_step += traveled * cycle / CYCLE_PX
+			# two footfalls per cycle
+			if int(_step * 2.0 / cycle) != beat_was:
+				Sfx.play("step", -22.0, randf_range(0.85, 1.15))
 	else:
 		_step = 0.0   # restart the cycle cleanly on the next move
 	queue_redraw()
@@ -112,12 +124,16 @@ const HOLD8 := [0.0, 0.1625, 0.30, 0.40625, 0.50, 0.6625, 0.80, 0.90625, 1.0]
 func _phase() -> float:
 	## walk-cycle phase 0..1 (contacts at 0 and .5 — the beat grid)
 	var cycle := float(WALK[_dir].size())
+	if cycle <= 0.0:
+		return 0.0
 	return fmod(_step, cycle) / cycle
 
 
 func _frame() -> Texture2D:
 	if _moving:
 		var frames: Array = WALK[_dir]
+		if frames.is_empty():
+			return IDLE[_dir]
 		var holds: Array = HOLD4 if frames.size() == 4 else (
 			HOLD8 if frames.size() == 8 else [])
 		if not holds.is_empty():
@@ -149,6 +165,8 @@ func _draw() -> void:
 	draw_circle(Vector2.ZERO, 9.0, Color(0, 0, 0, 0.28))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	var tex := _frame()
+	if tex == null:
+		return   # this direction has no art at all — skip the sprite draw
 	# every frame shares ONE canvas (feet bottom-aligned, centred), so one
 	# scale for everything and zero jitter between frames
 	var s := TARGET_H / tex.get_size().y

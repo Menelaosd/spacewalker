@@ -127,7 +127,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			# get_viewport() is null and would crash
 			get_viewport().set_input_as_handled()
 			_confirm()   # defaults are a valid record; the void won't wait
-		elif event.physical_keycode == KEY_ENTER:
+		elif event.physical_keycode in [KEY_ENTER, KEY_KP_ENTER]:
 			_confirm()
 
 

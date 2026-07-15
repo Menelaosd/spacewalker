@@ -35,7 +35,7 @@ const TRASH_SPRITE_DIR := "res://assets/sprites/trash/"
 # Debris is SPACE TRASH — tiny next to the ~156px ship hull. Every crop is
 # normalised so its longest side draws at this many px (~1/5.5 of the ship),
 # whatever its source resolution, so a huge crop and a small one both read small.
-const TRASH_DRAW_MAX := 42.0
+const TRASH_DRAW_MAX := 72.0
 
 # Derelict WRECKS — whole dead ships (salvage-sheet art), much rarer than
 # loose junk. Stripping one pays a real scrap haul and can recover a lost
@@ -93,11 +93,45 @@ var _flight_origin := Vector2.ZERO
 
 const FLIGHT_ZOOM := 0.68   # <1 = pulled back; see much more space while flying
 
+# --- GPU-batched background (stars / deep-space / nebulae) ----------------
+# The starfield, deep-space specks and nebula fog USED to be drawn in
+# immediate-mode _draw() every frame — thousands of draw_circle/draw_texture
+# calls, the fast-travel bottleneck. They are now GPU-batched:
+#   * each parallax STAR layer  -> one MultiMeshInstance2D (one draw call each)
+#   * the DEEP-SPACE specks     -> one MultiMeshInstance2D
+#   * each NEBULA's fog + glow  -> Sprite2D nodes placed in the world
+# Generation stays byte-identical (same seeded _star_chunk/_deep_chunk), so the
+# sky is unchanged; only the *rendering* moved off the CPU. Instances live in
+# a rolling chunk window that only refills when the view leaves it (rare), and
+# per-frame parallax is a single node.position set per layer.
+const STAR_PAD := 1          # extra chunks buffered around the view (fewer refills)
+const DEEP_PAD := 1
+var _dot_tex: ImageTexture   # soft round dot painted on the MultiMesh quads
+var _star_mm: Array = []     # MultiMeshInstance2D, one per STAR_LAYERS entry
+var _star_built: Array = []  # [cx0,cy0,cx1,cy1] chunk window each layer holds
+var _deep_mm: MultiMeshInstance2D
+var _deep_built: Array = [1, 1, 0, 0]   # min>max => "empty", forces first fill
+var _neb_nodes := {}         # i -> {fogA, fogB} sprites (built lazily, on first sight)
+var _neb_stars_node: DrawProxy   # packed cloud stars (few) kept immediate-mode
+var _glints: DrawProxy       # near-layer glint crosses (no per-instance lines in a MM)
+
+
+## A tiny Node2D that forwards its _draw() to a Callable — lets a couple of
+## small immediate-mode overlays (near-star glint crosses, nebula cloud stars)
+## sit on their own z-layer, behind the foreground but in front of the batched
+## sky, without a separate script file.
+class DrawProxy extends Node2D:
+	var fn: Callable
+	func _draw() -> void:
+		if fn.is_valid():
+			fn.call(self)
+
 
 func _ready() -> void:
 	# painted hull/debris, not pixel art — mipmaps keep small-scaled debris and
 	# derelicts from shimmering as the camera drifts
 	texture_filter = TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	_build_background()
 	_load_trash_sprites()
 	ship_pos = GameState.sector
 	_flight_origin = ship_pos
@@ -122,6 +156,14 @@ func _ready() -> void:
 						break
 				if found: break
 			if found: break
+	# debug: SW_NEBULA=<i> parks the ship at the edge of nebula i so the cloud
+	# fills the view (there's no in-game shortcut to a nebula — screenshots only)
+	if OS.get_environment("SW_NEBULA") != "":
+		var ni := int(OS.get_environment("SW_NEBULA"))
+		ni = clampi(ni, 0, GameState.NEBULAE.size() - 1)
+		ship_pos = GameState.nebula_center(ni) + Vector2(GameState.nebula_radius(ni) * 0.9, 0.0)
+		cam.position = ship_pos
+		cam.reset_smoothing()
 	# debug: SW_DIALOG=JUNO opens that crew member's first-meeting dialog
 	if OS.get_environment("SW_DIALOG") != "":
 		_in_dialog = true
@@ -131,17 +173,26 @@ func _ready() -> void:
 	if OS.get_environment("SW_WRECK") != "":
 		var cc := Vector2i((ship_pos / FIELD_CHUNK).floor())
 		_wreck_cache[cc] = {
-			"pos": ship_pos + Vector2(420, -160), "idx": 13, "rot": 0.3,
+			"pos": ship_pos + Vector2(420, -160), "idx": mini(13, Craftables.WRECKS.size() - 1), "rot": 0.3,
 			"rare": true, "key": "w:debug", "taken": false,
 		}
 		_recipe_banner.show_recipe("jukebox")
+	# populate the batched sky for ship_pos's FINAL location (post SW_FIELD /
+	# SW_NEBULA teleports) so there's no one-frame empty flash on entry
+	_update_background()
 
 
 func _process(delta: float) -> void:
 	if _in_dialog:
 		_t += delta
+		_update_background()   # nebula fog keeps drifting behind the dialog dim
 		queue_redraw()   # the wreck keeps drifting behind the dialog dim
 		return
+	# A frame hitch (heavy per-frame draw / chunk-gen at high speed) spikes delta;
+	# uncapped, the damp lerp below then zeroes velocity in one frame (the felt
+	# "kick-back") and ship_pos jumps. Cap delta so movement stays smooth through
+	# stutters — physics feel is unchanged at normal frame rates.
+	delta = minf(delta, 0.05)
 	# helm controls: A/D yaw the ship, W burns the main drive, S retro-burns
 	_turn = Input.get_axis("move_left", "move_right")
 	_thr = Input.get_axis("move_down", "move_up")
@@ -180,6 +231,7 @@ func _process(delta: float) -> void:
 	_collect_wrecks()
 	_update_comets(delta)
 	_update_hud()
+	_update_background()
 	Sfx.thrust_on(absf(_thr) > 0.05 or absf(_turn) > 0.05)
 	queue_redraw()
 
@@ -259,7 +311,7 @@ func _field_in_chunk(cx: int, cy: int) -> Dictionary:
 	var key := Vector2i(cx, cy)
 	if _field_cache.has(key):
 		return _field_cache[key]
-	if _field_cache.size() > 512:
+	if _field_cache.size() > 2048:
 		_field_cache.clear()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = _chunk_seed(cx, cy, 1)
@@ -326,7 +378,7 @@ func _trash_in_chunk(cx: int, cy: int) -> Array:
 	var key := Vector2i(cx, cy)
 	if _trash_cache.has(key):
 		return _trash_cache[key]
-	if _trash_cache.size() > 512:
+	if _trash_cache.size() > 2048:
 		_trash_cache.clear()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = _chunk_seed(cx, cy, 3)
@@ -379,7 +431,7 @@ func _wreck_in_chunk(cx: int, cy: int) -> Dictionary:
 	var key := Vector2i(cx, cy)
 	if _wreck_cache.has(key):
 		return _wreck_cache[key]
-	if _wreck_cache.size() > 512:
+	if _wreck_cache.size() > 2048:
 		_wreck_cache.clear()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = _chunk_seed(cx, cy, 7)
@@ -643,16 +695,89 @@ func _on_notify(text: String) -> void:
 
 
 # ==================================================================
+# GPU-batched background — build + per-frame update
+# ==================================================================
+func _make_dot_tex() -> ImageTexture:
+	## A small round dot: solid core with a 1-2px antialiased rim, so the
+	## MultiMesh quads read as round points like the old draw_circle discs
+	## (a quad of side 2*r scaled around this keeps the bright core ~= r).
+	var sz := 64
+	var img := Image.create(sz, sz, false, Image.FORMAT_RGBA8)
+	var c := sz * 0.5
+	for y in sz:
+		for x in sz:
+			var dd := Vector2(x - c + 0.5, y - c + 0.5).length() / c
+			var a := 1.0 - smoothstep(0.82, 1.0, dd)   # solid to 0.82, soft rim
+			if a > 0.0:
+				img.set_pixel(x, y, Color(1, 1, 1, a))
+	return ImageTexture.create_from_image(img)
+
+
+func _make_dot_mm(z: int) -> MultiMeshInstance2D:
+	var mmi := MultiMeshInstance2D.new()
+	mmi.z_index = z            # negative => behind this node's foreground _draw
+	mmi.texture = _dot_tex
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_2D
+	mm.use_colors = true
+	mm.mesh = _dot_mesh
+	mmi.multimesh = mm
+	add_child(mmi)
+	return mmi
+
+
+var _dot_mesh: QuadMesh
+
+
+func _build_background() -> void:
+	## Create the batched-sky nodes once. z-order (back -> front): deep-space
+	## specks (-60), nebula fog (-50), nebula glow (-45), cloud stars (-35),
+	## the five parallax star layers (-30..-26, deepest first), near-star glint
+	## crosses (-25); the foreground _draw() sits at 0, on top of all of it.
+	_dot_tex = _make_dot_tex()
+	_dot_mesh = QuadMesh.new()
+	_dot_mesh.size = Vector2(1, 1)
+	_deep_mm = _make_dot_mm(-60)
+	for li in STAR_LAYERS.size():
+		_star_mm.append(_make_dot_mm(-30 + li))
+		_star_built.append([1, 1, 0, 0])   # min>max => empty, forces first fill
+	_neb_stars_node = DrawProxy.new()
+	_neb_stars_node.fn = _draw_neb_stars
+	_neb_stars_node.z_index = -35
+	add_child(_neb_stars_node)
+	_glints = DrawProxy.new()
+	_glints.fn = _draw_near_glints
+	_glints.z_index = -25
+	add_child(_glints)
+
+
+func _update_background() -> void:
+	## Drives the batched sky each frame: parallax offsets + rare buffer refills
+	## for the star/deep MultiMeshes, nebula sprite drift, and a queue_redraw on
+	## the two small immediate-mode proxies (glints, cloud stars).
+	var center := cam.get_screen_center_position()
+	var half := get_viewport_rect().size * 0.5 / cam.zoom.x + Vector2(STAR_CHUNK, STAR_CHUNK)
+	_update_deep(center, half)
+	for li in STAR_LAYERS.size():
+		_update_star_layer(li, center, half)
+	_update_nebulae(center, half)
+	_neb_stars_node.queue_redraw()
+	_glints.queue_redraw()
+
+
+# ==================================================================
 # Placeholder visuals
 # ==================================================================
 func _draw() -> void:
+	# Background (deep-space specks, nebula fog/glow, parallax stars) is now
+	# GPU-batched in child nodes (MultiMeshInstance2D / Sprite2D) sitting behind
+	# this node's draw via negative z_index — see _update_background(). Only the
+	# foreground (fields / wrecks / trash / beacon / comets / ship) is still
+	# drawn immediate-mode here (far fewer items than the starfield).
 	var center := cam.get_screen_center_position()
 	# the visible world is bigger than the viewport by 1/zoom — expand the cull
 	# bounds to match, or stars/fields pop in at the edges
 	var half := get_viewport_rect().size * 0.5 / cam.zoom.x + Vector2(STAR_CHUNK, STAR_CHUNK)
-	_draw_deep_space(center, half)
-	_draw_nebulae(center, half)
-	_draw_stars(center, half)
 	_draw_fields(center, half)
 	_draw_wrecks(center, half)
 	_draw_trash(center, half)
@@ -745,52 +870,108 @@ func _draw_trash_placeholder(p: Vector2, mcol: Color, piece: Dictionary) -> void
 	draw_circle(p + Vector2(3, -4), 1.5, Color(1, 1, 1, 0.7))
 
 
-func _draw_nebulae(center: Vector2, half: Vector2) -> void:
-	## Smoke. Two layers of fractal-noise fog (NebulaFog) drifting slowly
-	## against each other, a glowing heart, and stars tinted by the cloud.
+func _update_nebulae(center: Vector2, half: Vector2) -> void:
+	## Smoke, now as world-placed Sprite2D nodes instead of per-frame
+	## draw_texture. Two fog layers drift against each other and a soft glowing
+	## heart sits inside; the tinted cloud stars stay immediate-mode (few, in
+	## _draw_neb_stars). Fog textures are still generated lazily (first sight of
+	## each cloud), so no startup hitch — nodes are built the first frame a
+	## nebula comes into view and then kept (offscreen sprites auto-cull).
+	for i in GameState.NEBULAE.size():
+		var nc: Vector2 = GameState.nebula_center(i)
+		var nr: float = GameState.nebula_radius(i)
+		if (nc - center).length() > half.length() + nr + 1400.0:
+			continue
+		var nodes: Dictionary = _neb_nodes.get(i, {})
+		if nodes.is_empty():
+			nodes = _make_nebula_nodes(i, nc, nr)
+			_neb_nodes[i] = nodes
+		# the only per-frame work: the slow counter-drift of the two fog layers
+		# (same rates/offsets as the old draw_set_transform rotations)
+		(nodes["fogA"] as Sprite2D).rotation = _t * 0.008
+		(nodes["fogB"] as Sprite2D).rotation = 2.4 - _t * 0.005
+
+
+func _make_nebula_nodes(i: int, nc: Vector2, nr: float) -> Dictionary:
+	## Build a nebula's four sprites once: two drifting fog layers (0.6 / 0.38
+	## alpha) and the two-layer soft glow heart. Every position/scale/tint/alpha
+	## matches the old immediate-mode draw exactly.
+	var col: Color = GameState.NEBULAE[i]["color"]
+	var tex := NebulaFog.texture_for(i)
+	# base fog layer, drifting — scale follows this nebula's own size
+	var s := nr * 2.9 / float(NebulaFog.SIZE)
+	var fog_a := Sprite2D.new()
+	fog_a.texture = tex
+	fog_a.position = nc
+	fog_a.scale = Vector2(s, s)
+	fog_a.modulate = Color(1, 1, 1, 0.33)
+	fog_a.z_index = -50
+	add_child(fog_a)
+	# second layer: bigger, rotated, counter-drifting — parallax smoke. Both
+	# layers kept LIGHT (0.33 / 0.2) so flying INTO a nebula is a gentle colour
+	# tint, not a big whole-screen brightness swing (bright inside / dark out).
+	var fog_b := Sprite2D.new()
+	fog_b.texture = tex
+	fog_b.position = nc
+	fog_b.scale = Vector2(s * 1.3, s * 1.15)
+	fog_b.modulate = Color(1, 1, 1, 0.2)
+	fog_b.z_index = -50   # same layer, added after fog_a => draws on top of it
+	add_child(fog_b)
+	# glowing heart, proportional to the cloud — the soft radial glow texture
+	# (NOT stacked draw_circle discs, whose crisp edges read as concentric
+	# rings). Two smoothly-faded layers give the core gentle depth. The heart
+	# offset consumes the SAME rng.randf() the cloud stars replay (seed 7000+i),
+	# so both stay identical to the old single-rng sequence.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7000 + i
+	var heart := nc + Vector2.from_angle(rng.randf() * TAU) * nr * 0.2
+	var glow := NebulaFog.glow_texture()
+	var gh: float = glow.get_size().x * 0.5
+	var lc := col.lightened(0.35)
+	var gso := nr * 0.30 / gh          # outer soft halo
+	var glow_out := Sprite2D.new()
+	glow_out.texture = glow
+	glow_out.position = heart
+	glow_out.scale = Vector2(gso, gso)
+	glow_out.modulate = Color(lc.r, lc.g, lc.b, 0.09)
+	glow_out.z_index = -45
+	add_child(glow_out)
+	var lc2 := col.lightened(0.6)
+	var gsi := nr * 0.12 / gh          # inner brighter core
+	var glow_in := Sprite2D.new()
+	glow_in.texture = glow
+	glow_in.position = heart
+	glow_in.scale = Vector2(gsi, gsi)
+	glow_in.modulate = Color(lc2.r, lc2.g, lc2.b, 0.13)
+	glow_in.z_index = -45
+	add_child(glow_in)
+	return {"fogA": fog_a, "fogB": fog_b}
+
+
+func _draw_neb_stars(ci: CanvasItem) -> void:
+	## Stars packed through each visible cloud, tinted by it — few enough to
+	## stay immediate-mode. Drawn on the _neb_stars_node proxy (z below the
+	## parallax starfield, above the fog/glow) so the layering matches the old
+	## single-_draw order exactly. The rng sequence (seed 7000+i) discards ONE
+	## randf() first — the heart offset consumed in _make_nebula_nodes — so the
+	## star pattern is byte-identical to before.
+	var center := cam.get_screen_center_position()
+	var half := get_viewport_rect().size * 0.5 / cam.zoom.x + Vector2(STAR_CHUNK, STAR_CHUNK)
 	for i in GameState.NEBULAE.size():
 		var nc: Vector2 = GameState.nebula_center(i)
 		var nr: float = GameState.nebula_radius(i)
 		if (nc - center).length() > half.length() + nr + 1400.0:
 			continue
 		var col: Color = GameState.NEBULAE[i]["color"]
-		var tex := NebulaFog.texture_for(i)
-		var half_tex := Vector2(NebulaFog.SIZE, NebulaFog.SIZE) * 0.5
-		# base fog layer, drifting — scale follows this nebula's own size
-		var s := nr * 2.9 / float(NebulaFog.SIZE)
-		draw_set_transform(nc, _t * 0.008, Vector2(s, s))
-		draw_texture(tex, -half_tex)
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-		# second layer: bigger, rotated, counter-drifting — parallax smoke
-		draw_set_transform(nc, 2.4 - _t * 0.005, Vector2(s * 1.3, s * 1.15))
-		draw_texture(tex, -half_tex, Color(1, 1, 1, 0.7))
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-		# glowing heart, proportional to the cloud — a soft radial glow texture
-		# (NOT stacked draw_circle discs: their crisp edges read as tiny
-		# concentric rings). Two smoothly-faded layers give the core gentle
-		# depth with no perceptible boundary.
 		var rng := RandomNumberGenerator.new()
 		rng.seed = 7000 + i
-		var heart := nc + Vector2.from_angle(rng.randf() * TAU) * nr * 0.2
-		var glow := NebulaFog.glow_texture()
-		var gh := glow.get_size() * 0.5
-		var lc := col.lightened(0.35)
-		var gso := nr * 0.30 / gh.x          # outer soft halo
-		draw_set_transform(heart, 0.0, Vector2(gso, gso))
-		draw_texture(glow, -gh, Color(lc.r, lc.g, lc.b, 0.09))
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-		var lc2 := col.lightened(0.6)
-		var gsi := nr * 0.12 / gh.x          # inner brighter core
-		draw_set_transform(heart, 0.0, Vector2(gsi, gsi))
-		draw_texture(glow, -gh, Color(lc2.r, lc2.g, lc2.b, 0.13))
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-		# stars packed through the cloud, tinted by it — big clouds get more
+		rng.randf()   # heart offset angle — consumed to keep the sequence identical
+		var lc := col.lightened(0.65)
 		for b in int(20.0 + nr / 60.0):
 			var sp := nc + Vector2.from_angle(rng.randf() * TAU) \
 				* rng.randf_range(0.0, nr * 0.95)
-			draw_circle(sp, rng.randf_range(0.7, 2.4),
-				Color(col.lightened(0.65).r, col.lightened(0.65).g,
-					col.lightened(0.65).b, rng.randf_range(0.4, 0.9)))
+			ci.draw_circle(sp, rng.randf_range(0.7, 2.4),
+				Color(lc.r, lc.g, lc.b, rng.randf_range(0.4, 0.9)))
 
 
 ## Parallax starfield: three depth layers scrolling at different rates.
@@ -807,48 +988,123 @@ const STAR_LAYERS := [
 	[1.0, 18, 1.2, 2.6, 1.0, Color(1.0, 1.0, 1.0)],
 ]
 
+# Rare "jewel" stars — a saturated tint on a small % of stars so the mostly
+# neutral sky gets the occasional coloured spark (captain's request). Tasteful,
+# not a rainbow: warm gold, soft coral-red, ice-blue, magenta, teal-green.
+const STAR_JEWELS := [
+	Color(1.0, 0.78, 0.35),   # warm gold / amber
+	Color(1.0, 0.46, 0.42),   # soft coral red
+	Color(0.5, 0.85, 1.0),    # cyan / ice-blue
+	Color(1.0, 0.5, 0.9),     # magenta
+	Color(0.5, 0.95, 0.72),   # teal-green
+]
+# per-layer jewel probability — absent on the faint deep micro-dust, a touch
+# more present on the nearer, brighter layers (index matches STAR_LAYERS)
+const STAR_JEWEL_CHANCE := [0.0, 0.015, 0.035, 0.05, 0.06]
+
 # star patterns cached per (chunk, layer) — never regenerate RNGs per frame
 var _star_cache := {}
 
 
 func _star_chunk(cx: int, cy: int, li: int) -> Array:
 	## The star PATTERN for a chunk+layer, generated once and cached — no
-	## per-frame RNG churn. Each entry: [local_offset, size, alpha, glint].
+	## per-frame RNG churn. Each entry: [local_offset, size, alpha, glint, color].
 	var key := Vector3i(cx, cy, li)
 	if _star_cache.has(key):
 		return _star_cache[key]
-	if _star_cache.size() > 3000:
+	if _star_cache.size() > 12000:
 		_star_cache.clear()
 	var layer: Array = STAR_LAYERS[li]
+	var tint: Color = layer[5]
+	var jchance: float = STAR_JEWEL_CHANCE[li]
 	var rng := RandomNumberGenerator.new()
 	rng.seed = _chunk_seed(cx, cy, 20 + li)
 	var out: Array = []
 	var near := li == STAR_LAYERS.size() - 1
 	for i in int(layer[1]):
-		out.append([Vector2(rng.randf(), rng.randf()) * STAR_CHUNK,
-			rng.randf_range(layer[2], layer[3]),
-			rng.randf_range(0.3, 0.9) * float(layer[4]),
-			near and rng.randf() < 0.08])
+		# NOTE: consume the rng in the EXACT original order (pos, size, alpha,
+		# then glint ONLY on the near layer via short-circuit) so the neutral
+		# starfield's positions/sizes/glints are byte-identical to before.
+		var pos := Vector2(rng.randf(), rng.randf()) * STAR_CHUNK
+		var size := rng.randf_range(layer[2], layer[3])
+		var alpha := rng.randf_range(0.3, 0.9) * float(layer[4])
+		var glint: bool = near and rng.randf() < 0.08
+		var col := tint
+		# Rare jewel star: rolled from a HASH (not the rng) so it doesn't shift
+		# the sequence — the neutral sky is unchanged and jewels layer on top.
+		# Coloured ones are biased brighter/larger so they pop a little.
+		if jchance > 0.0 \
+				and float(hash("%d:%d:%d:%d:jw" % [cx, cy, li, i]) % 100000) / 100000.0 < jchance:
+			col = STAR_JEWELS[hash("%d:%d:%d:%d:jc" % [cx, cy, li, i]) % STAR_JEWELS.size()]
+			size *= 1.35
+			alpha = clampf(alpha * 1.4 + 0.12, 0.0, 1.0)
+		out.append([pos, size, alpha, glint, col])
 	_star_cache[key] = out
 	return out
 
 
-func _draw_stars(center: Vector2, half: Vector2) -> void:
-	for li in STAR_LAYERS.size():
-		var layer: Array = STAR_LAYERS[li]
-		var depth: float = layer[0]
-		var shift := center * (1.0 - depth)          # parallax offset
-		var vc := center - shift                     # pattern-space view center
-		var tint: Color = layer[5]
-		for cy in range(floori((vc.y - half.y) / STAR_CHUNK), floori((vc.y + half.y) / STAR_CHUNK) + 1):
-			for cx in range(floori((vc.x - half.x) / STAR_CHUNK), floori((vc.x + half.x) / STAR_CHUNK) + 1):
-				var origin := Vector2(cx, cy) * STAR_CHUNK + shift
-				for st in _star_chunk(cx, cy, li):
+func _update_star_layer(li: int, center: Vector2, half: Vector2) -> void:
+	## Per-frame: park the layer's MultiMeshInstance2D at the parallax offset
+	## (cheap). Its instances hold pattern-space star positions in a rolling
+	## chunk window; the node.position = shift slides the whole layer, so the
+	## rendered position (shift + pattern) exactly equals the old
+	## `origin = chunk*STAR_CHUNK + shift; p = origin + st[0]`. The instance
+	## buffer only rebuilds when the view leaves the buffered window (rare).
+	var layer: Array = STAR_LAYERS[li]
+	var depth: float = layer[0]
+	var shift := center * (1.0 - depth)          # parallax offset
+	var mmi: MultiMeshInstance2D = _star_mm[li]
+	mmi.position = shift
+	var vc := center - shift                     # pattern-space view center
+	var cx0 := floori((vc.x - half.x) / STAR_CHUNK)
+	var cy0 := floori((vc.y - half.y) / STAR_CHUNK)
+	var cx1 := floori((vc.x + half.x) / STAR_CHUNK)
+	var cy1 := floori((vc.y + half.y) / STAR_CHUNK)
+	var b: Array = _star_built[li]
+	if cx0 >= b[0] and cy0 >= b[1] and cx1 <= b[2] and cy1 <= b[3]:
+		return   # still inside the buffered window — nothing to rebuild
+	# view escaped the window: refill, padded so refills stay infrequent
+	cx0 -= STAR_PAD; cy0 -= STAR_PAD; cx1 += STAR_PAD; cy1 += STAR_PAD
+	_star_built[li] = [cx0, cy0, cx1, cy1]
+	var xf: Array = []
+	var cols: Array = []
+	for cy in range(cy0, cy1 + 1):
+		for cx in range(cx0, cx1 + 1):
+			var origin := Vector2(cx, cy) * STAR_CHUNK
+			for st in _star_chunk(cx, cy, li):
+				var p: Vector2 = origin + st[0]
+				var d: float = float(st[1]) * 2.0   # quad size = dot diameter
+				var sc: Color = st[4]                # per-star tint (jewel or layer)
+				xf.append(Transform2D(Vector2(d, 0), Vector2(0, d), p))
+				cols.append(Color(sc.r, sc.g, sc.b, st[2]))
+	var mm: MultiMesh = mmi.multimesh
+	mm.instance_count = xf.size()
+	for idx in xf.size():
+		mm.set_instance_transform_2d(idx, xf[idx])
+		mm.set_instance_color(idx, cols[idx])
+
+
+func _draw_near_glints(ci: CanvasItem) -> void:
+	## The near-layer glint: a bright cross of two lines on ~8% of the nearest
+	## stars. A MultiMesh can't do per-instance line crosses, so these few
+	## crosses stay immediate-mode on the _glints proxy (z just above the near
+	## star layer, still behind the foreground). Positions/colours are identical
+	## to the old inline glint — the near layer's depth is 1.0 so shift = 0 and
+	## the world position is simply the pattern position.
+	var li := STAR_LAYERS.size() - 1
+	var center := cam.get_screen_center_position()
+	var half := get_viewport_rect().size * 0.5 / cam.zoom.x + Vector2(STAR_CHUNK, STAR_CHUNK)
+	var depth: float = STAR_LAYERS[li][0]
+	var shift := center * (1.0 - depth)
+	var vc := center - shift
+	for cy in range(floori((vc.y - half.y) / STAR_CHUNK), floori((vc.y + half.y) / STAR_CHUNK) + 1):
+		for cx in range(floori((vc.x - half.x) / STAR_CHUNK), floori((vc.x + half.x) / STAR_CHUNK) + 1):
+			var origin := Vector2(cx, cy) * STAR_CHUNK + shift
+			for st in _star_chunk(cx, cy, li):
+				if st[3]:
 					var p: Vector2 = origin + st[0]
-					draw_circle(p, st[1], Color(tint.r, tint.g, tint.b, st[2]))
-					if st[3]:
-						draw_line(p + Vector2(-4, 0), p + Vector2(4, 0), Color(1, 1, 1, 0.35), 1.0)
-						draw_line(p + Vector2(0, -4), p + Vector2(0, 4), Color(1, 1, 1, 0.35), 1.0)
+					ci.draw_line(p + Vector2(-4, 0), p + Vector2(4, 0), Color(1, 1, 1, 0.35), 1.0)
+					ci.draw_line(p + Vector2(0, -4), p + Vector2(0, 4), Color(1, 1, 1, 0.35), 1.0)
 
 
 # ==================================================================
@@ -867,7 +1123,7 @@ func _deep_chunk(cx: int, cy: int) -> Dictionary:
 	var key := Vector2i(cx, cy)
 	if _deep_cache.has(key):
 		return _deep_cache[key]
-	if _deep_cache.size() > 512:
+	if _deep_cache.size() > 2048:
 		_deep_cache.clear()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = _chunk_seed(cx, cy, 40)
@@ -883,15 +1139,35 @@ func _deep_chunk(cx: int, cy: int) -> Dictionary:
 	return d
 
 
-func _draw_deep_space(center: Vector2, half: Vector2) -> void:
+func _update_deep(center: Vector2, half: Vector2) -> void:
+	## Deep-space specks (distant asteroids), now one MultiMeshInstance2D. Same
+	## rolling-window + parallax scheme as the star layers, one node.position
+	## per frame; instances only rebuild when the view leaves the buffer.
 	var shift := center * (1.0 - DEEP_DEPTH)   # parallax: far layer crawls
+	_deep_mm.position = shift
 	var vc := center - shift                   # pattern-space view center
-	for cy in range(floori((vc.y - half.y) / DEEP_CHUNK), floori((vc.y + half.y) / DEEP_CHUNK) + 1):
-		for cx in range(floori((vc.x - half.x) / DEEP_CHUNK), floori((vc.x + half.x) / DEEP_CHUNK) + 1):
-			var d := _deep_chunk(cx, cy)
-			for sp in d["specks"]:
-				draw_circle((sp[0] as Vector2) + shift, sp[1],
-					Color(0.5, 0.52, 0.58, sp[2]))
+	var cx0 := floori((vc.x - half.x) / DEEP_CHUNK)
+	var cy0 := floori((vc.y - half.y) / DEEP_CHUNK)
+	var cx1 := floori((vc.x + half.x) / DEEP_CHUNK)
+	var cy1 := floori((vc.y + half.y) / DEEP_CHUNK)
+	if cx0 >= _deep_built[0] and cy0 >= _deep_built[1] \
+			and cx1 <= _deep_built[2] and cy1 <= _deep_built[3]:
+		return
+	cx0 -= DEEP_PAD; cy0 -= DEEP_PAD; cx1 += DEEP_PAD; cy1 += DEEP_PAD
+	_deep_built = [cx0, cy0, cx1, cy1]
+	var xf: Array = []
+	var cols: Array = []
+	for cy in range(cy0, cy1 + 1):
+		for cx in range(cx0, cx1 + 1):
+			for sp in _deep_chunk(cx, cy)["specks"]:
+				var d: float = float(sp[1]) * 2.0
+				xf.append(Transform2D(Vector2(d, 0), Vector2(0, d), sp[0] as Vector2))
+				cols.append(Color(0.5, 0.52, 0.58, sp[2]))
+	var mm: MultiMesh = _deep_mm.multimesh
+	mm.instance_count = xf.size()
+	for idx in xf.size():
+		mm.set_instance_transform_2d(idx, xf[idx])
+		mm.set_instance_color(idx, cols[idx])
 
 
 var _ast_cache := {}
@@ -937,8 +1213,12 @@ func _draw_fields(center: Vector2, half: Vector2) -> void:
 					var sz := tex.get_size()
 					var s := clampf(r * 1.7, 30.0, 64.0) / maxf(sz.x, sz.y)
 					var ecol: Color = rock["col"]
+					# per-rock DARKNESS variation (deterministic from its key, so it's
+					# stable and independent of the shape variant) — a field reads with
+					# depth: some rocks sit in shadow, some catch the light. [0.58..1.0]
+					var shade := 0.58 + 0.42 * (float(hash(str(rock["key"]) + ":sh") % 100) / 99.0)
 					draw_set_transform(p, 0.0, Vector2(s, s))
-					draw_texture(tex, -sz * 0.5)
+					draw_texture(tex, -sz * 0.5, Color(shade, shade, shade))
 					var core := _asteroid_core(int(rock["var"]))
 					if core != null:
 						draw_texture(core, -core.get_size() * 0.5, ecol)

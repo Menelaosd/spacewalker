@@ -226,8 +226,10 @@ func _update_debris(delta: float) -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
-		if event.physical_keycode == KEY_E and player != null and player.in_dock:
+		if event.physical_keycode == KEY_E and player != null and player.in_dock \
+				and not _leaving:
 			# Step inside the ship. Bank whatever we're carrying first.
+			# (guarded by _leaving so E can't race a helm-fade already in progress)
 			GameState.bank_cargo()
 			get_tree().change_scene_to_file("res://scenes/ship_interior.tscn")
 		elif event.physical_keycode == KEY_F and player != null \
