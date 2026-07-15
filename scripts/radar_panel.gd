@@ -18,6 +18,8 @@ var flight: Node2D = null      # the flight scene, set when mode == "flight"
 
 var _t := 0.0
 var _font: Font = ThemeDB.fallback_font
+var _derelict_tex: Texture2D = null    # small faint ship marker for derelicts
+var _face_cache := {}                  # crew name -> small roster face texture
 
 
 func _get_minimum_size() -> Vector2:
@@ -26,6 +28,18 @@ func _get_minimum_size() -> Vector2:
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if ResourceLoader.exists("res://assets/ui/derelict.svg"):
+		_derelict_tex = load("res://assets/ui/derelict.svg")
+
+
+func _crew_face(nm: String) -> Texture2D:
+	## The rescued-crew roster portrait, cached, for the distress-beacon blip.
+	if nm == "":
+		return null
+	if not _face_cache.has(nm):
+		var path := "res://assets/sprites/crew/roster/%s_face.png" % nm.to_lower()
+		_face_cache[nm] = load(path) if ResourceLoader.exists(path) else null
+	return _face_cache[nm]
 
 
 func _process(delta: float) -> void:
@@ -224,6 +238,25 @@ func _plot_flight(c: Vector2, sp: Vector2, k: float, sweep: float, flick: float)
 				draw_circle(c + rel, 1.6,
 					Color(col.r, col.g, col.b, 0.9 * _blip_alpha(rel.angle(), sweep) * flick))
 
+	# derelict SHIPS — a small, faint, ship-shaped marker (rarer than junk)
+	if _derelict_tex != null:
+		for cy in range(cc.y - span, cc.y + span + 1):
+			for cx in range(cc.x - span, cc.x + span + 1):
+				var w: Dictionary = flight._wreck_in_chunk(cx, cy)
+				if w.is_empty() or w.get("taken", false):
+					continue
+				var wrel: Vector2 = ((w["pos"] as Vector2) - sp) * k
+				if wrel.length() > R - 5.0:
+					continue
+				var mp := c + wrel
+				var msz := 12.0 if w.get("rare", false) else 9.0
+				var mcol := Color(0.72, 0.86, 0.96,
+					0.5 * _blip_alpha(wrel.angle(), sweep) * flick)
+				draw_set_transform(mp, float(w.get("rot", 0.0)) + PI * 0.5, Vector2.ONE)
+				draw_texture_rect(_derelict_tex,
+					Rect2(-msz * 0.5, -msz * 0.5, msz, msz), false, mcol)
+				draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
 	# the current distress beacon — the mission pointer, in gold
 	if GameState.rescue_available():
 		var brel := (GameState.rescue_beacon() - sp) * k
@@ -231,9 +264,21 @@ func _plot_flight(c: Vector2, sp: Vector2, k: float, sweep: float, flick: float)
 		var bpulse := 0.6 + 0.4 * sin(_t * 5.0)
 		if brel.length() < R - 6.0:
 			var bpt := c + brel
-			draw_circle(bpt, 3.0, Color(gold.r, gold.g, gold.b, bpulse * flick))
-			draw_arc(bpt, 6.5, 0.0, TAU, 12,
-				Color(gold.r, gold.g, gold.b, 0.5 * bpulse * flick), 1.2)
+			var face := _crew_face(str(GameState.rescue_target().get("name", "")))
+			if face != null:
+				# the crew member's portrait, pinned on the scope as the objective
+				var fs := 17.0
+				draw_circle(bpt, fs * 0.62,
+					Color(gold.r, gold.g, gold.b, 0.9 * bpulse * flick))
+				draw_texture_rect(face,
+					Rect2(bpt - Vector2(fs, fs) * 0.5, Vector2(fs, fs)),
+					false, Color(1, 1, 1, flick))
+				draw_arc(bpt, fs * 0.62, 0.0, TAU, 28,
+					Color(gold.r, gold.g, gold.b, bpulse * flick), 1.5)
+			else:
+				draw_circle(bpt, 3.0, Color(gold.r, gold.g, gold.b, bpulse * flick))
+				draw_arc(bpt, 6.5, 0.0, TAU, 12,
+					Color(gold.r, gold.g, gold.b, 0.5 * bpulse * flick), 1.2)
 		else:
 			var bdir := brel.normalized()
 			draw_colored_polygon(PackedVector2Array([

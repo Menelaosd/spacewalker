@@ -29,6 +29,7 @@ const ACTIONS := {
 	"leave_helm": {"keys": "Q",     "label": "leave",     "controller": "B",       "ctx": "flight"},
 	"rename":     {"keys": "R",     "label": "rename",    "controller": "Y",       "ctx": "interior"},
 	"inventory":  {"keys": "I",     "label": "inventory", "controller": "Select",  "ctx": "any"},
+	"starchart":  {"keys": "M",     "label": "chart",     "controller": "D-pad Up", "ctx": "flight"},
 	"menu":       {"keys": "Esc",   "label": "menu",      "controller": "Start",   "ctx": "any"},
 	# modal / menu keys
 	"buy_1_3":    {"keys": "1-3",   "label": "buy",       "controller": "D-pad",   "ctx": "comms"},
@@ -43,7 +44,7 @@ const ACTIONS := {
 # ready-made keycap rows for UITheme.draw_hints — [[keys, label], ...]
 const HINTS := {
 	"interior":  [["WASD", "walk"], ["E", "interact"], ["R", "rename"], ["I", "inventory"], ["Esc", "menu"]],
-	"flight":    [["W/S", "thrust"], ["A/D", "turn"], ["E", "dock"], ["Q", "leave"], ["Esc", "menu"]],
+	"flight":    [["W/S", "thrust"], ["A/D", "turn"], ["E", "dock"], ["M", "chart"], ["Q", "leave"], ["Esc", "menu"]],
 	"spacewalk": [["WASD", "thrust"], ["Space", "stabilize"], ["LMB", "mine"], ["I", "inventory"], ["Esc", "menu"]],
 }
 

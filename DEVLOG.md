@@ -5,6 +5,31 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 15/07/2026 — v1.66: star chart + radar crew/derelict markers ("bigger" pack, slice 1)
+
+First slice of the "feel bigger" work — a knowledge backbone + its flagship view.
+
+- KNOWLEDGE BACKBONE (game_state.gd): new `seen_regions` dict; `note_ship_at(p)`
+  reveals any nebula within 1.75x its radius as the ship flies (called each frame
+  in flight._process). Saved/loaded and reset in new_game. All future "bigger"
+  views (codex, contracts) read this.
+- STAR CHART (scripts/starchart.gd, toggle M in flight): full-screen overlay
+  drawing the whole universe to scale — home + concentric region rings (Reach/
+  Drift/Belt), every deterministic nebula named + colour-coded once seen, faint "?"
+  contacts for the undiscovered ones (so the scale reads as vast), the live ship
+  marker and the current distress beacon. Pure vector _draw, no art assets. `SW_CHART`
+  env opens it pre-seeded for screenshots. Added to keymap flight hints.
+- RADAR crew portraits (radar_panel.gd): the in-range distress beacon now shows the
+  target crew member's roster face (assets/sprites/crew/roster/<name>_face.png) in a
+  gold ring instead of a plain gold dot.
+- RADAR derelict ships: derelicts (flight._wreck_in_chunk, previously not on the
+  scope) now show as a small, faint, ship-shaped marker (new assets/ui/derelict.svg),
+  rotated to the hull, rare ones slightly larger.
+- DROPPED from the pack per captain: ambient life (distant ships / comm chatter).
+- ZONE ELEMENT SIZE: mining-field element nodes were still dwarfing the crew —
+  asteroid.gd `ICON_MAX` cut 26→16 (longest axis 52px→32px), so nodes sit near the
+  ~26px EVA astronaut and well under the ship. One constant if further tuning wanted.
+
 ## 15/07/2026 — v1.65: bug-audit fixes (3-agent whole-game pass)
 
 Fixes from a read-only functional/logical audit of the whole codebase. Worst first:

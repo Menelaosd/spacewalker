@@ -8,8 +8,9 @@ extends StaticBody2D
 const PICKUP_SCENE := preload("res://scenes/pickup.tscn")
 
 const ICON_FILL := 0.9    # element icon drawn a touch under its radius
-const ICON_MAX := 26.0    # HARD half-size cap → longest axis ≤ 52px, so an
-                          # element node stays close to the crew's size (~45px)
+const ICON_MAX := 16.0    # HARD half-size cap → longest axis ≤ 32px. The EVA
+                          # astronaut is only ~26px (body radius 13), so the old
+                          # 52px cap dwarfed the crew — keep nodes near crew size.
 
 var radius := 28.0
 var health := 100.0

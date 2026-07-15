@@ -166,6 +166,7 @@ var inventory := {"iron": 0, "crystal": 0}        # chunk counts ever banked
 var elements := {}                                # symbol -> INTEGER units (cap 9999)
 var carried_veins := {}                           # symbol -> units held on the suit
 var discovered := {}                              # symbol -> true once a VEIN of it
+var seen_regions := {}                            # nebula index -> true; star-chart reveal
                                                   # was banked (or gas scooped)
 var rooms := {}                                   # cell (0-7) -> room type ("" = empty)
 var room_names := {}                              # cell -> custom name (overrides default)
@@ -400,6 +401,15 @@ func nebula_index_at(p: Vector2) -> int:
 		if p.distance_to(nebula_center(i)) < nebula_radius(i):
 			return i
 	return -1
+
+
+func note_ship_at(p: Vector2) -> void:
+	## Reveal any nebula the ship is close enough to SPOT (1.75x its radius) so it
+	## shows named + in colour on the star chart. Cheap to call every frame.
+	for i in NEBULAE.size():
+		if not seen_regions.has(i) \
+				and p.distance_to(nebula_center(i)) < nebula_radius(i) * 1.75:
+			seen_regions[i] = true
 
 
 func region_at(p: Vector2) -> Dictionary:
@@ -724,6 +734,7 @@ func save_game() -> void:
 		"inventory": inventory,
 		"elements": elements,
 		"discovered": discovered.keys(),
+		"seen_regions": seen_regions.keys(),
 		"rooms": _rooms_to_json(),
 		"room_names": _room_names_to_json(),
 		"quest_stage": quest_stage,
@@ -786,6 +797,9 @@ func load_game(s: int) -> bool:
 	else:
 		for sym in elements:
 			discovered[sym] = true
+	seen_regions = {}
+	for i in data.get("seen_regions", []):
+		seen_regions[int(i)] = true
 	rooms = DEFAULT_ROOMS.duplicate()
 	var rj: Dictionary = data.get("rooms", {})
 	# adopt saved BUILT expansions that fit the current hull; the six
@@ -900,6 +914,7 @@ func new_game(s: int) -> void:
 	elements = {}
 	carried_veins = {}
 	discovered = {}
+	seen_regions = {}
 	rooms = DEFAULT_ROOMS.duplicate()
 	room_names = {}
 	quest_stage = 0

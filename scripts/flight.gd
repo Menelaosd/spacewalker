@@ -22,6 +22,7 @@ const INVENTORY_SCREEN := preload("res://scripts/inventory_screen.gd")
 const FLOAT_TEXT := preload("res://scripts/float_text.gd")
 const RADAR_PANEL := preload("res://scripts/radar_panel.gd")
 const QUEST_LOG := preload("res://scripts/quest_log.gd")
+const STARCHART := preload("res://scripts/starchart.gd")
 
 # Derelict debris — old wrecks and lost cargo. Human-made, so its metal
 # mix is scrap composition, not solar: mostly Al/Fe hulls, Ti struts,
@@ -212,6 +213,7 @@ func _process(delta: float) -> void:
 	vel = vel.limit_length(vmax)
 	vel = vel.lerp(Vector2.ZERO, 1.0 - exp(-DAMP * delta))
 	ship_pos += vel * delta
+	GameState.note_ship_at(ship_pos)   # reveal nearby nebulae on the star chart
 	cam.position = ship_pos
 
 	_near_field = _find_near_field()
@@ -648,6 +650,13 @@ func _build_hud() -> void:
 	# "RECIPE RECOVERED" reveal — the payoff for stripping a derelict
 	_recipe_banner = RECIPE_BANNER.new()
 	root.add_child(_recipe_banner)
+
+	# STAR CHART overlay (M) — the whole known universe drawn to scale. Added
+	# last-but-one so it covers the HUD when open; blocked while a dialog owns input.
+	var chart := STARCHART.new()
+	chart.flight = self
+	chart.can_open = func() -> bool: return not _in_dialog
+	root.add_child(chart)
 
 	# first-meeting dialog — boarding a survivor's broken ship plays this,
 	# then fades to black and brings them aboard
