@@ -174,9 +174,17 @@ func _black_out() -> void:
 	GameState.last_lost = GameState.lose_carried()
 	GameState.wake_on_bunk = true
 	GameState.pending_shift = true   # fainting costs the shift
-	await get_tree().create_timer(1.1).timeout
+	# out-of-oxygen screen: fade in over the faint, hold on a quote, Space continues.
+	# On a CanvasLayer so it draws in SCREEN space (ignores the EVA camera).
+	var go: Control = preload("res://scripts/game_over.gd").new()
+	var lay := CanvasLayer.new()
+	lay.layer = 100
+	lay.add_child(go)
+	get_tree().current_scene.add_child(lay)
+	await go.finished
 	GameState.refill_oxygen(GameState.max_oxygen)
-	get_tree().change_scene_to_file("res://scenes/ship_interior.tscn")
+	GameState.save_game()   # persist mined rocks + lost cargo so a quit here can't rewind the faint
+	Transition.to_scene("res://scenes/ship_interior.tscn")
 
 
 # ------------------------------------------------------------------

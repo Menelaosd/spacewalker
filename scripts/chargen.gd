@@ -117,7 +117,7 @@ func _confirm() -> void:
 		"age": _age,
 	}
 	GameState.save_game()
-	get_tree().change_scene_to_file("res://scenes/intro.tscn")
+	Transition.to_scene("res://scenes/intro.tscn")
 
 
 func _unhandled_input(event: InputEvent) -> void:

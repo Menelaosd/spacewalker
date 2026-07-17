@@ -42,9 +42,6 @@ const P := {
 	"wall_t": preload("res://assets/props/s3_08.png"),     # T: bar + stem down
 	"wall_x": preload("res://assets/props/s3_09.png"),     # cross junction
 	"window": preload("res://assets/props/s3_14.png"),
-	# build markers (sheet 4)
-	"cell_ok": preload("res://assets/props/s4_07.png"),
-	"cell_no": preload("res://assets/props/s4_08.png"),
 	# thin L corner-brackets, all four orientations (sheet 4) — the
 	# native pieces for inner elbows. Named by their two arm directions.
 	"elb_es": preload("res://assets/props/s4_00.png"),   # corner top-left
@@ -327,6 +324,7 @@ var _rename_box: Control
 var _rename_edit: LineEdit
 var _rename_hint: Control
 var _ending_t := 0.0   # > 0 while the going-home sequence plays
+var _ending_done := false   # latch so the title swap fires exactly once
 
 # fabricator placement mode: a chosen object follows the mouse across the
 # rooms YOU built, snapping to each room's floor grid; click / E to print
@@ -571,6 +569,21 @@ func _ready() -> void:
 	add_child(cm)
 	_spawn_lights()
 
+	# GPU ambient / atmosphere pass — ONE full-screen shader (analytic
+	# vignette + drifting FBM haze + dither). No gradient textures, so none
+	# of the banded "opacity circles" the old free-standing light pools made.
+	# Added before the HUD (same layer) so the HUD stays crisp on top.
+	var amb_layer := CanvasLayer.new()
+	amb_layer.layer = 1
+	add_child(amb_layer)
+	var amb := ColorRect.new()
+	amb.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	amb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var amb_mat := ShaderMaterial.new()
+	amb_mat.shader = preload("res://assets/shaders/ambient.gdshader")
+	amb.material = amb_mat
+	amb_layer.add_child(amb)
+
 	crew.walk_check = _is_walkable
 
 	GameState.refill_oxygen(GameState.max_oxygen)
@@ -700,6 +713,15 @@ func _ready() -> void:
 			var vp := get_viewport().get_visible_rect().size
 			var z := minf(vp.x / (bb.size.x + 160.0), vp.y / (bb.size.y + 160.0))
 			cam.zoom = Vector2(z, z)
+	# SW_SHOT=path: grab the real framebuffer (captures 2D lights + the ambient
+	# shader, which PrintWindow drops) after a beat, then quit. DEBUG ONLY.
+	if OS.get_environment("SW_SHOT") != "":
+		var _sp := OS.get_environment("SW_SHOT")
+		await get_tree().create_timer(1.0).timeout
+		if is_inside_tree():
+			var _img := get_viewport().get_texture().get_image()
+			_img.save_png(_sp)
+			get_tree().quit()
 
 
 func _debug_build_room() -> int:
@@ -923,27 +945,51 @@ func _tiled_wall_v(y0: float, y1: float, x: float, inside_e: bool) -> void:
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
-func _draw_doorway(mid: Vector2, rot: float, edge_half: float,
+func _draw_doorway(mid: Vector2, horizontal: bool, edge_half: float,
 		cap_a: bool, cap_b: bool) -> void:
-	## The passage between two rooms is an ABSENCE, not an object: the deck
-	## simply continues through the open edge. The only markings are small
-	## flush jamb caps where the flanking wall trim meets the gap — the wall
-	## just terminates cleanly. Local +X runs along the shared edge; cap_a
-	## sits at the -X end, cap_b at +X (skipped where the corner is open
-	## floor and there is no wall to terminate).
-	_ci.draw_set_transform(mid, rot, Vector2.ONE)
-	var run := edge_half - 14.0   # inner faces of the flanking walls
-	for e in [[-1.0, cap_a], [1.0, cap_b]]:
-		if not e[1]:
-			continue
-		var sx: float = e[0]
-		var rx := sx * run
-		var cap := Rect2(minf(rx, rx + sx * 6.0), -4.0, 6.0, 8.0)
-		_ci.draw_rect(cap, Color(0.20, 0.24, 0.30), true)
-		_ci.draw_rect(cap, Color(0, 0, 0, 0.35), false, 1.0)
-		# 1px accent on the cap's inner face — the trim's clean end
-		_ci.draw_line(Vector2(rx, -3.0), Vector2(rx, 3.0),
-			Color(0.55, 0.7, 0.8, 0.45), 1.0)
+	## A thin metallic bulkhead separating two built rooms, with a large
+	## powered door standing open in the middle so the crew can pass. The
+	## flanking wall segments reuse the hull's own plated wall art (so the
+	## divider reads as the same metal), and the door is a lit recessed
+	## threshold with retracted leaves and amber status lights.
+	## `horizontal` = the rooms are left/right neighbours, i.e. a VERTICAL
+	## shared edge → a vertical wall. cap_a/cap_b say whether each end is
+	## flanked by a wall (extend to meet it) or open floor (stop clean).
+	const DOOR_HALF := 32.0        # a big 64px opening
+	var end_a := edge_half if cap_a else edge_half - 6.0
+	var end_b := edge_half if cap_b else edge_half - 6.0
+	if horizontal:
+		# vertical shared edge; the wall runs N–S along x = mid.x
+		_tiled_wall_v(mid.y - end_a, mid.y - DOOR_HALF, mid.x, true)
+		_tiled_wall_v(mid.y + DOOR_HALF, mid.y + end_b, mid.x, true)
+	else:
+		# horizontal shared edge; the wall runs E–W along y = mid.y
+		_tiled_wall_h(mid.x - end_a, mid.x - DOOR_HALF, mid.y, true)
+		_tiled_wall_h(mid.x + DOOR_HALF, mid.x + end_b, mid.y, true)
+
+	# the door, drawn in local space: +X runs along the edge, +Y crosses rooms
+	_ci.draw_set_transform(mid, PI * 0.5 if horizontal else 0.0, Vector2.ONE)
+	var pulse := 0.5 + 0.5 * sin(_reactor * 2.0)
+	# recessed threshold plate, then the lit inner walkway
+	_ci.draw_rect(Rect2(-DOOR_HALF, -12.0, 2.0 * DOOR_HALF, 24.0), Color(0.08, 0.12, 0.17))
+	_ci.draw_rect(Rect2(-DOOR_HALF + 5.0, -9.0, 2.0 * DOOR_HALF - 10.0, 18.0), Color(0.13, 0.18, 0.24))
+	# the two rails the leaves slide along
+	_ci.draw_line(Vector2(-DOOR_HALF + 4.0, -9.0), Vector2(DOOR_HALF - 4.0, -9.0), Color(0.35, 0.55, 0.7, 0.5), 1.0)
+	_ci.draw_line(Vector2(-DOOR_HALF + 4.0, 9.0), Vector2(DOOR_HALF - 4.0, 9.0), Color(0.35, 0.55, 0.7, 0.5), 1.0)
+	# a soft powered glow down the centre of the open threshold
+	_ci.draw_rect(Rect2(-DOOR_HALF + 5.0, -3.0, 2.0 * DOOR_HALF - 10.0, 6.0),
+		Color(0.35, 0.8, 1.0, 0.10 + 0.06 * pulse))
+	# jamb posts + retracted leaves + status lights at each side
+	for sx in [-1.0, 1.0]:
+		var x: float = sx * DOOR_HALF
+		# bright jamb post, just OUTSIDE the opening against the wall run
+		_ci.draw_rect(Rect2(x - (3.0 if sx < 0.0 else 0.0), -12.0, 3.0, 24.0), Color(0.30, 0.38, 0.47))
+		# retracted door leaf, tucked to the jamb INSIDE the opening
+		var lx: float = minf(x - sx * 8.0, x)
+		_ci.draw_rect(Rect2(lx, -11.0, 8.0, 22.0), Color(0.22, 0.29, 0.37))
+		_ci.draw_line(Vector2(lx, -11.0), Vector2(lx, 11.0), Color(1, 1, 1, 0.12), 1.0)
+		# amber status light on the frame
+		_ci.draw_circle(Vector2(x - sx * 2.0, -7.0), 1.6, Color(1.0, 0.55, 0.15, 0.55 + 0.4 * pulse))
 	_ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
@@ -953,9 +999,10 @@ func _process(delta: float) -> void:
 	_update_npcs()
 	if _ending_t > 0.0:
 		_ending_t += delta
-		if _ending_t > 8.0:
+		if _ending_t > 8.0 and not _ending_done:
+			_ending_done = true
 			GameState.in_game = false
-			get_tree().change_scene_to_file("res://scenes/title.tscn")
+			Transition.to_scene("res://scenes/title.tscn")
 		queue_redraw()
 		_overlay.queue_redraw()
 		return
@@ -1213,9 +1260,9 @@ func _interact(st: Dictionary) -> void:
 				Sfx.play("deny", -10.0)
 				GameState.say("Can't build — need %d ore (have %d)." % [cost, GameState.banked])
 		"exit":
-			get_tree().change_scene_to_file("res://scenes/main.tscn")
+			Transition.to_scene("res://scenes/main.tscn")
 		"cockpit":
-			get_tree().change_scene_to_file("res://scenes/flight.tscn")
+			Transition.to_scene("res://scenes/flight.tscn")
 		"o2", "tether", "laser", "suit":
 			# open the requirements modal instead of upgrading blind
 			crew.set_process(false)
@@ -1407,6 +1454,7 @@ func _build_hud() -> void:
 	# the 1280-wide viewport). Colour when rescued, dark until then.
 	var roster := preload("res://scripts/crew_roster.gd").new()
 	root.add_child(roster)
+	UITheme.shrink(roster, true, false, 0.72)   # match the shrunk HUD (was full-size)
 
 	_inventory = INVENTORY_SCREEN.new()
 	# the inventory is a full-screen layer — never let it stack over a modal,
@@ -1481,7 +1529,9 @@ func _build_hud() -> void:
 	info.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(info)
 	_banked_label = Label.new()
+	_banked_label.add_theme_font_size_override("font_size", 10)
 	info.add_child(_banked_label)
+	UITheme.shrink(info, false, false)   # this panel was never shrunk — bring it in line
 
 	var gear := GEAR_PANEL.new()
 	root.add_child(gear)
@@ -1807,8 +1857,8 @@ func _draw() -> void:
 					var dcol: int = cell % dcols
 					cap_a = dcol == 0 or not (_built(cell - 1) and _built(n - 1))
 					cap_b = dcol == dcols - 1 or not (_built(cell + 1) and _built(n + 1))
-				# left/right neighbours share a VERTICAL edge — rotate the piece
-				_draw_doorway(mid, PI * 0.5 if horizontal else 0.0,
+				# left/right neighbours share a VERTICAL edge
+				_draw_doorway(mid, horizontal,
 					(CELL_H if horizontal else CELL_W) * 0.5, cap_a, cap_b)
 	_draw_expansions()
 	_draw_depth(true)   # props behind the crew; the rest go to _overlay
@@ -2318,22 +2368,70 @@ func _draw_npc_frame(tex: Texture2D, cx: float, feet_y: float,
 
 
 func _draw_expansions() -> void:
-	## Expansion bay markers + holo previews — always floor-level.
+	## Expansion bays — a holographic "buildable plot" covering the WHOLE cell.
+	## Cyan + '+' when affordable, red with a full-cell X when not. Drawn in the
+	## ship's own vector-UI language (replaces the old olive/X placeholder tile).
 	for i in _stations.size():
 		var st: Dictionary = _stations[i]
 		if st["kind"] != "expand":
 			continue
-		var p: Vector2 = st["pos"]
 		var on := (i == _active)
 		var pulse := 0.5 + 0.5 * sin(_reactor * 2.2)
-		var target := cell_rect(st["cell"])
-		draw_circle(p, 9.0, Color(0.55, 0.9, 1.0, 0.10 + 0.10 * pulse))
-		draw_string(_font, p + Vector2(-14, 5), "+", HORIZONTAL_ALIGNMENT_CENTER,
-			28, 17, Color(0.55, 0.9, 1.0, 0.45 + 0.4 * pulse))
-		if on:
-			var afford: bool = GameState.banked >= int(GameState.ROOM_TYPES["room"]["cost"])
-			_prop_rect("cell_ok" if afford else "cell_no", target.grow(-8.0),
-				Color(1, 1, 1, 0.55 + 0.3 * pulse))
+		var afford: bool = GameState.banked >= int(GameState.ROOM_TYPES["room"]["cost"])
+		_draw_buildable_plot(cell_rect(st["cell"]), afford, on, pulse)
+
+
+func _draw_buildable_plot(rect: Rect2, afford: bool, on: bool, pulse: float) -> void:
+	## The buildable-bay hologram, filling the entire cell. When you can't
+	## afford it the plot reads RED with an X drawn corner-to-corner across the
+	## whole room; affordable reads cyan. A cost chip sits in the middle.
+	var base := Color(0.42, 0.85, 1.0) if afford else Color(1.0, 0.34, 0.28)
+	var edge_a := (0.42 if on else 0.24) + 0.18 * pulse
+	var r := rect.grow(-6.0)
+	# ghosted floor wash over the whole cell
+	draw_rect(r, Color(base.r, base.g, base.b, (0.045 if afford else 0.075) + 0.03 * pulse))
+	# dashed construction border around the whole cell
+	_dashed_rect(r, Color(base.r, base.g, base.b, edge_a), 2.0, 11.0, 7.0)
+	# corner ticks
+	var tk := 15.0
+	for cnr in [[r.position, Vector2(1, 1)], [Vector2(r.end.x, r.position.y), Vector2(-1, 1)],
+			[Vector2(r.position.x, r.end.y), Vector2(1, -1)], [r.end, Vector2(-1, -1)]]:
+		var cp: Vector2 = cnr[0]
+		var cd: Vector2 = cnr[1]
+		draw_line(cp, cp + Vector2(tk * cd.x, 0), Color(base.r, base.g, base.b, edge_a + 0.25), 2.0)
+		draw_line(cp, cp + Vector2(0, tk * cd.y), Color(base.r, base.g, base.b, edge_a + 0.25), 2.0)
+	if not afford:
+		# the "can't afford" X — now spanning the WHOLE room, not a small tile
+		var xa := Color(base.r, base.g, base.b, edge_a + 0.1)
+		draw_line(r.position, r.end, xa, 2.5)
+		draw_line(Vector2(r.end.x, r.position.y), Vector2(r.position.x, r.end.y), xa, 2.5)
+	# centre glyph + cost chip
+	var c := rect.get_center()
+	draw_string(_font, c + Vector2(-12, -8), "+", HORIZONTAL_ALIGNMENT_CENTER, 24, 26,
+		Color(base.r, base.g, base.b, edge_a + 0.3))
+	var chip := "%d ORE" % int(GameState.ROOM_TYPES["room"]["cost"])
+	var cw: float = _font.get_string_size(chip, HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x + 18.0
+	var chip_r := Rect2(c.x - cw * 0.5, c.y + 14.0, cw, 20.0)
+	draw_rect(chip_r, Color(0.03, 0.06, 0.09, 0.72))
+	draw_rect(chip_r, Color(base.r, base.g, base.b, edge_a + 0.2), false, 1.0)
+	draw_string(_font, Vector2(chip_r.position.x, c.y + 28.0), chip,
+		HORIZONTAL_ALIGNMENT_CENTER, cw, 11, Color(base.r, base.g, base.b, 0.92))
+
+
+func _dashed_rect(r: Rect2, col: Color, w: float, dash: float, gap: float) -> void:
+	## A dashed rectangle outline — the construction-border look.
+	var corners := [r.position, Vector2(r.end.x, r.position.y), r.end,
+		Vector2(r.position.x, r.end.y)]
+	for i in 4:
+		var a: Vector2 = corners[i]
+		var b: Vector2 = corners[(i + 1) % 4]
+		var seg := a.distance_to(b)
+		var dir := (b - a) / maxf(seg, 0.001)
+		var d := 0.0
+		while d < seg:
+			var d2 := minf(d + dash, seg)
+			draw_line(a + dir * d, a + dir * d2, col, w)
+			d = d2 + gap
 
 
 func _draw_station_visual(st: Dictionary, on: bool) -> void:

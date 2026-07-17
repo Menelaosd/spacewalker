@@ -8,8 +8,8 @@ extends Control
 ## Blips flare as the sweep passes; the whole thing flickers like
 ## cheap holo tech.
 
-const PANEL := Vector2(178, 196)
-const R := 72.0                # disc radius in px
+const PANEL := Vector2(188, 214)
+const R := 78.0                # disc radius in px
 const RANGE_PAD := 300.0       # walk range = tether reach + this
 const FLIGHT_RANGE := 3600.0   # helm scanner reach in world px
 
@@ -20,6 +20,7 @@ var _t := 0.0
 var _font: Font = ThemeDB.fallback_font
 var _derelict_tex: Texture2D = null    # small faint ship marker for derelicts
 var _face_cache := {}                  # crew name -> small roster face texture
+var _glass_tex: GradientTexture2D = null   # radial gradient for the glass-dome body
 
 
 func _get_minimum_size() -> Vector2:
@@ -30,6 +31,18 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if ResourceLoader.exists("res://assets/ui/derelict.svg"):
 		_derelict_tex = load("res://assets/ui/derelict.svg")
+	# glass-dome body: a soft radial gradient, lit teal at the core, fading out
+	var g := Gradient.new()
+	g.set_color(0, Color(0.30, 0.80, 1.0, 0.30))
+	g.set_color(1, Color(0.0, 0.07, 0.11, 0.0))
+	g.add_point(0.62, Color(0.08, 0.34, 0.46, 0.12))
+	_glass_tex = GradientTexture2D.new()
+	_glass_tex.gradient = g
+	_glass_tex.fill = GradientTexture2D.FILL_RADIAL
+	_glass_tex.fill_from = Vector2(0.5, 0.5)
+	_glass_tex.fill_to = Vector2(1.0, 0.5)
+	_glass_tex.width = 128
+	_glass_tex.height = 128
 
 
 func _crew_face(nm: String) -> Texture2D:
@@ -75,37 +88,44 @@ func _draw() -> void:
 		else:
 			face_ang = (player.aim_dir as Vector2).angle()
 
-	var c := Vector2(PANEL.x * 0.5, PANEL.y * 0.5 + 10.0)
+	var c := Vector2(PANEL.x * 0.5, PANEL.y * 0.5 + 8.0)
 	var acc := UITheme.ACCENT
-	# holo flicker: mostly steady, with a heartbeat shimmer and rare dropouts
-	var flick := 0.82 + 0.12 * sin(_t * 19.0) + 0.06 * sin(_t * 3.1)
+	# holo flicker: steady baseline with a faint heartbeat + a soft dropout
+	var flick := 0.88 + 0.09 * sin(_t * 19.0) + 0.03 * sin(_t * 3.1)
 	if fmod(_t, 4.7) < 0.07:
-		flick *= 0.45
+		flick *= 0.72
 
-	# projected disc
-	draw_circle(c, R + 6.0, Color(acc.r, acc.g, acc.b, 0.05 * flick))
-	draw_circle(c, R, Color(0.01, 0.06, 0.09, 0.75))
-	for ring in [0.33, 0.66, 1.0]:
+	# projected disc — dark base, then a glass-dome gradient body
+	draw_circle(c, R + 5.0, Color(acc.r, acc.g, acc.b, 0.06 * flick))
+	draw_circle(c, R, Color(0.012, 0.05, 0.075, 0.92))
+	if _glass_tex != null:
+		draw_texture_rect(_glass_tex, Rect2(c - Vector2(R, R), Vector2(R * 2.0, R * 2.0)),
+			false, Color(1, 1, 1, flick))
+	for ring in [0.4, 0.7, 1.0]:
 		draw_arc(c, R * ring, 0.0, TAU, 48,
-			Color(acc.r, acc.g, acc.b, (0.3 if ring == 1.0 else 0.12) * flick), 1.0)
-	draw_line(c - Vector2(R, 0), c + Vector2(R, 0),
-		Color(acc.r, acc.g, acc.b, 0.08 * flick), 1.0)
-	draw_line(c - Vector2(0, R), c + Vector2(0, R),
-		Color(acc.r, acc.g, acc.b, 0.08 * flick), 1.0)
-	# horizontal scanlines sell the hologram
-	var sy := c.y - R + fmod(_t * 26.0, 8.0)
+			Color(acc.r, acc.g, acc.b, (0.22 if ring == 1.0 else 0.08) * flick), 1.0)
+	# bright glass rim
+	draw_arc(c, R - 0.5, 0.0, TAU, 64, Color(acc.r, acc.g, acc.b, 0.55 * flick), 1.6)
+	# short cardinal bearing ticks instead of a full crosshair (clears the middle)
+	for ca in [0.0, PI * 0.5, PI, PI * 1.5]:
+		draw_line(c + Vector2.from_angle(ca) * (R - 5.0), c + Vector2.from_angle(ca) * R,
+			Color(acc.r, acc.g, acc.b, 0.18 * flick), 1.0)
+	# faint scanlines — sparser + dimmer than before
+	var sy := c.y - R + fmod(_t * 22.0, 11.0)
 	while sy < c.y + R:
 		var hw := sqrt(maxf(R * R - (sy - c.y) * (sy - c.y), 0.0))
 		draw_line(Vector2(c.x - hw, sy), Vector2(c.x + hw, sy),
-			Color(acc.r, acc.g, acc.b, 0.03 * flick), 1.0)
-		sy += 8.0
+			Color(acc.r, acc.g, acc.b, 0.016 * flick), 1.0)
+		sy += 11.0
 
-	# sweep beam with a fading wake
+	# sweep: one crisp leading edge + a short fading wake
 	var sweep := fmod(_t * 1.5, TAU)
-	for i in 14:
-		var a := sweep - float(i) * 0.055
+	draw_line(c, c + Vector2.from_angle(sweep) * R,
+		Color(acc.r, acc.g, acc.b, 0.34 * flick), 1.2)
+	for i in 9:
+		var a := sweep - float(i) * 0.05
 		draw_line(c, c + Vector2.from_angle(a) * R,
-			Color(acc.r, acc.g, acc.b, (0.20 - 0.014 * float(i)) * flick), 2.0)
+			Color(acc.r, acc.g, acc.b, (0.14 - 0.013 * float(i)) * flick), 1.2)
 
 	var k := R / world_range
 
@@ -125,17 +145,19 @@ func _draw() -> void:
 		Color(1, 1, 1, 0.3 * flick), 1.0)
 
 	# frame + captions
-	UITheme.draw_brackets(self, Rect2(c - Vector2(R + 8, R + 8),
-		Vector2((R + 8) * 2.0, (R + 8) * 2.0)), acc, 10.0, 2.0)
+	UITheme.draw_brackets(self, Rect2(c - Vector2(R + 6, R + 6),
+		Vector2((R + 6) * 2.0, (R + 6) * 2.0)), acc, 8.0, 1.5)
 	var where: String = str(GameState.region_at(
 		center_pos if mode == "flight" else GameState.sector)["name"]).to_upper()
-	draw_string(_font, Vector2(0, 12), "◈ SCAN · %s" % where,
-		HORIZONTAL_ALIGNMENT_CENTER, PANEL.x, 11,
+	if where.length() > 15:
+		where = where.substr(0, 14) + "…"
+	draw_string(_font, Vector2(0, 11), "◈ SCAN · %s" % where,
+		HORIZONTAL_ALIGNMENT_CENTER, PANEL.x, 9,
 		Color(acc.r, acc.g, acc.b, 0.75 * flick))
 	var rng_label := "RNG %dkm" % int(world_range / 100.0) if mode == "flight" \
 		else "RNG %dm" % int(world_range)
 	draw_string(_font, Vector2(0, PANEL.y - 2), rng_label,
-		HORIZONTAL_ALIGNMENT_CENTER, PANEL.x, 10,
+		HORIZONTAL_ALIGNMENT_CENTER, PANEL.x, 8,
 		Color(acc.r, acc.g, acc.b, 0.4 * flick))
 
 
@@ -192,6 +214,7 @@ func _plot_flight(c: Vector2, sp: Vector2, k: float, sweep: float, flick: float)
 
 	# nebulas first (under everything): in range = soft tinted cloud,
 	# out of range = a colored tick on the rim pointing the way
+	var bearings := []
 	for i in GameState.NEBULAE.size():
 		var ncol: Color = GameState.NEBULAE[i]["color"]
 		var rel := (GameState.nebula_center(i) - sp) * k
@@ -200,13 +223,20 @@ func _plot_flight(c: Vector2, sp: Vector2, k: float, sweep: float, flick: float)
 			var pos := c + rel.limit_length(R - 6.0)
 			# clamp the blob so it never spills past the disc edge
 			var inside := R - c.distance_to(pos) - 2.0
-			var br := clampf(minf(nr, R * 0.6), 2.5, maxf(inside, 2.5))
+			var br := clampf(minf(nr, R * 0.55), 2.5, maxf(inside, 2.5))
 			draw_circle(pos, br, Color(ncol.r, ncol.g, ncol.b, 0.16 * flick))
 			draw_circle(pos, br * 0.5, Color(ncol.r, ncol.g, ncol.b, 0.13 * flick))
 		else:
-			var dir := rel.normalized()
-			draw_line(c + dir * (R - 6.0), c + dir * (R - 1.0),
-				Color(ncol.r, ncol.g, ncol.b, 0.8 * flick), 2.5)
+			bearings.append({"d": rel.length(), "dir": rel.normalized(), "col": ncol})
+	# only the NEAREST few out-of-range nebulae, muted toward the scope cyan —
+	# so the rim reads as a couple of bearings, not a rainbow of confetti
+	bearings.sort_custom(func(a, b): return float(a["d"]) < float(b["d"]))
+	for j in mini(5, bearings.size()):
+		var bg: Dictionary = bearings[j]
+		var tc: Color = (bg["col"] as Color).lerp(acc, 0.4)
+		var bd: Vector2 = bg["dir"]
+		draw_line(c + bd * (R - 3.5), c + bd * (R - 1.0),
+			Color(tc.r, tc.g, tc.b, 0.5 * flick), 1.4)
 
 	# asteroid fields — one ring per field, gold→cyan by richness
 	for cy in range(cc.y - span, cc.y + span + 1):
@@ -249,7 +279,7 @@ func _plot_flight(c: Vector2, sp: Vector2, k: float, sweep: float, flick: float)
 				if wrel.length() > R - 5.0:
 					continue
 				var mp := c + wrel
-				var msz := 12.0 if w.get("rare", false) else 9.0
+				var msz := 8.0 if w.get("rare", false) else 7.0
 				var mcol := Color(0.72, 0.86, 0.96,
 					0.5 * _blip_alpha(wrel.angle(), sweep) * flick)
 				draw_set_transform(mp, float(w.get("rot", 0.0)) + PI * 0.5, Vector2.ONE)
@@ -267,7 +297,7 @@ func _plot_flight(c: Vector2, sp: Vector2, k: float, sweep: float, flick: float)
 			var face := _crew_face(str(GameState.rescue_target().get("name", "")))
 			if face != null:
 				# the crew member's portrait, pinned on the scope as the objective
-				var fs := 17.0
+				var fs := 14.0
 				draw_circle(bpt, fs * 0.62,
 					Color(gold.r, gold.g, gold.b, 0.9 * bpulse * flick))
 				draw_texture_rect(face,

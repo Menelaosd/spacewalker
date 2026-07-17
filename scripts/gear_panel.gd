@@ -8,6 +8,7 @@ const GAP := 7.0
 
 # painted gear icons (match the inventory screen's exosuit rows)
 const ICON_HELMET := preload("res://assets/sprites/gear/helmet.png")
+const ICON_BAG := preload("res://assets/sprites/gear/ore_bag.png")
 const ICON_LINE := preload("res://assets/sprites/gear/lifeline.png")
 const ICON_TANK := preload("res://assets/sprites/gear/o2.png")
 const ICON_LASER := preload("res://assets/sprites/gear/laser.png")
@@ -43,7 +44,7 @@ const MK := ["I", "II", "III", "IV", "V", "VI"]
 
 func _draw() -> void:
 	_draw_tile(0, "BAG", "%d ore" % GameState.ore_max(),
-		GameState.suit_level, ICON_HELMET)
+		GameState.suit_level, ICON_BAG)
 	_draw_tile(1, "LINE", "%dm" % int(GameState.tether_length),
 		GameState.tether_level, ICON_LINE)
 	_draw_tile(2, "O2", "%d" % int(GameState.max_oxygen),

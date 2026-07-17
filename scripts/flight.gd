@@ -31,12 +31,24 @@ const SCRAP_METALS := [
 	["Al", 30], ["Fe", 30], ["Ti", 15], ["Ni", 10],
 	["Cu", 10], ["Ag", 4], ["Au", 1],
 ]
-const TRASH_COLLECT_RADIUS := 70.0
+const TRASH_COLLECT_RADIUS := 115.0
 const TRASH_SPRITE_DIR := "res://assets/sprites/trash/"
 # Debris is SPACE TRASH — tiny next to the ~156px ship hull. Every crop is
-# normalised so its longest side draws at this many px (~1/5.5 of the ship),
-# whatever its source resolution, so a huge crop and a small one both read small.
-const TRASH_DRAW_MAX := 72.0
+# normalised so its longest side draws at this many px, whatever its source
+# resolution, so a huge crop and a small one both read small.
+const TRASH_DRAW_MAX := 52.0
+# how long a picked-up piece takes to shrink+fade as it's sucked into the ship
+const TRASH_ABSORB_TIME := 0.45
+
+# Animated comet / shooting-star sprites (PixelLab). Small, fast, drawn BELOW the
+# foreground. Comets amble; shooting stars flash by.
+const COMET_SPRITE_DIR := "res://assets/sprites/comets/"
+const COMET_FRAMES := 7
+const COMET_TYPES := ["rcomet_a", "rcomet_b", "comet_big"]   # the 3 comet looks
+const STAR_TYPES := ["comet_star"]                           # the shooting star
+const COMET_DRAW_MAX := 86.0   # longest side px — a bit bigger, still under the ~156px ship
+const STAR_DRAW_MAX := 70.0
+const COMET_ANIM_FPS := 11.0
 
 # Derelict WRECKS — whole dead ships (salvage-sheet art), much rarer than
 # loose junk. Stripping one pays a real scrap haul and can recover a lost
@@ -66,6 +78,9 @@ var _turn := 0.0    # -1..1  A / D
 var _field_cache := {}
 var _trash_cache := {}
 var _wreck_cache := {}
+# pieces mid-suck-in: each {pos0, sprite_roll, spin, t} — pure visual, the salvage
+# is already granted the instant it's collected. Drawn shrinking/fading into the ship.
+var _absorbing: Array = []
 # Real debris sprites (the croppers drop trash_*.png in TRASH_SPRITE_DIR).
 # Loaded dynamically in _ready() so ANY count works — no hardcoded filenames.
 # Left empty when the PNGs aren't imported yet; _draw_trash then falls back to
@@ -74,8 +89,9 @@ var _trash_tex: Array[Texture2D] = []
 var _recipe_banner: Control
 var _dialog: Control        # first-meeting conversation overlay
 var _in_dialog := false     # helm frozen while the meeting plays
-var _comets: Array = []          # {pos, vel, size, life}
+var _comets: Array = []          # {id, star, pos, vel, life, scale, aframe}
 var _comet_timer := 6.0
+var _comet_frames := {}          # id -> Array[Texture2D] (7 animation frames)
 var _near_beacon := false        # in reach of the current distress beacon
 var _near_field: Dictionary = {}
 var _scooping := false
@@ -134,6 +150,7 @@ func _ready() -> void:
 	texture_filter = TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	_build_background()
 	_load_trash_sprites()
+	_load_comet_sprites()
 	ship_pos = GameState.sector
 	_flight_origin = ship_pos
 	cam.position = ship_pos
@@ -230,6 +247,7 @@ func _process(delta: float) -> void:
 		GameState.scoop_gas(delta)
 
 	_collect_trash()
+	_tick_absorbing(delta)
 	_collect_wrecks()
 	_update_comets(delta)
 	_update_hud()
@@ -244,7 +262,7 @@ func _on_rescue_dialog_done() -> void:
 	var r: Dictionary = GameState.do_rescue()
 	GameState.sector = ship_pos
 	GameState.say("%s is aboard — %s." % [r.get("name", ""), r.get("perk", "")])
-	get_tree().change_scene_to_file("res://scenes/ship_interior.tscn")
+	Transition.to_scene("res://scenes/ship_interior.tscn")
 
 
 func _exit_tree() -> void:
@@ -252,27 +270,33 @@ func _exit_tree() -> void:
 
 
 func _update_comets(delta: float) -> void:
-	## Two flavors share the list: slow ice comets that amble across the
-	## view, and quick shooting stars that flash by in under a second.
+	## Animated sprite comets that cross the view fast, drawn BELOW the foreground.
+	## Two flavours: rock/ice comets (slower, bigger tail) and shooting stars (a
+	## quick flash). Each cycles its 7-frame loop and points along its velocity.
 	_comet_timer -= delta
 	if _comet_timer <= 0.0:
-		var shooting := randf() < 0.6
-		_comet_timer = randf_range(1.8, 4.5) if shooting else randf_range(6.0, 13.0)
+		var shooting := randf() < 0.45
+		_comet_timer = randf_range(2.5, 5.5) if shooting else randf_range(6.0, 12.0)
+		var pool: Array = STAR_TYPES if shooting else COMET_TYPES
+		var id: String = pool[randi() % pool.size()]
+		# spawn off-screen and streak across past the ship
 		var a := randf() * TAU
-		var start: Vector2 = ship_pos + Vector2.from_angle(a) * 860.0
-		var across := (ship_pos - start).normalized().rotated(randf_range(-0.7, 0.7))
+		var start: Vector2 = ship_pos + Vector2.from_angle(a) * 1050.0
+		var across := (ship_pos - start).normalized().rotated(randf_range(-0.6, 0.6))
+		var spd := randf_range(1300.0, 1900.0) if shooting else randf_range(520.0, 820.0)
 		_comets.append({
-			"pos": start,
-			"vel": across * (randf_range(950.0, 1500.0) if shooting
-				else randf_range(120.0, 210.0)),
-			"size": randf_range(1.2, 2.0) if shooting else randf_range(2.6, 4.2),
-			"life": randf_range(0.7, 1.1) if shooting else randf_range(9.0, 14.0),
+			"id": id, "star": shooting,
+			"pos": start, "vel": across * spd,
+			"life": randf_range(1.2, 2.0) if shooting else randf_range(3.5, 6.0),
+			"scale": randf_range(0.82, 1.15),
+			"aframe": randf() * COMET_FRAMES,   # random starting frame
 		})
 	var keep: Array = []
 	for c in _comets:
 		c["pos"] += (c["vel"] as Vector2) * delta
 		c["life"] = float(c["life"]) - delta
-		if float(c["life"]) > 0.0 and (c["pos"] as Vector2).distance_to(ship_pos) < 2400.0:
+		c["aframe"] = float(c["aframe"]) + delta * COMET_ANIM_FPS
+		if float(c["life"]) > 0.0 and (c["pos"] as Vector2).distance_to(ship_pos) < 2600.0:
 			keep.append(c)
 	_comets = keep
 
@@ -295,11 +319,11 @@ func _unhandled_input(event: InputEvent) -> void:
 				GameState.save_game()
 				Sfx.play("clack", -8.0)
 				GameState.say("Parked at the field. Suit up and mine.")
-				get_tree().change_scene_to_file("res://scenes/main.tscn")
+				Transition.to_scene("res://scenes/main.tscn")
 		KEY_Q:
 			# hold position out here; the airlock can spacewalk this spot too
 			GameState.sector = ship_pos
-			get_tree().change_scene_to_file("res://scenes/ship_interior.tscn")
+			Transition.to_scene("res://scenes/ship_interior.tscn")
 
 
 # ==================================================================
@@ -340,9 +364,7 @@ func _field_in_chunk(cx: int, cy: int) -> Dictionary:
 				"r": rk["r"],
 				"rich": rk["rich"],
 				"key": rk["key"],
-				# tint a neutral rock by the ELEMENT'S OWN colour (sampled from
-				# its icon) so the zone rock matches what it looks like inside
-				"col": Elements.glow_for(rk["sym"]),
+				"sym": rk["sym"],   # element → RockFamily colour-family rock (see _draw_fields)
 				"var": int(hash(rk["key"]) % 16),
 			})
 		field = {"center": center, "radius": maxd,
@@ -374,6 +396,25 @@ func _load_trash_sprites() -> void:
 			if tex != null:
 				_trash_tex.append(tex)
 	_trash_tex.sort_custom(func(a, b): return a.resource_path < b.resource_path)
+
+
+func _load_comet_sprites() -> void:
+	## Load the 7-frame animation for each comet / shooting-star type. Raw-loaded
+	## with mipmaps so a small, fast-moving sprite doesn't shimmer.
+	_comet_frames.clear()
+	for id in COMET_TYPES + STAR_TYPES:
+		var frames: Array[Texture2D] = []
+		for i in COMET_FRAMES:
+			var abs_path := ProjectSettings.globalize_path(
+				COMET_SPRITE_DIR + "%s_%d.png" % [id, i])
+			if not FileAccess.file_exists(abs_path):
+				continue
+			var img := Image.load_from_file(abs_path)
+			if img != null:
+				img.generate_mipmaps()
+				frames.append(ImageTexture.create_from_image(img))
+		if not frames.is_empty():
+			_comet_frames[id] = frames
 
 
 func _trash_in_chunk(cx: int, cy: int) -> Array:
@@ -556,6 +597,11 @@ func _collect_trash() -> void:
 				if ship_pos.distance_to(piece["pos"]) < TRASH_COLLECT_RADIUS:
 					piece["taken"] = true
 					GameState.salvage_taken[piece["key"]] = true
+					# hand the visual off to the suck-in animation (grant is immediate)
+					_absorbing.append({
+						"pos0": piece["pos"], "sprite_roll": piece["sprite_roll"],
+						"spin": piece["spin"], "t": 0.0,
+					})
 					var sym: String = piece["metal"]
 					GameState.elements[sym] = mini(
 						int(GameState.elements.get(sym, 0)) + piece["units"],
@@ -570,6 +616,20 @@ func _collect_trash() -> void:
 					add_child(ft)
 	if got_any:
 		GameState.save_game()   # commit like wrecks do — a crash can't lose it
+
+
+func _tick_absorbing(delta: float) -> void:
+	## Advance the suck-in timers and drop finished pieces. Drawing happens in
+	## _draw_trash (which reads .t); here we only age them.
+	if _absorbing.is_empty():
+		return
+	var i := _absorbing.size() - 1
+	while i >= 0:
+		_absorbing[i]["t"] += delta
+		if _absorbing[i]["t"] >= TRASH_ABSORB_TIME:
+			_absorbing.remove_at(i)
+		i -= 1
+	queue_redraw()
 
 
 func _find_near_field() -> Dictionary:
@@ -611,8 +671,8 @@ func _build_hud() -> void:
 	root.add_child(qlog)
 	qlog.set_anchors_and_offsets_preset(
 		Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_MINSIZE, 18)
-	qlog.offset_top += 188.0
-	qlog.offset_bottom += 188.0
+	qlog.offset_top += 206.0
+	qlog.offset_bottom += 206.0
 	UITheme.shrink(qlog, true, false)
 
 	var nav := PanelContainer.new()
@@ -622,11 +682,14 @@ func _build_hud() -> void:
 	var box := VBoxContainer.new()
 	nav.add_child(box)
 	_pos_label = Label.new()
+	_pos_label.add_theme_font_size_override("font_size", 10)
 	box.add_child(_pos_label)
 	_cargo_label = Label.new()
 	_cargo_label.modulate = Color(1, 1, 1, 0.75)
-	_cargo_label.add_theme_font_size_override("font_size", 11)
+	_cargo_label.add_theme_font_size_override("font_size", 10)
 	box.add_child(_cargo_label)
+	# the status bar was the ONE HUD panel never shrunk — bring it in line
+	UITheme.shrink(nav, false, false, 0.72)
 
 	_prompt_label = KeyPrompt.new()
 	_prompt_label.modulate = Color(0.6, 0.9, 1.0, 0.0)
@@ -787,13 +850,29 @@ func _draw() -> void:
 	# the visible world is bigger than the viewport by 1/zoom — expand the cull
 	# bounds to match, or stars/fields pop in at the edges
 	var half := get_viewport_rect().size * 0.5 / cam.zoom.x + Vector2(STAR_CHUNK, STAR_CHUNK)
+	_draw_comets()          # BELOW everything — drift past behind the asteroids/ship
 	_draw_fields(center, half)
 	_draw_wrecks(center, half)
 	_draw_trash(center, half)
 	_draw_beacon(center)
-	for c in _comets:
-		SpaceDressing.draw_comet(self, c, _t)
 	_draw_ship()
+
+
+func _draw_comets() -> void:
+	for c in _comets:
+		var frames: Array = _comet_frames.get(c["id"], [])
+		if frames.is_empty():
+			continue
+		var tex: Texture2D = frames[int(c["aframe"]) % frames.size()]
+		var ts := tex.get_size()
+		var box: float = STAR_DRAW_MAX if c["star"] else COMET_DRAW_MAX
+		var s: float = (box / maxf(ts.x, maxf(ts.y, 1.0))) * float(c["scale"])
+		# sprites face +x (head right, tail left) — point along the velocity so the
+		# head leads and the tail streams behind
+		var ang: float = (c["vel"] as Vector2).angle()
+		draw_set_transform(c["pos"], ang, Vector2(s, s))
+		draw_texture(tex, -ts * 0.5, Color(1, 1, 1))
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 func _draw_wrecks(center: Vector2, half: Vector2) -> void:
@@ -849,6 +928,20 @@ func _draw_trash(center: Vector2, half: Vector2) -> void:
 				draw_set_transform(p, piece["spin"], Vector2(s, s))
 				draw_texture(tex, -ts * 0.5, Color(0.86, 0.88, 0.94))
 				draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	# pieces being sucked into the ship: fly from where they were toward the hull,
+	# shrinking and fading as they go (ease-in so it accelerates like a vacuum)
+	if not _absorbing.is_empty() and not _trash_tex.is_empty():
+		for a in _absorbing:
+			var u: float = clampf(a["t"] / TRASH_ABSORB_TIME, 0.0, 1.0)
+			var pos: Vector2 = a["pos0"].lerp(ship_pos, u * u)   # accelerate inward
+			var idx: int = clampi(int(a["sprite_roll"] * _trash_tex.size()),
+				0, _trash_tex.size() - 1)
+			var tex: Texture2D = _trash_tex[idx]
+			var ts := tex.get_size()
+			var s: float = (TRASH_DRAW_MAX / maxf(ts.x, maxf(ts.y, 1.0))) * (1.0 - u * 0.85)
+			draw_set_transform(pos, a["spin"] + u * 3.0, Vector2(s, s))   # slight spin-up
+			draw_texture(tex, -ts * 0.5, Color(0.86, 0.88, 0.94, 1.0 - u))
+			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 func _draw_trash_placeholder(p: Vector2, mcol: Color, piece: Dictionary) -> void:
@@ -1179,27 +1272,6 @@ func _update_deep(center: Vector2, half: Vector2) -> void:
 		mm.set_instance_color(idx, cols[idx])
 
 
-var _ast_cache := {}
-
-
-func _asteroid_tex(variant: int) -> Texture2D:
-	## neutral (gray) rock body. 16 shapes.
-	if not _ast_cache.has(variant):
-		_ast_cache[variant] = load("res://assets/asteroids/neutral_%d.png" % variant)
-	return _ast_cache[variant]
-
-
-var _core_cache := {}
-
-
-func _asteroid_core(variant: int) -> Texture2D:
-	## white core mask for a shape — tinted per element so only the core is
-	## coloured, the rock body stays gray.
-	if not _core_cache.has(variant):
-		_core_cache[variant] = load("res://assets/asteroids/core_%d.png" % variant)
-	return _core_cache[variant]
-
-
 func _draw_fields(center: Vector2, half: Vector2) -> void:
 	var pad := half + Vector2(400, 400)
 	for cy in range(floori((center.y - pad.y) / FIELD_CHUNK), floori((center.y + pad.y) / FIELD_CHUNK) + 1):
@@ -1214,23 +1286,22 @@ func _draw_fields(center: Vector2, half: Vector2) -> void:
 					continue
 				var p: Vector2 = fc + rock["off"]
 				var r: float = rock["r"]
-				var tex := _asteroid_tex(int(rock["var"]))
+				# gentle floaty drift + slow spin, deterministic per rock (tiny in-place
+				# motion only — keeps the no-lurch rule; no camera move)
+				var _fph := float(hash(str(rock["key"]) + ":fl") % 1000) / 1000.0 * TAU
+				var _spin := (0.10 + 0.12 * (float(hash(str(rock["key"]) + ":sp") % 100) / 99.0)) \
+					* (1.0 if hash(rock["key"]) % 2 == 0 else -1.0)
+				p += Vector2(sin(_t * 0.35 + _fph), cos(_t * 0.28 + _fph)) * (r * 0.07)
+				# a PAINTED rock from the element's COLOUR FAMILY (grouped by the colour
+				# the element's icon looks like) — shown AS-IS, never tinted. Which of
+				# the family's variants shows is a stable per-rock random pick, so a
+				# field draws varied rocks that all read as the right colour.
+				var tex := RockFamily.rock_art(rock["sym"], rock["key"])
 				if tex != null:
-					# GRAY rock body (untinted) + only the CORE tinted by the
-					# element's colour — the rock stays rocky, its gem shows what
-					# element it is (matches the inside ring colour)
 					var sz := tex.get_size()
 					var s := clampf(r * 1.7, 30.0, 64.0) / maxf(sz.x, sz.y)
-					var ecol: Color = rock["col"]
-					# per-rock DARKNESS variation (deterministic from its key, so it's
-					# stable and independent of the shape variant) — a field reads with
-					# depth: some rocks sit in shadow, some catch the light. [0.58..1.0]
-					var shade := 0.58 + 0.42 * (float(hash(str(rock["key"]) + ":sh") % 100) / 99.0)
-					draw_set_transform(p, 0.0, Vector2(s, s))
-					draw_texture(tex, -sz * 0.5, Color(shade, shade, shade))
-					var core := _asteroid_core(int(rock["var"]))
-					if core != null:
-						draw_texture(core, -core.get_size() * 0.5, ecol)
+					draw_set_transform(p, _t * _spin + _fph, Vector2(s, s))
+					draw_texture(tex, -sz * 0.5, Color(1, 1, 1))
 					# the SHIP passing over the rock throws a shadow onto it —
 					# the hull draws on top afterward, so this darkening reads as
 					# a shadow peeking out from under the passing hull
@@ -1240,7 +1311,7 @@ func _draw_fields(center: Vector2, half: Vector2) -> void:
 						draw_texture(tex, -sz * 0.5, Color(0, 0, 0, 0.6 * over))
 					draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 				else:
-					draw_circle(p, r, Color(0.42, 0.4, 0.38))
+					draw_circle(p, r, Elements.glow_for(rock["sym"]).darkened(0.3))
 			if not _near_field.is_empty() and _near_field["center"] == fc:
 				# faint 1px hint of the park extent — the "E · Park" prompt carries
 				# the affordance; the captain dislikes bold drawn circles

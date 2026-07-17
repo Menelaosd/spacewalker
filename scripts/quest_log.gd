@@ -4,7 +4,7 @@ extends Control
 ## per-material breakdown) and the search for the five scattered survivors
 ## (pips + next beacon). Sci-fi styled to match the HUD.
 
-const PANEL := Vector2(252.0, 236.0)
+const PANEL := Vector2(224.0, 206.0)
 
 var _font: Font = ThemeDB.fallback_font
 
@@ -30,10 +30,10 @@ func _draw() -> void:
 	UITheme.draw_sci_panel(self, rect)
 	UITheme.draw_brackets(self, rect, acc, 8.0, 2.0)
 
-	var x := 15.0
-	var y := 20.0
+	var x := 12.0
+	var y := 19.0
 	draw_string(_font, Vector2(x, y), "◈ OBJECTIVES", HORIZONTAL_ALIGNMENT_LEFT,
-		PANEL.x - 24, 12, Color(acc.r, acc.g, acc.b, 0.9))
+		PANEL.x - 24, 11, Color(acc.r, acc.g, acc.b, 0.9))
 	# overall campaign progress, right-aligned in the header
 	var overall := (GameState.quest_stage + GameState.rescued_count()) \
 		/ float(GameState.QUEST_PARTS.size() + GameState.RESCUES.size())

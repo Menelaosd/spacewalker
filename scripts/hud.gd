@@ -43,8 +43,8 @@ func _ready() -> void:
 	root.add_child(qlog)
 	qlog.set_anchors_and_offsets_preset(
 		Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_MINSIZE, 18)
-	qlog.offset_top += 188.0
-	qlog.offset_bottom += 188.0
+	qlog.offset_top += 206.0
+	qlog.offset_bottom += 206.0
 	UITheme.shrink(qlog, true, false)
 
 	# gear rack (bottom-right)

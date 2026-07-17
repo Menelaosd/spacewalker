@@ -6,7 +6,7 @@ extends Control
 ## followed by 2+ spaces becomes a keycap ("E   Talk to HALE  ·  I   check ID"
 ## renders two keycaps). A segment with no key token is plain text.
 
-var y_from_bottom := 110.0
+var y_from_bottom := 88.0
 var from_top := -1.0    # >= 0: anchor the prompt this far from the TOP instead
 var _parts: Array = []  # [{key, text}]
 var _font: Font = ThemeDB.fallback_font
@@ -38,9 +38,9 @@ func _draw() -> void:
 	if _parts.is_empty():
 		return
 	var vp := get_viewport_rect().size
-	var size := 13
+	var size := 11
 	var cy := from_top if from_top >= 0.0 else vp.y - y_from_bottom
-	const SEG_GAP := 22.0
+	const SEG_GAP := 16.0
 	# measure the full strip so it stays centered
 	var total := 0.0
 	for p in _parts:
@@ -52,7 +52,7 @@ func _draw() -> void:
 	for i in _parts.size():
 		var p: Dictionary = _parts[i]
 		if p["key"] != "":
-			UITheme.draw_key(self, Vector2(x, cy - (size + 9.0) * 0.5), p["key"], _font, size)
+			UITheme.draw_key(self, Vector2(x, cy - (size + UITheme.KEY_H_PAD) * 0.5), p["key"], _font, size)
 			x += UITheme.key_width(p["key"], _font, size) + 9.0
 		draw_string(_font, Vector2(x, cy + size * 0.36), p["text"],
 			HORIZONTAL_ALIGNMENT_LEFT, -1, size, Color(0.72, 0.92, 1.0))

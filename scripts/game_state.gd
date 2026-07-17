@@ -500,11 +500,7 @@ func dive_field(center: Vector2) -> Array:
 		placed.append([pos, r])
 		var key := "%d:%d:%d" % [sx, sy, idx]
 		idx += 1
-		var vrng := RandomNumberGenerator.new()
-		vrng.seed = hash("vein:" + key)
-		var roll := vrng.randf()
-		var sym: String = Elements.sample_crystal_element(roll) if rich \
-			else Elements.sample_rock_element(roll)
+		var sym: String = Elements.vein_element(key, rich)
 		out.append({"pos": pos * ZONE_SHRINK, "r": r, "rich": rich, "key": key,
 			"sym": sym, "cat": Elements.category(sym), "mined": mined.has(key)})
 	return out
@@ -581,7 +577,7 @@ func bank_cargo() -> int:
 		for sym in carried_veins:
 			var units: int = carried_veins[sym]
 			if refinery:
-				units += int(ceilf(units * 0.5))
+				units += int(floorf(units * 0.5))   # honest +50%, never rounds up in the player's favour
 			elements[sym] = mini(int(elements.get(sym, 0)) + units, ELEMENT_CAP)
 			discovered[sym] = true
 		carried_veins = {}
@@ -1081,6 +1077,14 @@ func roll_trader() -> void:
 				trader_stock.append({"sym": s, "price": price_of(s) * 2,
 					"qty": 1})
 				pool.erase(s)
+	# Platinum is the ONE lattice metal with no rock or wreck source (Ag/Au drop
+	# from scrap; Pt is trader-only). Guarantee it while that part is active so the
+	# quest can't wall behind Vesna's RNG — mirrors the U/Th guarantee above.
+	if reputation >= 6 and quest_stage < QUEST_PARTS.size():
+		var need: Dictionary = QUEST_PARTS[quest_stage].get("req", {})
+		if need.has("Pt") and int(elements.get("Pt", 0)) < int(need["Pt"]):
+			trader_stock.append({"sym": "Pt", "price": price_of("Pt") * 2, "qty": 1})
+			pool.erase("Pt")
 	# Vesna buys low, sells high: 2x market rate kills buy-here-deliver-there
 	# arbitrage. Limited units per shift — she's a trader, not a replicator.
 	while trader_stock.size() < 3 and pool.size() > 0:

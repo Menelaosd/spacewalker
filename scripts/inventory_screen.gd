@@ -9,6 +9,7 @@ const FACTS_DB := preload("res://scripts/element_facts.gd")
 const SUIT_TEX := preload("res://assets/sprites/suit_wireframe.png")
 # full-colour gear props (green screen keyed out), mapped one-per-slot by content
 const ICON_HELMET := preload("res://assets/sprites/gear/helmet.png")
+const ICON_BAG := preload("res://assets/sprites/gear/ore_bag.png")
 const ICON_LINE := preload("res://assets/sprites/gear/lifeline.png")
 const ICON_TANK := preload("res://assets/sprites/gear/o2.png")
 const ICON_LASER := preload("res://assets/sprites/gear/laser.png")
@@ -192,7 +193,8 @@ func _draw_suit_column(rect: Rect2) -> void:
 		12, UITheme.ACCENT, rect.size.x)
 
 	var rows := [
-		["SUIT", "Mk I pressure suit", "—", ICON_HELMET],
+		["ORE BAG", "%d ore capacity" % GameState.ore_max(),
+			"LV %d" % (GameState.suit_level + 1), ICON_BAG],
 		["LIFELINE", "%dm rated reach" % int(GameState.tether_length),
 			"LV %d" % (GameState.tether_level + 1), ICON_LINE],
 		["O2 TANK", "%d capacity" % int(GameState.max_oxygen),

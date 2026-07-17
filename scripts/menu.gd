@@ -20,6 +20,8 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo \
 			and event.physical_keycode == KEY_ESCAPE and GameState.in_game:
+		if Transition.is_busy():
+			return   # mid scene-swap: don't pause into a frozen/half-loaded scene
 		toggle()
 
 
@@ -91,4 +93,4 @@ func _on_quit() -> void:
 	visible = false
 	get_tree().paused = false
 	GameState.in_game = false
-	get_tree().change_scene_to_file("res://scenes/title.tscn")
+	Transition.to_scene("res://scenes/title.tscn")

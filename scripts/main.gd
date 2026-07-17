@@ -14,8 +14,14 @@ const FLARE_DRAIN := 5.0       # extra O2/s while exposed
 const SHELTER_DIST := 130.0    # hide this close to a rock to survive it
 
 var _stars: Array = []
-var _streaks: Array = []       # shooting stars: {pos, vel, size, life}
+var _streaks: Array = []       # shooting stars: {pos, vel, life, aframe}
 var _streak_timer := 4.0
+const STAR_SPRITE_DIR := "res://assets/sprites/comets/"
+const STAR_ID := "comet_star"  # the "shooting star" look (matches cruise)
+const STAR_FRAMES := 7
+const STAR_ANIM_FPS := 11.0
+const STAR_DRAW_MAX := 78.0    # longest side px
+var _streak_frames: Array[Texture2D] = []
 var _t := 0.0
 var ship: Node2D
 var player: Node2D
@@ -39,7 +45,9 @@ var _debris_hit_cd := 0.0
 
 
 func _ready() -> void:
+	texture_filter = TEXTURE_FILTER_LINEAR_WITH_MIPMAPS   # keep the small streak crisp
 	_make_stars()
+	_load_streak_sprite()
 
 	ship = SHIP_SCENE.instantiate()
 	add_child(ship)
@@ -51,6 +59,13 @@ func _ready() -> void:
 
 	_spawn_asteroids()
 	add_child(HUD_SCENE.instantiate())
+
+	if OS.get_environment("SW_GAMEOVER") != "":
+		# debug hook for screenshots — pop the out-of-oxygen screen on load
+		var _golay := CanvasLayer.new()
+		_golay.layer = 100
+		_golay.add_child(preload("res://scripts/game_over.gd").new())
+		add_child(_golay)
 
 	if OS.get_environment("SW_ADRIFT") != "":
 		GameState.adrift = true   # debug hook for screenshots/tests
@@ -133,6 +148,20 @@ func _update_adrift() -> void:
 			% GameState.pilot_name())
 
 
+func _load_streak_sprite() -> void:
+	## The animated shooting-star sprite (same look as cruise), mipmapped so a fast
+	## small sprite doesn't shimmer.
+	_streak_frames.clear()
+	for i in STAR_FRAMES:
+		var abs_path := ProjectSettings.globalize_path(STAR_SPRITE_DIR + "%s_%d.png" % [STAR_ID, i])
+		if not FileAccess.file_exists(abs_path):
+			continue
+		var img := Image.load_from_file(abs_path)
+		if img != null:
+			img.generate_mipmaps()
+			_streak_frames.append(ImageTexture.create_from_image(img))
+
+
 func _update_streaks(delta: float) -> void:
 	## Shooting stars — a flick of light every so often keeps the sky alive.
 	_streak_timer -= delta
@@ -144,13 +173,14 @@ func _update_streaks(delta: float) -> void:
 			"pos": start,
 			"vel": (player.global_position - start).normalized() \
 				.rotated(randf_range(-0.8, 0.8)) * randf_range(900.0, 1400.0),
-			"size": randf_range(1.1, 1.9),
 			"life": randf_range(0.6, 1.0),
+			"aframe": randf() * STAR_FRAMES,
 		})
 	var keep: Array = []
 	for s in _streaks:
 		s["pos"] += (s["vel"] as Vector2) * delta
 		s["life"] = float(s["life"]) - delta
+		s["aframe"] = float(s["aframe"]) + delta * STAR_ANIM_FPS
 		if float(s["life"]) > 0.0:
 			keep.append(s)
 	_streaks = keep
@@ -231,7 +261,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			# Step inside the ship. Bank whatever we're carrying first.
 			# (guarded by _leaving so E can't race a helm-fade already in progress)
 			GameState.bank_cargo()
-			get_tree().change_scene_to_file("res://scenes/ship_interior.tscn")
+			Transition.to_scene("res://scenes/ship_interior.tscn")
 		elif event.physical_keycode == KEY_F and player != null \
 				and not GameState.adrift and not _leaving:
 			# take the helm straight from the walk — smooth fade to the outer view
@@ -264,7 +294,7 @@ func _drive_ship() -> void:
 		layer.add_child(_fade)
 	var tw := create_tween()
 	tw.tween_property(_fade, "color:a", 1.0, 0.6)
-	tw.tween_callback(func(): get_tree().change_scene_to_file("res://scenes/flight.tscn"))
+	tw.tween_callback(func(): Transition.to_scene("res://scenes/flight.tscn"))
 
 
 func _draw_bg_nebulae() -> void:
@@ -348,9 +378,15 @@ func _draw() -> void:
 		var p: Vector2 = s[0] + cam * (1.0 - s[3])
 		if star_view.has_point(p):
 			draw_circle(p, s[1], Color(1, 1, 1, s[2]))
-	# shooting stars
-	for st in _streaks:
-		SpaceDressing.draw_comet(self, st, _t)
+	# shooting stars — animated sprite, pointed along its velocity, drawn small
+	if not _streak_frames.is_empty():
+		for st in _streaks:
+			var tex: Texture2D = _streak_frames[int(st["aframe"]) % _streak_frames.size()]
+			var ts := tex.get_size()
+			var sc: float = STAR_DRAW_MAX / maxf(ts.x, maxf(ts.y, 1.0))
+			draw_set_transform(st["pos"], (st["vel"] as Vector2).angle(), Vector2(sc, sc))
+			draw_texture(tex, -ts * 0.5, Color(1, 1, 1))
+			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	# tether reach — discreet concentric rings, both centred on the ship (the
 	# centre of the zone). Faint; just enough to read the safe range.
 	if not GameState.adrift and player != null:

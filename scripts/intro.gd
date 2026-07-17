@@ -65,7 +65,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _start_game() -> void:
 	# the story drops you where it left you: alone, off the line
 	GameState.adrift = true
-	get_tree().change_scene_to_file("res://scenes/main.tscn")
+	Transition.to_scene("res://scenes/main.tscn")
 
 
 func _draw() -> void:

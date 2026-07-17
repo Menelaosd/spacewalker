@@ -15,7 +15,7 @@ const TEXT := Color(0.88, 0.99, 1.0)
 const TEXT_DIM := Color(0.88, 0.99, 1.0, 0.6)
 const CUT := 14.0                              # corner slant
 const UI_SCALE := 0.60                          # global HUD shrink factor
-const RADAR_SCALE := 0.85                       # radar rides its OWN scale (bigger)
+const RADAR_SCALE := 0.92                       # radar rides its OWN scale (readable)
 
 
 static func shrink(c: Control, right: bool, bottom: bool, s := UI_SCALE) -> void:
@@ -251,23 +251,37 @@ static func draw_key_chip(ci: CanvasItem, center: Vector2, key: String,
 # Keycaps — every on-screen key prompt renders as a little keyboard cap.
 # One source of truth so controller glyphs can slot in here later.
 # ------------------------------------------------------------------
+const KEY_H_PAD := 7.0    # keycap height above font size (shared for row layout)
+
+
 static func key_width(label: String, font: Font, size := 11) -> float:
 	var tw := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
-	return maxf(tw + 8.0, size + 6.0)
+	return maxf(tw + 10.0, size + 9.0)   # squarer caps, more like a real key
 
 
 static func draw_key(ci: CanvasItem, pos: Vector2, label: String,
 		font: Font, size := 11, accent := ACCENT) -> float:
-	## Draw a keycap with its top-left at `pos`; returns the cap's width.
-	var h := size + 6.0
+	## A raised, physical keycap (top-left at `pos`); returns the cap width.
+	## Rounded top face + a thick front lip (bottom border) + a cast shadow so
+	## it reads as a real key, not a flat outline. Every key prompt routes here.
+	var h := size + KEY_H_PAD
 	var w := key_width(label, font, size)
 	var r := Rect2(pos, Vector2(w, h))
-	ci.draw_rect(r, Color(0.06, 0.14, 0.19, 0.96))
-	ci.draw_rect(r, Color(accent.r, accent.g, accent.b, 0.85), false, 1.0)
-	# top bevel highlight
-	ci.draw_line(r.position + Vector2(2, 2), Vector2(r.end.x - 2, r.position.y + 2),
-		Color(accent.r, accent.g, accent.b, 0.4), 1.0)
-	ci.draw_string(font, Vector2(pos.x, pos.y + h * 0.5 + size * 0.36), label,
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.10, 0.20, 0.26, 0.98)
+	sb.set_corner_radius_all(4)
+	sb.set_border_width_all(1)
+	sb.border_width_bottom = 3                      # the cap's front lip
+	sb.border_color = Color(accent.r, accent.g, accent.b, 0.9)
+	sb.shadow_color = Color(0, 0, 0, 0.5)           # sits proud of the HUD
+	sb.shadow_size = 2
+	sb.shadow_offset = Vector2(0, 2)
+	ci.draw_style_box(sb, r)
+	# light catches the top face
+	ci.draw_line(r.position + Vector2(3.0, 2.5), Vector2(r.end.x - 3.0, r.position.y + 2.5),
+		Color(1, 1, 1, 0.20), 1.0)
+	# label sits on the top face (nudged up off the front lip)
+	ci.draw_string(font, Vector2(pos.x, pos.y + h * 0.5 + size * 0.30), label,
 		HORIZONTAL_ALIGNMENT_CENTER, w, size, TEXT)
 	return w
 
@@ -285,7 +299,7 @@ static func draw_hints_at(ci: CanvasItem, pos: Vector2, items: Array,
 	## Left-aligned row of "[cap] label" pairs starting at pos (row top-left);
 	## returns the total width. items = [[key, label], ...].
 	var gap := 15.0
-	var kh := size + 6.0
+	var kh := size + KEY_H_PAD
 	var x := pos.x
 	for it in items:
 		var kw := draw_key(ci, Vector2(x, pos.y), it[0], font, size)
@@ -299,7 +313,7 @@ static func draw_hints_at(ci: CanvasItem, pos: Vector2, items: Array,
 static func draw_hints(ci: CanvasItem, center: Vector2, items: Array,
 		font: Font, size := 11, dim := TEXT_DIM) -> void:
 	## Centered row of "[cap] label" pairs.
-	var kh := size + 6.0
+	var kh := size + KEY_H_PAD
 	var x := center.x - hints_width(items, font, size) * 0.5
 	draw_hints_at(ci, Vector2(x, center.y - kh * 0.5), items, font, size, dim)
 

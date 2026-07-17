@@ -307,10 +307,8 @@ static var _ast_col_cache := {}
 
 
 static func asteroid_color(sym: String) -> Color:
-	## The element's asteroid tint — its own icon colour (glow_for), but with a
-	## brightness FLOOR so dark elements (e.g. Carbon) still read against space.
-	## Hue preserved, only value lifted. Used identically inside (the ring) and
-	## outside (the rock tint), so an element looks the same in both views.
+	## The element's asteroid tint — its own icon colour (glow_for), with a brightness
+	## FLOOR so dark elements still read against space. Hue preserved, value lifted.
 	var z := z_of(sym)
 	if _ast_col_cache.has(z):
 		return _ast_col_cache[z]
@@ -333,6 +331,41 @@ static func _sample(fractions: Dictionary, roll := -1.0) -> String:
 		if roll <= acc:
 			return sym
 	return "Fe"
+
+
+# A small pool of COLOURFUL, non-economy elements salted into fields for visual
+# variety (greens/pinks/purples/golds/blues). Deliberately EXCLUDES everything the
+# progression/economy leans on (Fe/Si/Mg/Al/Ni/Ti/Cu quest parts, Ag/Pt/Au laser+
+# lattice, U/Th fissiles) so salting can never trivialise the drive-build or trade.
+const COLOUR_SALT := [
+	"Nd", "Dy", "Sm", "Er",       # green / teal rare-earths
+	"La", "Ho", "Ce",             # pink / rose
+	"I", "K", "Tb", "Lu",         # violet
+	"Cs", "Pr", "Gd", "Yb", "Se", # gold / amber
+	"Sr",                         # lime
+]
+const COLOUR_SALT_CHANCE := 0.08   # ~8% of rocks → ~1-2 per field, just a pop of colour
+
+
+static func vein_element(key: String, is_rich: bool) -> String:
+	## THE single source of truth for which element a rock carries — called by BOTH
+	## the cruise preview (flight.gd) and the dive rock (asteroid.gd), so they always
+	## agree. Deterministic per rock key.
+	## Occasionally (COLOUR_SALT_CHANCE) a rock is salted with a colourful rare
+	## element for variety — decided by a SEPARATE seeded RNG so it never shifts the
+	## normal abundance roll, and only for real (non-empty) keys. A seeded RNG (not a
+	## raw hash%N) is used so the roll is uniform — no per-field clustering.
+	if key != "":
+		var srng := RandomNumberGenerator.new()
+		srng.seed = hash("salt:" + key)
+		if srng.randf() < COLOUR_SALT_CHANCE:
+			return COLOUR_SALT[srng.randi() % COLOUR_SALT.size()]
+		var vrng := RandomNumberGenerator.new()
+		vrng.seed = hash("vein:" + key)
+		var roll := vrng.randf()
+		return sample_crystal_element(roll) if is_rich else sample_rock_element(roll)
+	# no key (edge case) → true-random, non-deterministic
+	return sample_crystal_element() if is_rich else sample_rock_element()
 
 
 static func sample_rock_element(roll := -1.0) -> String:

@@ -38,13 +38,10 @@ func setup(r: float, rich: bool, _tint := Color(0.42, 0.4, 0.38)) -> void:
 func _ready() -> void:
 	add_to_group("asteroids")
 	# vein is DETERMINISTIC per rock (seeded from its mine_key), so leaving and
-	# re-entering a dive site can never re-roll the elements — no reroll exploit
-	var roll := -1.0
-	if mine_key != "":
-		var vrng := RandomNumberGenerator.new()
-		vrng.seed = hash("vein:" + mine_key)
-		roll = vrng.randf()
-	vein = Elements.sample_crystal_element(roll) if is_rich else Elements.sample_rock_element(roll)
+	# re-entering a dive site can never re-roll the elements — no reroll exploit.
+	# Elements.vein_element is the shared source of truth (same call the cruise
+	# preview uses), so the rock's element matches inside and outside.
+	vein = Elements.vein_element(mine_key, is_rich)
 	_ore_color = Elements.cpk_color(vein)      # chemistry colour — sparks/label
 	# the element's OWN colour (sampled from its icon) — the same tint the
 	# flight-mode zone rock uses, so inside and outside match exactly

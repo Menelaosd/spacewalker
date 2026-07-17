@@ -5,6 +5,148 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 18/07/2026 — v1.74: inter-room walls & doors + full-room buildable plot + GPU ambient
+
+Follow-up to the 40-agent asset audit ("everything unified"). Three interior changes:
+
+- **Inter-room bulkheads with doors** (`ship_interior.gd _draw_doorway`) — the passage
+  between two built rooms used to be a bare absence (floor continued, only tiny jamb
+  caps). It's now a **thin metallic bulkhead** — reusing the hull's own plated wall art
+  (`_tiled_wall_v/_h`) so it reads as the same metal — with a **large 64px powered door**
+  standing open in the middle: a recessed lit threshold, two slide rails, retracted
+  leaves tucked to bright jamb posts, and pulsing amber status lights. Rooms now read as
+  distinct chambers joined by doors instead of one open plane.
+- **Full-room buildable plot** (`_draw_expansions` → new `_draw_buildable_plot` +
+  `_dashed_rect`) — the "expand here" marker was a small hovered olive/X placeholder tile
+  (the single worst asset the audit flagged). Replaced with an **in-fiction holographic
+  plot covering the WHOLE cell**: ghosted floor wash, dashed cyan construction border,
+  corner ticks, a `+` and an "N ORE" cost chip. When you can't afford it the plot turns
+  **red with an X drawn corner-to-corner across the entire room** (the captain's ask) and
+  the placeholder `cell_ok/cell_no` sprites are deleted.
+- **GPU ambient / atmosphere shader** (`assets/shaders/ambient.gdshader`) — one
+  full-screen `ColorRect` canvas_item shader on a layer below the HUD: an analytic
+  `smoothstep` vignette + drifting 4-octave FBM haze + hash dither, all computed on the
+  GPU with **no gradient textures**, so it never bands into the "glitchy circles" the old
+  free-standing light pools made. Carries a faint cool tint that doubles as a unifying
+  grade over the mixed-source art. The prop `PointLight2D` glows (which light the crew)
+  are untouched. `SW_SHOT=<path>` debug hook added to grab the real framebuffer (captures
+  2D lights + shader, which PrintWindow drops).
+
+## 18/07/2026 — v1.73: UI de-fat + real 3D keycaps + glass-dome radar
+
+Addressed "the UI feels too big and zoomed out" (32-agent inspect → shrink → redesign →
+re-inspect pass, verified on all 6 screens).
+
+- **De-fatted the HUD.** The flight status bar, interior banked-ore chip, crew roster and
+  hint bar were rendering at full 1.0 scale, skipping the 0.60 HUD shrink the gear rack &
+  quest log already get — so they read oversized. All now go through `UITheme.shrink()`
+  and dropped font sizes (10-11px). Quest log and radar re-tucked so nothing overflows.
+- **Every key is a real keycap.** `UITheme.draw_key` rewritten from a flat chip to a
+  raised 3D physical keycap (StyleBoxFlat: rounded corners, accent bottom-border for
+  depth, drop shadow, top sheen highlight, squarer aspect via `KEY_H_PAD`). Applied
+  everywhere a key is shown (hint bar, key prompts, rename).
+- **Glass-dome radar** (`radar_panel.gd`) — bigger (`RADAR_SCALE` 0.85→0.92, R=78) with a
+  radial `GradientTexture2D` glass sheen over a dark disc, cardinal ticks instead of a
+  crosshair, sparse dim scanlines, a single sweep leading-edge + wake, a bright rim, and
+  nebula rim-markers de-cluttered to the nearest 5. The specular "curved white line" the
+  captain disliked was removed.
+
+## 17/07/2026 — v1.72: animated comet & shooting-star sprites
+
+Replaced the procedural `SpaceDressing.draw_comet` painting with the PixelLab sprite
+animations. Comets = 3 looks (rcomet_a, rcomet_b, comet_big); shooting star = comet_star
+(the "cratered" one). Each is a 7-frame loop, loaded mipmapped, pointed along its
+velocity (head leads), drawn SMALL (comet ≤64px / star ≤52px) and fast, and rendered
+BELOW the whole foreground so they drift behind the asteroids and ship. Cruise
+(`flight.gd`) and the dive scene (`main.gd` shooting stars) both use them. `draw_comet`
+removed from `space_dressing.gd` (now dead). Only the 4 chosen sprite sets are installed.
+
+## 17/07/2026 — v1.71: smaller trash + suck-in pickup + colour-salted fields
+
+- **Trash is smaller** — `TRASH_DRAW_MAX` 72→52px.
+- **Salvage gets sucked into the ship** — collecting a trash piece now hands its sprite
+  to a short suck-in animation (`_absorbing`): it flies toward the hull, accelerating
+  (ease-in), shrinking and fading over `TRASH_ABSORB_TIME` (0.45s). Purely visual — the
+  materials are still granted the instant you're in range.
+- **Fields get a pop of colour** — a new single source of truth `Elements.vein_element(key,
+  rich)` (called by BOTH the cruise preview and the dive, so they always agree) salts ~8%
+  of rocks with a colourful rare element from `COLOUR_SALT` (greens/pinks/violets/golds).
+  Averages ~1-2 per field, decided by a seeded RNG (uniform, no clustering). The pool
+  deliberately EXCLUDES every economy/progression element (Fe/Si/Mg/Al/Ni/Ti/Cu, Ag/Pt/Au,
+  U/Th), so it can never trivialise the drive-build or trade — it's just visual variety.
+
+## 17/07/2026 — v1.70: per-element rock tint + 10-agent gameplay-audit fixes
+
+**Cruise rocks are the generated painted rocks, grouped into COLOUR FAMILIES by what
+each element's icon looks like — shown AS-IS, never tinted.** New `scripts/rock_family.gd`
+(`RockFamily`): `family_for(sym)` classifies an element by its icon glow (`glow_for`) into
+one of 10 colour families (red/orange/gold/green/cyan/steel/purple/pink/dark/silver);
+each family maps to the painted art combo(s) of that colour; `rock_art` picks a stable
+per-rock random variant from the family's pool. `flight.gd _draw_fields` draws it untinted.
+So gold element → gold rocks, uranium → green, oxygen → cyan, carbon → dark, most metals →
+steel-blue. This replaces the earlier ElementKinds chemistry grouping (dropped — made
+oxygen a green nonmetal rock) AND the brief tinted-grayscale experiment (dropped — the
+painted rocks are beautiful as-is). Removed all unused asteroid art: `element_kinds.gd`,
+the plain `neutral_*/core_*` blobs, and the baked `rockd_*` set.
+
+**Bug fixes from the 10-agent audit:**
+- `Transition.to_scene` had no re-entrancy guard — mashing a key during the 0.45s fade
+  double-fired scene changes. Added a `_busy` latch + swallow keys/clicks mid-swap.
+- Pause menu (`menu.gd`) now ignores ESC while a transition is in flight (was freezing
+  into a half-loaded scene). Game-over screen swallows ESC so pause can't open over it.
+- Blackout/faint path now `save_game()`s — mined rocks no longer respawn if you quit
+  after fainting.
+- Haven ending latched so the title swap fires exactly once.
+- Refinery bonus was `ceil` (+100% on odd/small amounts); now `floor` — honest +50%.
+- Platinum guaranteed at the Ignition Lattice quest part (rep 6): it's the only lattice
+  metal with no rock/wreck source, so the quest can't wall behind trader RNG (mirrors
+  the existing U/Th guarantee).
+
+## 16/07/2026 — v1.69: out-of-oxygen game-over screen
+
+New cinematic screen on running out of O2 (`scripts/game_over.gd`). Triggered in
+`player.gd:_black_out()`: fades in over the faint, holds on a quote, SPACE (or
+auto after 11s) continues to the bunk wake — same lose-cargo/wake mechanic, now
+with a screen.
+
+- Full-res captain (assets/sprites/gameover/astronaut.png, chroma-keyed) drifting
+  via slow in-engine rotate+bob — sharp at any size (PixelLab frame-anim was capped
+  at 256px and looked soft; a rigid drift reads better for an unconscious body).
+- Hand-authored striped TETHER art (gameover/tether.png, keyed) attached at his
+  backpack, swaying ±2.5°, sweeping off the bottom-right in perspective.
+- Starfield bg (gameover/starfield.png), title + "THE REACH CLAIMS ANOTHER" +
+  a random line from an 8-quote pool, staged fade-ins.
+- Mounted on a CanvasLayer (screen space) so it isn't dragged by the EVA camera.
+  Debug: `SW_GAMEOVER=1` pops it on the spacewalk scene for screenshots. Assets
+  load via Image.load_from_file (no .import dependency).
+
+## 16/07/2026 — v1.68: element art system — KIND→colour asteroids (PixelLab)
+
+Replaced the procedural/icon asteroid look with a generated art set organised by
+PHYSICAL KIND (shape) then COLOUR (element), 8 variations each. Verified in-game
+in BOTH the cruising and spacewalk views — same rock reads identically in each.
+
+- TAXONOMY (scripts/element_kinds.gd, new `ElementKinds`): 4 kinds → 11 colour
+  combos → 8 variations. `combo_of(sym)` is a pure function of `Elements.category`
+  + two liquid overrides (Hg→liquid_silver, Br→liquid_amber). Kinds: metal
+  (grey/gold/orange/palegold/red), crystal (purple/green/pink), liquid
+  (silver/amber), gas (cyan). Presentation ONLY — the drop economy
+  (*_fractions/sample_*) is untouched.
+- DETERMINISTIC art: `rock_art(sym, key)` picks `el_<combo>_<hash("art:"+key)%8>.png`
+  (88 sprites in assets/sprites/element_art/, loaded from raw PNG like icon_for so
+  it needs no .import). Because a rock's flight `key` and dive `mine_key` are the
+  same "sx:sy:idx" string, a rock looks identical previewed while cruising and
+  mined while spacewalking.
+- WIRED: asteroid.gd:57 (dive node `_icon`), flight.gd `_field_in_chunk` (forwards
+  `sym`) + `_draw_fields` (cruising preview) — both now draw `ElementKinds.rock_art`
+  with the OLD grey-body+tinted-core kept as an automatic fallback. Downstream
+  scale/offset/collision refit from the texture size, so no other changes needed.
+  Left untouched (per call-site audit): all small UI icons (dex/fabricator/upgrade),
+  spark/label/radar chemistry colours, pickup mini-icon.
+- KNOWN design call: Oxygen (gas category, but MINED as rock and very common)
+  renders as a cyan gas-CLOUD among the solid rocks. Reads fine but is a stylistic
+  choice — option to add a cyan "ice-rock" variant for O/F/Cl if clouds feel off.
+
 ## 16/07/2026 — v1.67: UI slim pass + radar resize + 2-agent audit fixes
 
 - UI SLIM (ui_theme.gd, global): Label font 13→11, Button 14→12, panel content
@@ -20,9 +162,9 @@ Core updates to the game, newest first. Every meaningful change lands here.
   the ~26px EVA astronaut, not dwarfing it.
 - AUDIT FIXES (2 read-only agents — flow+functionality clean, views found 1 regression):
   * title slot labels were clipping after the menu narrowed — label font 13→12 +
-    ITEM_W 280 so "SLOT 1 — NAME · DRIVE n/5" fits without cutting the tail.
+	ITEM_W 280 so "SLOT 1 — NAME · DRIVE n/5" fits without cutting the tail.
   * STAR CHART now pauses the sim while open (process_mode ALWAYS + get_tree().paused)
-    — the ship no longer flies / docks under the open map.
+	— the ship no longer flies / docks under the open map.
   Agents confirmed no crashes, soft-locks, save-corruption (incl. seen_regions round-
   trip), input-eating, or determinism breaks.
 

@@ -158,7 +158,7 @@ func _refresh() -> void:
 func _on_new_slot(i: int) -> void:
 	if GameState.slot_data(i).is_empty():
 		GameState.new_game(i)
-		get_tree().change_scene_to_file("res://scenes/chargen.tscn")
+		Transition.to_scene("res://scenes/chargen.tscn")
 		return
 	# occupied — arm once (relabel to OVERWRITE?), confirm on the second press
 	if _armed != i:
@@ -166,12 +166,12 @@ func _on_new_slot(i: int) -> void:
 		_refresh()
 		return
 	GameState.new_game(i)
-	get_tree().change_scene_to_file("res://scenes/chargen.tscn")
+	Transition.to_scene("res://scenes/chargen.tscn")
 
 
 func _on_load_slot(i: int) -> void:
 	if GameState.load_game(i):
-		get_tree().change_scene_to_file("res://scenes/ship_interior.tscn")
+		Transition.to_scene("res://scenes/ship_interior.tscn")
 
 
 func _activate(i: int) -> void:

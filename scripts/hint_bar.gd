@@ -17,5 +17,5 @@ func _ready() -> void:
 
 func _draw() -> void:
 	var vp := get_viewport_rect().size
-	UITheme.draw_hints_at(self, Vector2(16.0, vp.y - 26.0), items,
-		_font, 11, Color(1, 1, 1, 0.5))
+	UITheme.draw_hints_at(self, Vector2(16.0, vp.y - 22.0), items,
+		_font, 10, Color(1, 1, 1, 0.5))
