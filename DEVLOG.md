@@ -5,17 +5,66 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 18/07/2026 — v1.75: 60-agent whole-game audit — bug/economy/graphics/completion fixes
+
+Ran a 60-agent audit (45 scanners across every script + cross-cutting concerns → dedupe
+→ 15 adversarial verifiers). 62 findings; the meaningful ones are fixed. Highlights:
+
+**Save/load data loss (was: strictly worse than not saving):**
+- `save_game`/`load_game` now persist the live haul (`carried`/`carried_veins`/
+  `carried_items`) — a mid-dive save/quit no longer wipes your walk's ore + veins while
+  the rocks stay `mined`, and SOLA's "keep half on blackout" perk survives a save+quit.
+- Flight `sector` is synced to the live ship position every frame, so a mid-flight
+  save/quit no longer rewinds you to a stale sector.
+- `load_game` reads robust: guarded contracts/trader_stock/sector (no crash on a
+  truncated save), a `SAVE_VERSION` guard, and NEW-GAME no longer writes to disk until
+  chargen confirms (backing out of an overwrite keeps the old save intact).
+
+**Pause / input (was: die inside a menu):**
+- New ref-counted pause coordinator in GameState (`push_pause`/`pop_pause`/`clear_pauses`).
+  The inventory now pauses the game (no more moving/firing/losing O2 behind it); the star
+  chart and pause menu no longer clobber each other's pause (no live sim under a PAUSED
+  screen). Inventory + star chart run `PROCESS_MODE_ALWAYS`.
+
+**Ending / graphics:**
+- The going-home finale now freezes the crew, locks input, and HIDES the HUD, so the
+  fade + HAVEN credits render clean (no panels on top, no E re-triggering the timer).
+- Expansion holograms dedupe per cell (a bay bordering two rooms no longer double-draws).
+- Quest-log panel raised 206→234 so 3-element drive parts + a live beacon fit inside it.
+- Enabled mipmaps on walk / ship / wreck / comet / trash sprites (killed the shimmer).
+
+**Shipping hygiene / crashes:** SW_RICH / SW_WALK / SW_GAMEOVER debug hooks gated behind
+`OS.is_debug_build()`; `do_rescue()`, the drive-station label, and dialog art loads
+guarded against crashes; helm-fade freezes the suit so a burn can't kill the run
+mid-transition; duplicate stat-room build refused before charging.
+
+**Polish:** asteroid hitbox hugs the icon (was an 18% dead ring) and health tracks visible
+size; `_sample` gas fallback no longer returns iron; radar home-blip/edge-overflow;
+mouse-wheel no longer skips the intro or closes the ID card; bare-modifier taps ignored;
+thrust SFX cuts on dialog; deep-space parallax de-inverted; transition tween tracked;
+VFX cleanup timer pauses with the tree; dead code trimmed.
+
+Left for the captain's call (balance/design, not silently changed): the `battery_bank`
+(Lithium) and `med_bed` (Silver) starter recipes need materials unobtainable until
+mid/late game; ore-bag cap vs total sinks reads grindy; nebula texture gen has a
+first-sight frame hitch (needs a threaded/`set_data` rewrite).
+
 ## 18/07/2026 — v1.74: inter-room walls & doors + full-room buildable plot + GPU ambient
 
 Follow-up to the 40-agent asset audit ("everything unified"). Three interior changes:
 
-- **Inter-room bulkheads with doors** (`ship_interior.gd _draw_doorway`) — the passage
-  between two built rooms used to be a bare absence (floor continued, only tiny jamb
-  caps). It's now a **thin metallic bulkhead** — reusing the hull's own plated wall art
-  (`_tiled_wall_v/_h`) so it reads as the same metal — with a **large 64px powered door**
-  standing open in the middle: a recessed lit threshold, two slide rails, retracted
-  leaves tucked to bright jamb posts, and pulsing amber status lights. Rooms now read as
-  distinct chambers joined by doors instead of one open plane.
+- **Inter-room bulkhead walls** (`ship_interior.gd _draw_doorway` / `_draw_walls`) — the
+  passage between two built rooms used to be a bare absence (floor continued). It's now a
+  **thin metallic bulkhead with a plain open passage** in the middle (no door — the
+  captain's call). The wall art is a **PixelLab-generated painted-metal tile** (`assets/
+  props/idwall.png`, "paneled_0": recessed steel panels + cyan trim), chosen over 4 other
+  generated styles + a hand-drawn fallback by a **4-agent judge panel** (3× first place)
+  for best cohesion with the hull/prop kit. `_wall_tex` holds it; `SW_WALLSTYLE=drawn` or
+  a PNG path overrides for comparison; `_draw_wall_run` tiles the art (or draws the vector
+  fallback). Walls are **solid** — `_build_obstacles` adds collision segments flanking the
+  central gap, so you can't cross except through the opening — and drawn inside the
+  **depth passes** (`_draw_walls(behind)`), so the crew and props sit correctly in front
+  of / behind them (an E–W wall splits at its own y line; a thin N–S wall stays behind).
 - **Full-room buildable plot** (`_draw_expansions` → new `_draw_buildable_plot` +
   `_dashed_rect`) — the "expand here" marker was a small hovered olive/X placeholder tile
   (the single worst asset the audit flagged). Replaced with an **in-fiction holographic

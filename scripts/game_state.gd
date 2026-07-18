@@ -77,7 +77,9 @@ const GEAR_REQ := {
 	],
 }
 
-const CARRY_BASE := 25      # ore the MK I bag holds per walk; +15 per suit level
+const CARRY_BASE := 35      # ore the MK I bag holds per walk; +15 per suit level
+                            # (was 25 — early loop read grindy vs 55-140-ore drive parts;
+                            # eases the first hours, upgrade progression unchanged)
 
 
 func carry_max() -> int:
@@ -275,6 +277,8 @@ func do_rescue() -> Dictionary:
 	## Bring the current target aboard: flat perks apply once (they ride
 	## the saved stats); flag perks derive from `rescued` at use sites.
 	var r := rescue_target()
+	if r.is_empty():
+		return {}   # nobody left to rescue — never crash on a missing target
 	match rescued.size():
 		0:   # JUNO the Engineer
 			laser_dps += 15.0
@@ -517,7 +521,7 @@ func _ready() -> void:
 	# SW_RICH=1: 4000 of every element + 4000 banked ore, applied
 	# again after any save is loaded (see load_game).
 	# ============================================================
-	if OS.get_environment("SW_RICH") != "":
+	if OS.is_debug_build() and OS.get_environment("SW_RICH") != "":
 		_apply_rich_cheat()
 
 
@@ -704,6 +708,32 @@ func try_upgrade(kind: String) -> bool:
 
 
 # ------------------------------------------------------------------
+# Pause coordinator — ref-counted so multiple full-screen overlays (inventory,
+# star chart, pause menu) can each request pause without clobbering each other.
+# The tree stays paused while ANY owner is active; each overlay pushes on open
+# and pops on close. Overlays that must keep running while paused set their own
+# process_mode = PROCESS_MODE_ALWAYS.
+# ------------------------------------------------------------------
+var _pausers := {}
+
+func push_pause(id: String) -> void:
+	_pausers[id] = true
+	get_tree().paused = true
+
+func pop_pause(id: String) -> void:
+	_pausers.erase(id)
+	if _pausers.is_empty():
+		get_tree().paused = false
+
+func clear_pauses() -> void:
+	## Drop every pause owner and unpause — used on quit-to-title / load so a
+	## stale owner can't leave the next scene frozen.
+	_pausers.clear()
+	if is_inside_tree():
+		get_tree().paused = false
+
+
+# ------------------------------------------------------------------
 # Save system — one JSON file per slot in user://saves/
 # ------------------------------------------------------------------
 func save_path(s: int) -> String:
@@ -727,6 +757,12 @@ func save_game() -> void:
 		"mined": mined.keys(),
 		"oxygen": oxygen,
 		"banked": banked,
+		# the live spacewalk haul — persisted so a mid-dive save/quit no longer
+		# discards it while the rocks that produced it stay `mined` (and so
+		# SOLA's kept-half survives a save+quit after a blackout)
+		"carried": carried,
+		"carried_veins": carried_veins,
+		"carried_items": carried_items,
 		"inventory": inventory,
 		"elements": elements,
 		"discovered": discovered.keys(),
@@ -760,6 +796,11 @@ func load_game(s: int) -> bool:
 	var data := slot_data(s)
 	if data.is_empty():
 		return false
+	# version guard — a save from a NEWER build may have keys we don't know;
+	# we still load (every field below has a default), just flag it
+	var ver := int(data.get("version", 1))
+	if ver > SAVE_VERSION:
+		push_warning("Save %d is from a newer build (v%d > v%d) — loading best-effort." % [s, ver, SAVE_VERSION])
 	slot = s
 	max_oxygen = data.get("max_oxygen", 100.0)
 	tether_length = data.get("tether_length", 600.0)
@@ -848,12 +889,14 @@ func load_game(s: int) -> bool:
 				furniture[cell].append({"id": id, "col": col, "row": row})
 	contracts = []
 	for c in data.get("contracts", []):
-		contracts.append({"sym": str(c["sym"]), "qty": int(c["qty"]),
-			"reward": int(c["reward"])})
+		if c is Dictionary and c.has("sym"):
+			contracts.append({"sym": str(c.get("sym", "")), "qty": int(c.get("qty", 0)),
+				"reward": int(c.get("reward", 0))})
 	trader_stock = []
 	for o in data.get("trader_stock", []):
-		trader_stock.append({"sym": str(o["sym"]), "price": int(o["price"]),
-			"qty": int(o.get("qty", 1))})
+		if o is Dictionary and o.has("sym"):
+			trader_stock.append({"sym": str(o.get("sym", "")), "price": int(o.get("price", 0)),
+				"qty": int(o.get("qty", 1))})
 	var pl: Dictionary = data.get("pilot", {})
 	pilot = {"name": str(pl.get("name", "")), "gender": str(pl.get("gender", "")),
 		"age": int(pl.get("age", 27))}
@@ -861,15 +904,21 @@ func load_game(s: int) -> bool:
 	for n in data.get("rescued", []):
 		rescued[str(n)] = true
 	var sec: Array = data.get("sector", [0.0, 0.0])
-	sector = Vector2(sec[0], sec[1])
-	carried = 0
+	sector = Vector2(sec[0], sec[1]) if sec.size() >= 2 else Vector2.ZERO
+	# restore the carried haul (0 for pre-v6 saves that never stored it)
+	carried = int(data.get("carried", 0))
 	carried_veins = {}
+	var cvj: Dictionary = data.get("carried_veins", {})
+	for sym in cvj:
+		carried_veins[str(sym)] = int(cvj[sym])
+	var cij: Dictionary = data.get("carried_items", {})
 	for k in carried_items:
-		carried_items[k] = 0
+		carried_items[k] = int(cij.get(k, 0))
 	_reset_session_flags()
+	clear_pauses()   # a freshly loaded/started scene must never start paused
 	in_game = true
 	# TESTING ONLY — DELETE BEFORE SHIPPING (keeps SW_RICH active on loads)
-	if OS.get_environment("SW_RICH") != "":
+	if OS.is_debug_build() and OS.get_environment("SW_RICH") != "":
 		_apply_rich_cheat()
 	oxygen_changed.emit(oxygen, max_oxygen)
 	cargo_changed.emit(carried, banked)
@@ -929,15 +978,19 @@ func new_game(s: int) -> void:
 	rescued = {}
 	sector = Vector2.ZERO
 	_reset_session_flags()
+	clear_pauses()   # a freshly loaded/started scene must never start paused
 	in_game = true
 	# TESTING ONLY — DELETE BEFORE SHIPPING (SW_RICH covers new games too)
-	if OS.get_environment("SW_RICH") != "":
+	if OS.is_debug_build() and OS.get_environment("SW_RICH") != "":
 		_apply_rich_cheat()
 	oxygen_changed.emit(oxygen, max_oxygen)
 	cargo_changed.emit(carried, banked)
 	inventory_changed.emit()
 	gear_changed.emit()
-	save_game()
+	# NB: deliberately NOT written to disk here — chargen commits the save on
+	# confirm (chargen.gd) and the interior saves on entry. That way, backing
+	# out of a NEW-GAME overwrite during character creation leaves the old save
+	# on disk intact instead of destroying it at the confirm press.
 
 
 # ------------------------------------------------------------------
@@ -1378,6 +1431,12 @@ func build_room(cell: int, type: String) -> bool:
 			connected = true
 			break
 	if not connected:
+		return false
+	# a stat-room's bonus is one-time; refuse a duplicate BEFORE charging so
+	# you never pay full price for a second greenhouse/workshop that does
+	# nothing (plain "room" builds, the only kind the expand bay offers, are
+	# unaffected — they carry no stat and can repeat freely)
+	if type in ["greenhouse", "workshop"] and rooms.values().has(type):
 		return false
 	var cost: int = ROOM_TYPES[type]["cost"]
 	if banked < cost:

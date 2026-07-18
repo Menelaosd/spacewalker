@@ -27,9 +27,13 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func toggle() -> void:
 	visible = not visible
-	get_tree().paused = visible
+	# ref-counted pause so opening/closing the menu never clobbers a pause the
+	# star chart (or another overlay) still needs
 	if visible:
+		GameState.push_pause("menu")
 		_save_btn.text = "Save game"
+	else:
+		GameState.pop_pause("menu")
 
 
 func _build() -> void:
@@ -91,6 +95,6 @@ func _on_save() -> void:
 func _on_quit() -> void:
 	GameState.save_game()
 	visible = false
-	get_tree().paused = false
+	GameState.clear_pauses()   # drop every pause owner so the title isn't frozen
 	GameState.in_game = false
 	Transition.to_scene("res://scenes/title.tscn")

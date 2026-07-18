@@ -67,7 +67,8 @@ func _gui_input(event: InputEvent) -> void:
 	if not visible:
 		return
 	if event is InputEventMouseButton:
-		if event.pressed:
+		# a CLICK closes the card — but a scroll-wheel tick is not a click
+		if event.pressed and event.button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT]:
 			_close()
 		accept_event()
 

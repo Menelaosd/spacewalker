@@ -231,6 +231,8 @@ func _process(delta: float) -> void:
 	vel = vel.lerp(Vector2.ZERO, 1.0 - exp(-DAMP * delta))
 	ship_pos += vel * delta
 	GameState.note_ship_at(ship_pos)   # reveal nearby nebulae on the star chart
+	GameState.sector = ship_pos        # keep the saved position live, so a
+	                                   # mid-flight save/quit doesn't rewind you
 	cam.position = ship_pos
 
 	_near_field = _find_near_field()
@@ -252,7 +254,9 @@ func _process(delta: float) -> void:
 	_update_comets(delta)
 	_update_hud()
 	_update_background()
-	Sfx.thrust_on(absf(_thr) > 0.05 or absf(_turn) > 0.05)
+	# cut the thrust loop the instant a dialog takes over, so it can't drone on
+	# under a rescue conversation that opened mid-burn
+	Sfx.thrust_on((absf(_thr) > 0.05 or absf(_turn) > 0.05) and not _in_dialog)
 	queue_redraw()
 
 
@@ -575,7 +579,7 @@ func _collect_wrecks() -> void:
 					var ft2 := FLOAT_TEXT.new()
 					ft2.text = "hull stripped — no new recipes left aboard"
 					ft2.color = Color(0.7, 0.8, 0.9)
-					ft2.position = w["pos"] + Vector2(0, y)
+					ft2.position = w["pos"] + Vector2(0, y + 18.0)   # clear the salvage line above
 					add_child(ft2)
 			else:
 				var ft3 := FLOAT_TEXT.new()
@@ -718,7 +722,9 @@ func _build_hud() -> void:
 	# last-but-one so it covers the HUD when open; blocked while a dialog owns input.
 	var chart := STARCHART.new()
 	chart.flight = self
-	chart.can_open = func() -> bool: return not _in_dialog
+	chart.z_index = 200   # above the inventory (z=100) and recipe banner
+	# don't open the map over a dialog OR the pause menu
+	chart.can_open = func() -> bool: return not _in_dialog and not GameMenu.visible
 	root.add_child(chart)
 
 	# first-meeting dialog — boarding a survivor's broken ship plays this,
@@ -1217,7 +1223,10 @@ func _draw_near_glints(ci: CanvasItem) -> void:
 # crawls via ship-driven parallax — no wobble/rotation/pulse (motion-sickness
 # safe). Generated once per coarse chunk and cached, like the star patterns.
 const DEEP_CHUNK := 2400.0
-const DEEP_DEPTH := 0.18          # < STAR_LAYERS' nearest depths, so it sits behind
+const DEEP_DEPTH := 0.03          # BELOW every STAR_LAYERS depth (min 0.05), so the
+                                  # layer drawn behind the stars also crawls slowest —
+                                  # was 0.18, which made it parallax faster than the
+                                  # two deepest star layers sitting in front of it
 var _deep_cache := {}
 
 

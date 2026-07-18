@@ -46,7 +46,6 @@ func _ready() -> void:
 	# the element's OWN colour (sampled from its icon) — the same tint the
 	# flight-mode zone rock uses, so inside and outside match exactly
 	_glow_color = Elements.glow_for(vein)
-	health = radius * 4.0
 	# INSIDE the field you see the element's own pixel-art icon (different art
 	# from the flight-mode rock preview, but the SAME element — both derive the
 	# vein from the same mine_key seed). Sizing is uniform and hard-capped so a
@@ -59,10 +58,13 @@ func _ready() -> void:
 		_icon_scale = (target * 2.0) / maxf(sz.x, sz.y)
 		_icon_ofs = -sz * 0.5 * _icon_scale
 		draw_half = maxf(sz.x, sz.y) * 0.5 * _icon_scale
+	# health tracks the VISIBLE size (draw_half is size-capped), so a rock's
+	# mining time always matches how big it looks — no small-looking 160 HP tanks
+	health = draw_half * 5.0
 	_bubble_r = draw_half * 1.05
 	_phase = float(hash(mine_key) % 1000) / 1000.0 * TAU
 	var shape := CircleShape2D.new()
-	shape.radius = draw_half * 0.82
+	shape.radius = draw_half * 0.95   # hitbox hugs the drawn icon (was 0.82 — a dead outer ring)
 	$Collision.shape = shape
 
 

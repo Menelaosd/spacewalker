@@ -4,7 +4,8 @@ extends Control
 ## per-material breakdown) and the search for the five scattered survivors
 ## (pips + next beacon). Sci-fi styled to match the HUD.
 
-const PANEL := Vector2(224.0, 206.0)
+const PANEL := Vector2(224.0, 234.0)   # tall enough for 3-element drive parts
+                                       # + a live rescue beacon (was 206, spilled)
 
 var _font: Font = ThemeDB.fallback_font
 

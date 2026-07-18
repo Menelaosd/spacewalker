@@ -9,6 +9,7 @@ const FADE := 0.45
 
 var _rect: ColorRect
 var _busy := false   # a swap is in flight — swallow repeat calls and stray keys
+var _alpha_tw: Tween   # the one live fade tween, so a new fade cancels the old
 
 
 func _ready() -> void:
@@ -50,6 +51,10 @@ func _input(event: InputEvent) -> void:
 
 
 func _tween_alpha(to: float, dur: float) -> Signal:
-	var tw := create_tween()
-	tw.tween_property(_rect, "color:a", to, dur).set_trans(Tween.TRANS_SINE)
-	return tw.finished
+	# kill any in-flight fade first, so the boot fade-in can't fight a scene
+	# swap that starts inside the 0.45s boot window (both animating color:a)
+	if _alpha_tw != null and _alpha_tw.is_valid():
+		_alpha_tw.kill()
+	_alpha_tw = create_tween()
+	_alpha_tw.tween_property(_rect, "color:a", to, dur).set_trans(Tween.TRANS_SINE)
+	return _alpha_tw.finished

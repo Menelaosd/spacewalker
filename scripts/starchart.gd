@@ -51,12 +51,17 @@ func _unhandled_input(event: InputEvent) -> void:
 		if not visible and not can_open.call():
 			return
 		visible = not visible
-		get_tree().paused = visible   # freeze the sim under the open map
+		# freeze the sim under the open map — via the ref-counted coordinator so
+		# it never fights the pause menu for ownership of get_tree().paused
+		if visible:
+			GameState.push_pause("starchart")
+		else:
+			GameState.pop_pause("starchart")
 		queue_redraw()
 		get_viewport().set_input_as_handled()
 	elif event.physical_keycode == KEY_ESCAPE and visible:
 		visible = false
-		get_tree().paused = false
+		GameState.pop_pause("starchart")
 		queue_redraw()
 		get_viewport().set_input_as_handled()
 

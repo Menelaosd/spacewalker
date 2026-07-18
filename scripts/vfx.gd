@@ -71,7 +71,9 @@ func _emit(parent: Node, pos: Vector2, tex: Texture2D, amount: int, life: float,
 	p.z_index = z
 	parent.add_child(p)
 	p.global_position = pos
-	get_tree().create_timer(life + 0.4).timeout.connect(p.queue_free)
+	# process_always=false → the cleanup timer pauses with the tree, so a burst
+	# emitted just before a pause isn't freed unseen while the game is paused
+	get_tree().create_timer(life + 0.4, false).timeout.connect(p.queue_free)
 
 
 func spark_hit(parent: Node, pos: Vector2, col: Color, beam_dir := Vector2.ZERO) -> void:

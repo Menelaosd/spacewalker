@@ -106,6 +106,9 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_t += delta
+	if _leaving:
+		queue_redraw()   # keep the view coherent during the helm-fade, but freeze
+		return           # hazards/O2 so a burn can't kill the run mid-transition
 	_update_adrift()
 	_update_rescue()
 	_update_flare(delta)
@@ -274,6 +277,10 @@ var _fade: ColorRect
 
 func _drive_ship() -> void:
 	_leaving = true
+	# freeze the suit for the fade — no drifting, firing or O2 drain mid-swap
+	for pl in get_tree().get_nodes_in_group("player"):
+		pl.set_process(false)
+		pl.set_physics_process(false)
 	GameState.bank_cargo()
 	GameState.pending_shift = true
 	GameState.say("Reeling in the line — taking the helm.")

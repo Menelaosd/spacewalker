@@ -41,8 +41,8 @@ func _ready() -> void:
 	_astro = _load_tex("astronaut.png")
 	_tether = _load_tex("tether.png")
 	_quote = QUOTES[randi() % QUOTES.size()]
-	if OS.get_environment("SW_GAMEOVER") != "":
-		_t = 4.5   # screenshot hook: skip the fade-ins so the full screen is captured
+	if OS.is_debug_build() and OS.get_environment("SW_GAMEOVER") != "":
+		_t = 4.5   # screenshot hook (debug only): skip fade-ins for a clean capture
 
 
 func _load_tex(fname: String) -> Texture2D:

@@ -63,7 +63,9 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	var input := Input.get_vector("move_left", "move_right", "move_up", "move_down")
-	var sw := OS.get_environment("SW_WALK")   # debug: hold a direction for screenshots
+	# debug: hold a direction for screenshots — debug builds only, so a shipped
+	# game can never free-walk through the hull via an env var
+	var sw := OS.get_environment("SW_WALK") if OS.is_debug_build() else ""
 	match sw:
 		"right": input = Vector2.RIGHT
 		"left": input = Vector2.LEFT
@@ -84,6 +86,18 @@ func _process(delta: float) -> void:
 		var ny := position + Vector2(0, motion.y)
 		if walk_check.call(ny):
 			position = ny
+		# runtime un-stick: if the spot under our feet just became un-walkable
+		# (a room rebuilt or furniture placed onto the avatar), ease out to the
+		# nearest open spot so we can never be permanently frozen
+		if not walk_check.call(position):
+			for r in [10.0, 20.0, 30.0, 44.0]:
+				for a in range(0, 360, 45):
+					var p: Vector2 = position + Vector2.from_angle(deg_to_rad(float(a))) * r
+					if walk_check.call(p):
+						position = p
+						break
+				if walk_check.call(position):
+					break
 	else:
 		position += motion
 		if bounds.size != Vector2.ZERO:

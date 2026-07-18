@@ -11,10 +11,9 @@ const OXYGEN_DRAIN := 1.5    # per second outside the ship
 const REFILL_RATE := 45.0    # per second while docked
 
 # The lifeline has some give past its rated length — a soft bungee zone,
-# not a wall. Outward speed bleeds off and a pull-back force ramps up
-# with stretch until you simply can't push any farther.
-const TETHER_STRETCH := 46.0      # px of elastic give past max length — a SLIGHT
-                                  # bungee, not a big rubber-band bounce
+# not a wall. Outward speed bleeds off and a pull-back force ramps up with
+# stretch until you simply can't push any farther. The elastic give itself is
+# GameState.tether_stretch() (90px, or 150px with the dampener craft).
 const TETHER_PULL := 520.0        # max pull-back accel at full stretch
 const TETHER_BLEED := 12.0        # how fast outward velocity dies at full stretch
 

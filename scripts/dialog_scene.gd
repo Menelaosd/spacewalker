@@ -63,10 +63,13 @@ func start(char_name: String) -> void:
 	var dialogs: Dictionary = CrewDialogs.DIALOGS
 	if dialogs.has(char_name):
 		_lines = dialogs[char_name]
-	_figure = load("res://assets/sprites/crew/" + char_name.to_lower() + "_figure.png")
+	# guard the string-built paths — a crew name with no art must not crash
+	var fig_path := "res://assets/sprites/crew/" + char_name.to_lower() + "_figure.png"
+	_figure = load(fig_path) if ResourceLoader.exists(fig_path) else null
 	# their ship's interior fills the scene — you BOARDED their wreck; no
 	# space, no radar, no HUD peeking through
-	_bg = load("res://assets/sprites/crew/" + char_name.to_lower() + "_inside.png")
+	var bg_path := "res://assets/sprites/crew/" + char_name.to_lower() + "_inside.png"
+	_bg = load(bg_path) if ResourceLoader.exists(bg_path) else null
 	if _player == null:
 		_player = load("res://assets/sprites/crew/player_figure.png")
 	# preload every expression this conversation references (plus neutral) so

@@ -39,6 +39,9 @@ var can_open: Callable = func() -> bool: return true
 
 func _ready() -> void:
 	visible = OS.get_environment("SW_SHOW_INV") != ""
+	# keep running while the tree is paused, so the overlay can pause gameplay
+	# underneath it (no more moving/firing/losing O2 behind an open inventory)
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	z_index = 100
@@ -82,20 +85,31 @@ func _process(_delta: float) -> void:
 		queue_redraw()
 
 
+func _set_open(v: bool) -> void:
+	## Open/close the overlay AND pause/unpause gameplay underneath it, so the
+	## player can't keep moving, firing or losing oxygen behind the menu.
+	if v == visible:
+		return
+	visible = v
+	if v:
+		GameState.push_pause("inventory")
+	else:
+		_detail = -1
+		GameState.pop_pause("inventory")
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.physical_keycode in [KEY_I, KEY_TAB]:
 			if not visible and not can_open.call():
 				return   # a modal/placement owns the screen — don't stack
-			visible = not visible
-			if not visible:
-				_detail = -1
+			_set_open(not visible)
 			get_viewport().set_input_as_handled()
 		elif event.physical_keycode == KEY_ESCAPE and visible:
 			if _detail >= 0:
 				_detail = -1          # close the trivia card first
 			else:
-				visible = false
+				_set_open(false)
 			get_viewport().set_input_as_handled()
 			queue_redraw()
 	elif visible and event is InputEventMouseButton and event.pressed:

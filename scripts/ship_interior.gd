@@ -21,6 +21,7 @@ const KeyPrompt := preload("res://scripts/key_prompt.gd")
 const CELL_W := 190.0
 const CELL_H := 160.0
 const ORIGIN := Vector2(-760, -320)   # grid top-left (8x4 cells)
+const DOORWAY_HALF := 28.0            # half-width of the door gap in an inter-room wall
 
 # ------------------------------------------------------------------
 # The captain's prop kit (game-assets sheets, cut by tools/extract_props.gd)
@@ -325,6 +326,7 @@ var _rename_edit: LineEdit
 var _rename_hint: Control
 var _ending_t := 0.0   # > 0 while the going-home sequence plays
 var _ending_done := false   # latch so the title swap fires exactly once
+var _hud_layer: CanvasLayer   # hidden during the ending so it doesn't cover it
 
 # fabricator placement mode: a chosen object follows the mouse across the
 # rooms YOU built, snapping to each room's floor grid; click / E to print
@@ -501,6 +503,30 @@ func _build_obstacles() -> void:
 			_obstacles.append(Rect2(
 				_furn_cx(cell, int(p["col"]), int(it["size"])) - fd.x * 0.5 + 1.0,
 				_furn_base_y(cell, int(p["row"])) - bh, fd.x - 2.0, bh))
+	# inter-room bulkheads: block crossing except through the centred door gap
+	var dcols := GameState.SHIP_COLS
+	for cell in GameState.rooms:
+		var ccol: int = int(cell) % dcols
+		for n in [int(cell) + 1, int(cell) + dcols]:
+			if not _built(n):
+				continue
+			if n == cell + 1 and ccol == dcols - 1:
+				continue   # would wrap onto the next row
+			# the merged quarters is one open room — no seam between its cells
+			if cell in QUARTERS_MEMBERS and n in QUARTERS_MEMBERS and _quarters_merged():
+				continue
+			var rc := cell_rect(cell)
+			var mid := (rc.get_center() + cell_rect(n).get_center()) * 0.5
+			if n == cell + 1:   # vertical wall — block the X crossing
+				_obstacles.append(Rect2(mid.x - 5.0, rc.position.y,
+					10.0, (mid.y - DOORWAY_HALF) - rc.position.y))
+				_obstacles.append(Rect2(mid.x - 5.0, mid.y + DOORWAY_HALF,
+					10.0, rc.end.y - (mid.y + DOORWAY_HALF)))
+			else:               # horizontal wall — block the Y crossing
+				_obstacles.append(Rect2(rc.position.x, mid.y - 5.0,
+					(mid.x - DOORWAY_HALF) - rc.position.x, 10.0))
+				_obstacles.append(Rect2(mid.x + DOORWAY_HALF, mid.y - 5.0,
+					rc.end.x - (mid.x + DOORWAY_HALF), 10.0))
 
 
 # ------------------------------------------------------------------
@@ -547,9 +573,23 @@ func _find_cell(type: String) -> int:
 
 # ------------------------------------------------------------------
 var _overlay: Node2D
+var _wall_tex: Texture2D = null   # inter-room wall art (null = hand-drawn strip)
 
 
 func _ready() -> void:
+	# inter-room wall art — a generated painted metal tile, chosen by a 4-agent
+	# judge panel (paneled_0: clean recessed panels + cyan trim, best match to
+	# the hull/prop kit). SW_WALLSTYLE overrides for comparison: "drawn" = the
+	# vector fallback, or an absolute PNG path to trial another tile.
+	_wall_tex = preload("res://assets/props/idwall.png")
+	var _ws := OS.get_environment("SW_WALLSTYLE")
+	if _ws == "drawn":
+		_wall_tex = null
+	elif _ws != "":
+		var _wimg := Image.new()
+		if _wimg.load(_ws) == OK:
+			_wimg.generate_mipmaps()
+			_wall_tex = ImageTexture.create_from_image(_wimg)
 	# mipmapped filtering: hi-res prop art drawn small shimmers ("weird
 	# pixelation") under plain linear minification
 	texture_filter = TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
@@ -947,50 +987,53 @@ func _tiled_wall_v(y0: float, y1: float, x: float, inside_e: bool) -> void:
 
 func _draw_doorway(mid: Vector2, horizontal: bool, edge_half: float,
 		cap_a: bool, cap_b: bool) -> void:
-	## A thin metallic bulkhead separating two built rooms, with a large
-	## powered door standing open in the middle so the crew can pass. The
-	## flanking wall segments reuse the hull's own plated wall art (so the
-	## divider reads as the same metal), and the door is a lit recessed
-	## threshold with retracted leaves and amber status lights.
-	## `horizontal` = the rooms are left/right neighbours, i.e. a VERTICAL
-	## shared edge → a vertical wall. cap_a/cap_b say whether each end is
-	## flanked by a wall (extend to meet it) or open floor (stop clean).
-	const DOOR_HALF := 32.0        # a big 64px opening
-	var end_a := edge_half if cap_a else edge_half - 6.0
-	var end_b := edge_half if cap_b else edge_half - 6.0
-	if horizontal:
-		# vertical shared edge; the wall runs N–S along x = mid.x
-		_tiled_wall_v(mid.y - end_a, mid.y - DOOR_HALF, mid.x, true)
-		_tiled_wall_v(mid.y + DOOR_HALF, mid.y + end_b, mid.x, true)
-	else:
-		# horizontal shared edge; the wall runs E–W along y = mid.y
-		_tiled_wall_h(mid.x - end_a, mid.x - DOOR_HALF, mid.y, true)
-		_tiled_wall_h(mid.x + DOOR_HALF, mid.x + end_b, mid.y, true)
-
-	# the door, drawn in local space: +X runs along the edge, +Y crosses rooms
+	## A beautiful thin metal bulkhead between two built rooms, with a plain
+	## OPEN passage in the middle (no door) so the crew can walk through.
+	## Collision (_build_obstacles) blocks the wall and leaves the gap walkable.
+	## `horizontal` = left/right neighbours (a vertical shared edge → vertical
+	## wall). The wall run is either a generated art tile (_wall_tex, chosen by
+	## SW_WALLSTYLE) or the hand-drawn steel strip below.
+	var end_a := edge_half - (0.0 if cap_a else 5.0)
+	var end_b := edge_half - (0.0 if cap_b else 5.0)
 	_ci.draw_set_transform(mid, PI * 0.5 if horizontal else 0.0, Vector2.ONE)
-	var pulse := 0.5 + 0.5 * sin(_reactor * 2.0)
-	# recessed threshold plate, then the lit inner walkway
-	_ci.draw_rect(Rect2(-DOOR_HALF, -12.0, 2.0 * DOOR_HALF, 24.0), Color(0.08, 0.12, 0.17))
-	_ci.draw_rect(Rect2(-DOOR_HALF + 5.0, -9.0, 2.0 * DOOR_HALF - 10.0, 18.0), Color(0.13, 0.18, 0.24))
-	# the two rails the leaves slide along
-	_ci.draw_line(Vector2(-DOOR_HALF + 4.0, -9.0), Vector2(DOOR_HALF - 4.0, -9.0), Color(0.35, 0.55, 0.7, 0.5), 1.0)
-	_ci.draw_line(Vector2(-DOOR_HALF + 4.0, 9.0), Vector2(DOOR_HALF - 4.0, 9.0), Color(0.35, 0.55, 0.7, 0.5), 1.0)
-	# a soft powered glow down the centre of the open threshold
-	_ci.draw_rect(Rect2(-DOOR_HALF + 5.0, -3.0, 2.0 * DOOR_HALF - 10.0, 6.0),
-		Color(0.35, 0.8, 1.0, 0.10 + 0.06 * pulse))
-	# jamb posts + retracted leaves + status lights at each side
-	for sx in [-1.0, 1.0]:
-		var x: float = sx * DOOR_HALF
-		# bright jamb post, just OUTSIDE the opening against the wall run
-		_ci.draw_rect(Rect2(x - (3.0 if sx < 0.0 else 0.0), -12.0, 3.0, 24.0), Color(0.30, 0.38, 0.47))
-		# retracted door leaf, tucked to the jamb INSIDE the opening
-		var lx: float = minf(x - sx * 8.0, x)
-		_ci.draw_rect(Rect2(lx, -11.0, 8.0, 22.0), Color(0.22, 0.29, 0.37))
-		_ci.draw_line(Vector2(lx, -11.0), Vector2(lx, 11.0), Color(1, 1, 1, 0.12), 1.0)
-		# amber status light on the frame
-		_ci.draw_circle(Vector2(x - sx * 2.0, -7.0), 1.6, Color(1.0, 0.55, 0.15, 0.55 + 0.4 * pulse))
+	for seg in [[-end_a, -DOORWAY_HALF], [DOORWAY_HALF, end_b]]:
+		var x0: float = seg[0]
+		var x1: float = seg[1]
+		if x1 - x0 >= 1.0:
+			_draw_wall_run(x0, x1)
 	_ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+const WALL_TH := 11.0   # in-game wall band height (drawn thin, seen top-down)
+
+
+func _draw_wall_run(x0: float, x1: float) -> void:
+	## One flanking wall segment in local space (+X along the edge). Draws the
+	## chosen generated tile if loaded, else a hand-drawn beveled steel strip.
+	var wr := x1 - x0
+	if _wall_tex != null:
+		var ts := _wall_tex.get_size()
+		var nat := WALL_TH * ts.x / ts.y          # tile length at wall height
+		var n := maxi(1, roundi(wr / nat))
+		var seg := wr / n
+		for i in n:
+			_ci.draw_texture_rect(_wall_tex,
+				Rect2(x0 + i * seg, -WALL_TH * 0.5, seg + 0.5, WALL_TH), false)
+		return
+	# hand-drawn steel strip: dark body, top edge-light, bottom shadow, rivets,
+	# a thin cyan trim line — thin but with real material read
+	var h := WALL_TH
+	_ci.draw_rect(Rect2(x0, -h * 0.5, wr, h), Color(0.14, 0.18, 0.24))
+	_ci.draw_rect(Rect2(x0, -h * 0.5, wr, h * 0.34), Color(0.24, 0.30, 0.39))
+	_ci.draw_rect(Rect2(x0, -h * 0.5, wr, 1.4), Color(0.40, 0.50, 0.62))
+	_ci.draw_rect(Rect2(x0, h * 0.5 - 1.6, wr, 1.6), Color(0, 0, 0, 0.45))
+	_ci.draw_line(Vector2(x0, 1.0), Vector2(x1, 1.0), Color(0.30, 0.72, 0.95, 0.30), 1.0)
+	for s in range(0, int(wr / 14.0) + 1):
+		var sxp := x0 + 7.0 + s * 14.0
+		if sxp > x1 - 3.0:
+			break
+		_ci.draw_line(Vector2(sxp, -h * 0.5 + 2.0), Vector2(sxp, h * 0.5 - 2.0), Color(0, 0, 0, 0.22), 1.0)
+		_ci.draw_circle(Vector2(sxp, -h * 0.5 + 2.6), 0.9, Color(0.5, 0.58, 0.68, 0.7))
 
 
 func _process(delta: float) -> void:
@@ -1117,6 +1160,8 @@ func _station_label(st: Dictionary) -> String:
 						(GameState.RESCUES.size() - GameState.rescued_count())
 				return "E    ALL ABOARD — SET COURSE FOR HAVEN"
 			var part: Dictionary = GameState.quest_part()
+			if part.is_empty():
+				return "JUMP DRIVE · online"   # guard a game_complete/quest_stage desync
 			if GameState.quest_can_install():
 				return "E    Install the jump drive — %s" % part["name"]
 			return "JUMP DRIVE · %s  —  %s" % [part["name"], GameState.quest_progress_text()]
@@ -1142,6 +1187,10 @@ func _room_at(p: Vector2) -> String:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	# the going-home ending owns the screen — swallow all input so the credits
+	# can't be interrupted, re-triggered, or the player walked around during it
+	if _ending_t > 0.0:
+		return
 	# fabricator placement mode owns ALL input while an object is in hand
 	if _placing_id != "":
 		if event is InputEventMouseButton and event.pressed \
@@ -1217,6 +1266,15 @@ func _unhandled_input(event: InputEvent) -> void:
 			GameState.say("Can't craft %s — check materials." % r["name"])
 
 
+func _begin_ending() -> void:
+	## Start the going-home finale: freeze the crew and hide the whole HUD so
+	## the fade-to-black + HAVEN credits render clean, not under the panels.
+	_ending_t = 0.001
+	crew.set_process(false)
+	if _hud_layer != null:
+		_hud_layer.visible = false
+
+
 func _interact(st: Dictionary) -> void:
 	match st["kind"]:
 		"drive":
@@ -1226,7 +1284,7 @@ func _interact(st: Dictionary) -> void:
 					GameState.say("The drive hums, ready. But %d beacon(s) still sing out there — nobody gets left behind." % \
 						(GameState.RESCUES.size() - GameState.rescued_count()))
 					return
-				_ending_t = 0.001   # roll credits — all six, going home
+				_begin_ending()   # roll credits — all six, going home
 				return
 			var part: Dictionary = GameState.quest_part()
 			if GameState.quest_install():
@@ -1256,6 +1314,7 @@ func _interact(st: Dictionary) -> void:
 				GameState.say("Hull section built out. What it becomes is up to you — later.")
 				_define_stations()
 				_spawn_lights()
+				_build_obstacles()   # new bulkheads/doors around the built cell
 			else:
 				Sfx.play("deny", -10.0)
 				GameState.say("Can't build — need %d ore (have %d)." % [cost, GameState.banked])
@@ -1442,6 +1501,7 @@ func _draw_placement() -> void:
 # ==================================================================
 func _build_hud() -> void:
 	var layer := CanvasLayer.new()
+	_hud_layer = layer
 	add_child(layer)
 	var root := Control.new()
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -1834,34 +1894,42 @@ func _draw() -> void:
 	var win_pos := Vector2(qc.x, cell_rect(_find_cell("quarters")).position.y - 3)
 	_prop("window", win_pos, 66.0)
 	_glow(win_pos + Vector2(0, 10), (GLOWS["window"][0] as Color), GLOWS["window"][1])
-	# doorway thresholds between built neighbours
+	# (inter-room bulkhead walls are drawn inside the depth passes now — see
+	# _draw_walls — so the crew/props sit correctly in front of / behind them)
+	_draw_expansions()
+	_draw_depth(true)   # props behind the crew; the rest go to _overlay
+
+
+func _draw_walls(behind: bool) -> void:
+	## Inter-room bulkhead walls, drawn in the depth passes so they interact
+	## correctly with the crew and props. An E–W wall splits at its own y line
+	## (crew below it draw in front, above it behind); a thin N–S wall always
+	## sits in the behind pass.
+	var fy := _feet_y()
 	var dcols := GameState.SHIP_COLS
 	for cell in GameState.rooms:
 		for n in GameState.cell_neighbors(cell):
-			# no threshold WITHIN the merged quarters — 0 and 1 are one open room
+			# no wall WITHIN the merged quarters — 0 and 1 are one open room
 			if cell in QUARTERS_MEMBERS and n in QUARTERS_MEMBERS and _quarters_merged():
 				continue
-			if n > cell and _built(n):
-				var mid := (cell_rect(cell).get_center() + cell_rect(n).get_center()) * 0.5
-				var horizontal := absi(n - cell) == 1
-				# jamb caps only where a wall actually flanks that end of the
-				# gap — at fully open corners the floor continues, no trim
-				var cap_a: bool
-				var cap_b: bool
-				if horizontal:
-					# shared VERTICAL edge; local -X = north end, +X = south
-					cap_a = not (_built(cell - dcols) and _built(n - dcols))
-					cap_b = not (_built(cell + dcols) and _built(n + dcols))
-				else:
-					# shared HORIZONTAL edge; local -X = west end, +X = east
-					var dcol: int = cell % dcols
-					cap_a = dcol == 0 or not (_built(cell - 1) and _built(n - 1))
-					cap_b = dcol == dcols - 1 or not (_built(cell + 1) and _built(n + 1))
-				# left/right neighbours share a VERTICAL edge
-				_draw_doorway(mid, horizontal,
-					(CELL_H if horizontal else CELL_W) * 0.5, cap_a, cap_b)
-	_draw_expansions()
-	_draw_depth(true)   # props behind the crew; the rest go to _overlay
+			if not (n > cell and _built(n)):
+				continue
+			var vertical_wall := absi(n - cell) == 1   # left/right neighbour → N–S wall
+			var mid := (cell_rect(cell).get_center() + cell_rect(n).get_center()) * 0.5
+			var wall_behind := true if vertical_wall else (mid.y <= fy)
+			if wall_behind != behind:
+				continue
+			var cap_a: bool
+			var cap_b: bool
+			if vertical_wall:
+				cap_a = not (_built(cell - dcols) and _built(n - dcols))
+				cap_b = not (_built(cell + dcols) and _built(n + dcols))
+			else:
+				var dcol: int = int(cell) % dcols
+				cap_a = dcol == 0 or not (_built(cell - 1) and _built(n - 1))
+				cap_b = dcol == dcols - 1 or not (_built(cell + 1) and _built(n + 1))
+			_draw_doorway(mid, vertical_wall,
+				(CELL_H if vertical_wall else CELL_W) * 0.5, cap_a, cap_b)
 
 
 func _draw_ending() -> void:
@@ -2017,6 +2085,7 @@ func _draw_depth(behind: bool) -> void:
 	## crew's feet draw BEHIND (base canvas); the rest draw on the overlay,
 	## in front of the crew. Recomputed every frame as the crew walks.
 	var fy := _feet_y()
+	_draw_walls(behind)   # bulkheads sit in the correct depth band vs the crew
 	for cell in GameState.rooms:
 		if not _draws_props(cell):
 			continue
@@ -2371,14 +2440,34 @@ func _draw_expansions() -> void:
 	## Expansion bays — a holographic "buildable plot" covering the WHOLE cell.
 	## Cyan + '+' when affordable, red with a full-cell X when not. Drawn in the
 	## ship's own vector-UI language (replaces the old olive/X placeholder tile).
+	## A bare cell can carry MULTIPLE expand stations (one reachable from each
+	## adjacent room), so dedupe by cell and draw each plot exactly ONCE — a
+	## cell is "active" if any of its stations is the one being looked at.
+	var cell_active := {}
 	for i in _stations.size():
 		var st: Dictionary = _stations[i]
 		if st["kind"] != "expand":
 			continue
-		var on := (i == _active)
-		var pulse := 0.5 + 0.5 * sin(_reactor * 2.2)
-		var afford: bool = GameState.banked >= int(GameState.ROOM_TYPES["room"]["cost"])
-		_draw_buildable_plot(cell_rect(st["cell"]), afford, on, pulse)
+		var c: int = st["cell"]
+		if not cell_active.has(c):
+			cell_active[c] = false
+		if i == _active:
+			cell_active[c] = true
+	var pulse := 0.5 + 0.5 * sin(_reactor * 2.2)
+	var afford: bool = GameState.banked >= int(GameState.ROOM_TYPES["room"]["cost"])
+	for c in cell_active:
+		if cell_active[c]:
+			_draw_buildable_plot(cell_rect(c), afford, true, pulse)
+		else:
+			_draw_plot_hint(cell_rect(c), pulse)
+
+
+func _draw_plot_hint(rect: Rect2, pulse: float) -> void:
+	var col := Color(0.42, 0.72, 0.96, 0.15 + 0.05 * pulse)
+	_dashed_rect(rect.grow(-10.0), col, 1.5, 9.0, 9.0)
+	var c := rect.get_center()
+	draw_string(_font, c + Vector2(-8.0, 6.0), "+", HORIZONTAL_ALIGNMENT_CENTER, 16, 18,
+		Color(0.42, 0.72, 0.96, 0.22 + 0.1 * pulse))
 
 
 func _draw_buildable_plot(rect: Rect2, afford: bool, on: bool, pulse: float) -> void:

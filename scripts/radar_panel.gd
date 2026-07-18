@@ -192,15 +192,18 @@ func _plot_walk(c: Vector2, pp: Vector2, k: float, sweep: float, flick: float) -
 	# loose ore chunks — faint sparks worth swinging back for
 	for p in get_tree().get_nodes_in_group("pickups"):
 		var rel: Vector2 = (p.global_position - pp) * k
-		if rel.length() > R - 2.0:
+		if rel.length() > R - 3.5:   # keep the blip's own radius inside the dome
 			continue
 		var col: Color = Elements.hue_of(p.element) if p.element != "" else acc
 		draw_circle(c + rel, 1.3,
 			Color(col.r, col.g, col.b, 0.8 * _blip_alpha(rel.angle(), sweep) * flick))
 
-	# the ship — clamped to the rim when out of range, so it always points home
+	# the ship — clamped to the rim when out of range, so it always points home.
+	# Skip entirely when there's no dock ship, or the blip would point at the
+	# universe origin instead of home.
 	var ship := get_tree().get_first_node_in_group("dock_ship")
-	_plot_home(c, (ship.global_position if ship != null else Vector2.ZERO) - pp, k, flick)
+	if ship != null:
+		_plot_home(c, ship.global_position - pp, k, flick)
 
 
 # ------------------------------------------------------------------

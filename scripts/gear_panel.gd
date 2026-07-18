@@ -25,7 +25,9 @@ func _ready() -> void:
 	custom_minimum_size = _get_minimum_size()
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	GameState.gear_changed.connect(_on_gear_changed)
-	GameState.oxygen_changed.connect(func(_c, _m): queue_redraw())
+	# (no oxygen_changed redraw: this panel shows the O2 TANK capacity, which
+	# only changes on an upgrade — that already fires gear_changed. Redrawing
+	# on every live-oxygen tick was pure wasted work.)
 
 
 func _on_gear_changed() -> void:

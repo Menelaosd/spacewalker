@@ -46,9 +46,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 			_start_game()
 			return
-		advance = true
-	elif event is InputEventMouseButton and event.pressed:
-		advance = true
+		# a bare modifier tap (Shift/Ctrl/Alt/Meta) is fidgeting, not "continue"
+		if event.physical_keycode not in [KEY_SHIFT, KEY_CTRL, KEY_ALT, KEY_META]:
+			advance = true
+	elif event is InputEventMouseButton and event.pressed \
+			and event.button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT]:
+		advance = true   # a click advances; a scroll-wheel tick does not
 	if not advance:
 		return
 	var text: String = _pages[_page]

@@ -57,7 +57,12 @@ static func texture_for(i: int) -> ImageTexture:
 	var cool_a := Color.from_hsv(fmod(col.h + 0.38, 1.0), col.s * 0.9, col.v)  # teal/green side
 	var cool_b := Color.from_hsv(fmod(col.h + 0.55, 1.0), col.s * 0.85, col.v) # blue side
 
-	var img := Image.create(SIZE, SIZE, false, Image.FORMAT_RGBA8)
+	# write into a raw RGBA8 byte buffer and build the Image ONCE at the end —
+	# ~100k scripted Image.set_pixel() calls per cloud was the frame hitch on
+	# first sight. Buffer starts zeroed = fully transparent, so skipped pixels
+	# need no write.
+	var buf := PackedByteArray()
+	buf.resize(SIZE * SIZE * 4)
 	var c := SIZE * 0.5
 	for y in SIZE:
 		for x in SIZE:
@@ -101,7 +106,12 @@ static func texture_for(i: int) -> ImageTexture:
 					minf(pow(lv, 1.05) * falloff * 1.15, 0.82))
 			if out.a < 0.012:
 				continue
-			img.set_pixel(x, y, out)
+			var idx := (y * SIZE + x) * 4
+			buf[idx] = int(clampf(out.r, 0.0, 1.0) * 255.0)
+			buf[idx + 1] = int(clampf(out.g, 0.0, 1.0) * 255.0)
+			buf[idx + 2] = int(clampf(out.b, 0.0, 1.0) * 255.0)
+			buf[idx + 3] = int(clampf(out.a, 0.0, 1.0) * 255.0)
+	var img := Image.create_from_data(SIZE, SIZE, false, Image.FORMAT_RGBA8, buf)
 	var tex := ImageTexture.create_from_image(img)
 	_cache[i] = tex
 	return tex

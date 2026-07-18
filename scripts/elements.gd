@@ -330,7 +330,9 @@ static func _sample(fractions: Dictionary, roll := -1.0) -> String:
 		acc += fractions[sym]
 		if roll <= acc:
 			return sym
-	return "Fe"
+	# float error can leave `acc` a hair below 1.0; fall back to the LAST symbol
+	# of THIS pool (a gas scoop must never fall through to iron)
+	return fractions.keys()[-1] if not fractions.is_empty() else "Fe"
 
 
 # A small pool of COLOURFUL, non-economy elements salted into fields for visual

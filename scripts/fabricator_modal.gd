@@ -89,7 +89,11 @@ func _move_sel(dx: int, dy: int) -> void:
 	var row := _sel / GRID_COLS
 	col = clampi(col + dx, 0, GRID_COLS - 1)
 	row = clampi(row + dy, 0, int(ceil(n / float(GRID_COLS))) - 1)
-	_sel = clampi(row * GRID_COLS + col, 0, n - 1)
+	var target := row * GRID_COLS + col
+	# only move if that cell actually holds an item — moving into an empty cell
+	# of a partial last row keeps the selection put instead of jumping columns
+	if target < n:
+		_sel = target
 	queue_redraw()
 
 

@@ -254,7 +254,7 @@ const ITEMS := {
 		"cost": {"Ti": 5, "W": 2, "U": 1}, "desc": "A tame star in a cage.",
 		"tex": preload("res://assets/craft/reactor_core.png")},
 	"battery_bank":  {"name": "Battery Bank", "cat": "ENGINEERING", "size": 1,
-		"cost": {"Li": 3, "Ni": 2, "Al": 2}, "desc": "Lithium for rainy lightyears.",
+		"cost": {"Li": 1, "Ni": 2, "Al": 2}, "desc": "Lithium for rainy lightyears.",
 		"tex": preload("res://assets/craft/battery_bank.png")},
 	"fuel_tank":     {"name": "Fuel Tank", "cat": "ENGINEERING", "size": 2,
 		"cost": {"Fe": 4, "H": 3}, "desc": "Hydrogen, handle with respect.",
