@@ -461,8 +461,8 @@ const WIDTHS := {
 	"ottoman": 24, "footlocker": 28, "folding_screen": 38, "painting": 26,
 	"bench_seat": 40, "side_table": 26, "wall_shelf": 30, "luggage": 28,
 	# galley
-	"kitchen_counter": 50, "sink_unit": 46, "stove": 46, "fridge": 30,
-	"microwave_station": 42, "coffee_bar": 42, "prep_station": 44, "pantry": 30,
+	"kitchen_counter": 50, "sink_unit": 34, "stove": 46, "fridge": 30,
+	"microwave_station": 30, "coffee_bar": 42, "prep_station": 44, "pantry": 30,
 	"dining_table": 70, "cafe_table": 50, "bar_counter": 64, "vending_machine": 28,
 	"water_cooler": 22, "recycler": 42, "espresso_machine": 24,
 	"popcorn_machine": 26, "dish_rack": 42, "freezer": 46, "produce_rack": 44,
@@ -470,7 +470,7 @@ const WIDTHS := {
 	"serving_cart": 28,
 	# science
 	"med_bed": 50, "body_scanner": 62, "medicine_cabinet": 28, "surgery_light": 28,
-	"lab_bench": 48, "microscope_desk": 46, "holo_table": 46, "server_rack": 28,
+	"lab_bench": 48, "microscope_desk": 46, "holo_table": 38, "server_rack": 28,
 	"stasis_tube": 28, "specimen_tank": 28, "hydroponic_tray": 46, "grow_rack": 30,
 	"terrarium_dome": 42, "algae_tank": 28, "centrifuge": 42, "sample_fridge": 28,
 	"uv_light": 42, "seedling_table": 44, "water_purifier": 42, "robot_arm": 44,

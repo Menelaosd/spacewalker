@@ -14,6 +14,12 @@ steam_appid.txt
 # Claude Code personal settings
 .claude/settings.local.json
 
+# External API secrets — NEVER commit. Docs live in docs/EXTERNAL_APIS.md (no secrets).
+/config/external_apis.conf
+/config/*.secret
+/config/*.local.conf
+.pixellab_key
+
 # OS junk
 .DS_Store
 Thumbs.db

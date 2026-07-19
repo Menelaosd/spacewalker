@@ -178,6 +178,9 @@ var _scoop_accum := 0.0
 
 # Where the ship is parked in open space. ZERO = home station.
 var sector := Vector2.ZERO
+# True while the ship is sitting in/near an asteroid GATHERING field — flight keeps this
+# fresh so the interior airlock only lets you spacewalk when there's a zone to walk into.
+var at_field := false
 
 # --- Who's in the suit — set by the crew registry on a new game ---
 var pilot := {"name": "", "gender": "", "age": 27}
@@ -341,6 +344,7 @@ var adrift := false         # new-game opening: floating free, no lifeline —
 var pending_shift := false  # a shift only ticks after real work: set when
                             # you leave the dock, fly somewhere, or black out
 var wake_on_bunk := false   # set by a blackout; interior spawns you in bed
+var enter_at_cockpit := false   # set when stepping in from the helm; spawns at the bridge
 var last_lost: int = 0      # ore lost in the last blackout
 var flare_phase := ""       # "", "warn", "burn" — set by the dive scene
 
@@ -531,6 +535,9 @@ func _apply_rich_cheat() -> void:
 		elements[e[0]] = 4000
 		discovered[e[0]] = true
 	banked = 4000
+	# unlock every fabricator recipe too, so the whole print catalogue is testable
+	for id in Craftables.ITEMS:
+		recipes_unlocked[id] = true
 
 
 func drain_oxygen(amount: float) -> bool:
@@ -784,12 +791,21 @@ func save_game() -> void:
 		"sector": [sector.x, sector.y],
 		"saved_at": Time.get_date_string_from_system(),
 	}
-	var f := FileAccess.open(save_path(slot), FileAccess.WRITE)
+	# Atomic write: serialize to a temp file, fully flush it, THEN swap it over the
+	# real slot. save_game() fires every frame while cruising scrap; a truncate-in-place
+	# write (open WRITE on the real file) leaves the slot empty/half-written for the whole
+	# duration, so a crash or kill mid-write wiped the entire save. With temp+rename the
+	# real file is only ever the previous complete save or the new complete save.
+	var tmp := save_path(slot) + ".tmp"
+	var f := FileAccess.open(tmp, FileAccess.WRITE)
 	if f == null:
 		push_error("Could not write save slot %d" % slot)
 		return
 	f.store_string(JSON.stringify(data, "\t"))
 	f.close()
+	var err := DirAccess.rename_absolute(tmp, save_path(slot))
+	if err != OK:
+		push_error("Could not finalize save slot %d (rename failed: %d)" % [slot, err])
 
 
 func load_game(s: int) -> bool:
@@ -934,6 +950,7 @@ func _reset_session_flags() -> void:
 	adrift = false
 	pending_shift = false
 	wake_on_bunk = false
+	enter_at_cockpit = false
 	last_lost = 0
 	flare_phase = ""
 
@@ -1322,7 +1339,6 @@ func furniture_fits(cell: int, id: String, col: int, row: int, loading := false)
 	# being jammed halfway inside a bed). The adjacent-row rule is
 	# placement-only (`loading` relaxes it so older saves keep their rooms).
 	var flat: bool = Craftables.ITEMS[id].get("flat", false)
-	var my_tall: bool = not flat and Craftables.dims_of(id).y > 38.0
 	for p in furniture_at(cell):
 		var pid: String = p["id"]
 		var pflat: bool = Craftables.ITEMS[pid].get("flat", false)
@@ -1332,9 +1348,6 @@ func furniture_fits(cell: int, id: String, col: int, row: int, loading := false)
 			continue
 		var drow := absi(int(p["row"]) - row)
 		if drow == 0 and pflat == flat:
-			return false
-		if not loading and drow == 1 and not flat and not pflat \
-				and (my_tall or Craftables.dims_of(pid).y > 38.0):
 			return false
 	return true
 
@@ -1468,10 +1481,19 @@ func delete_save(s: int) -> void:
 
 
 func slot_data(s: int) -> Dictionary:
-	## Raw contents of a slot file, or {} if empty/corrupt.
-	if not FileAccess.file_exists(save_path(s)):
+	## Raw contents of a slot file, or {} if empty/corrupt. Falls back to the atomic-
+	## write temp file if the real slot is missing/unreadable — recovers a save that
+	## crashed inside the tiny remove→rename window of save_game().
+	var d := _read_slot_file(save_path(s))
+	if not d.is_empty():
+		return d
+	return _read_slot_file(save_path(s) + ".tmp")
+
+
+func _read_slot_file(path: String) -> Dictionary:
+	if not FileAccess.file_exists(path):
 		return {}
-	var f := FileAccess.open(save_path(s), FileAccess.READ)
+	var f := FileAccess.open(path, FileAccess.READ)
 	if f == null:
 		return {}
 	var parsed: Variant = JSON.parse_string(f.get_as_text())

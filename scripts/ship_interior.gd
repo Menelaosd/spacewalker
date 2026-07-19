@@ -145,10 +145,8 @@ const ROOM_PROPS := {
 		# left-wall personal nook (no tool board — makes no sense in a berth)
 		["wardrobe", Vector2(-172, -4), 34.0],
 		["chair", Vector2(-146, 24), 18.0],
-		["plant", Vector2(-176, 52), 22.0],
 		# cosy seat in the lower-right corner (was a workbench desk — removed)
 		["chair", Vector2(156, 58), 18.0],
-		["plant", Vector2(182, 64), 20.0],
 	],
 	"engine": [
 		["batteries", Vector2(-60, 42), 52.0],
@@ -442,6 +440,60 @@ const STATION_PROP := {
 }
 
 
+# Ambient glow for PLACED CRAFTABLE devices (fabricator items). Same [colour,
+# radius] shape as GLOWS, but keyed by craftable id and applied in
+# _draw_furniture (visual pool) + _spawn_lights (real PointLight2D).
+const CRAFT_GLOWS := {
+	"reactor_core": [Color(0.35, 0.8, 1.0), 40],
+	"battery_bank": [Color(0.4, 1.0, 0.5), 20],
+	"smelter": [Color(1.0, 0.55, 0.2), 30],
+	"laser_cutter": [Color(1.0, 0.55, 0.2), 20],
+	"workbench_arm": [Color(0.35, 0.8, 1.0), 20],
+	"coolant_tank": [Color(0.35, 0.8, 1.0), 30],
+	"tesla_coil": [Color(0.35, 0.8, 1.0), 30],
+	"stove": [Color(1.0, 0.55, 0.2), 30],
+	"microwave_station": [Color(1.0, 0.55, 0.2), 20],
+	"bar_counter": [Color(1.0, 0.4, 0.8), 30],
+	"vending_machine": [Color(0.35, 0.8, 1.0), 30],
+	"espresso_machine": [Color(1.0, 0.55, 0.2), 20],
+	"popcorn_machine": [Color(1.0, 0.55, 0.2), 30],
+	"freezer": [Color(0.35, 0.8, 1.0), 20],
+	"brew_urn": [Color(1.0, 0.55, 0.2), 20],
+	"rice_cooker": [Color(1.0, 0.55, 0.2), 20],
+	"arcade_cabinet": [Color(0.7, 0.4, 1.0), 30],
+	"jukebox": [Color(1.0, 0.55, 0.2), 30],
+	"holo_chess": [Color(0.35, 0.8, 1.0), 30],
+	"telescope": [Color(0.35, 0.8, 1.0), 20],
+	"aquarium": [Color(0.35, 0.8, 1.0), 30],
+	"fireplace": [Color(1.0, 0.55, 0.2), 30],
+	"alien_plant": [Color(0.4, 1.0, 0.5), 30],
+	"crystal_planter": [Color(0.7, 0.4, 1.0), 20],
+	"dance_pad": [Color(0.7, 0.4, 1.0), 30],
+	"synth_keyboard": [Color(1.0, 0.55, 0.2), 20],
+	"planetarium": [Color(0.35, 0.8, 1.0), 30],
+	"gem_case": [Color(0.7, 0.4, 1.0), 20],
+	"sleep_pod": [Color(0.35, 0.8, 1.0), 30],
+	"nightstand": [Color(1.0, 0.55, 0.2), 20],
+	"desk_terminal": [Color(0.4, 1.0, 0.5), 30],
+	"floor_lamp": [Color(1.0, 0.55, 0.2), 30],
+	"vanity_mirror": [Color(1.0, 0.55, 0.2), 20],
+	"med_bed": [Color(0.35, 0.8, 1.0), 20],
+	"body_scanner": [Color(0.35, 0.8, 1.0), 30],
+	"surgery_light": [Color(1.0, 0.55, 0.2), 30],
+	"lab_bench": [Color(0.4, 1.0, 0.5), 20],
+	"microscope_desk": [Color(1.0, 0.55, 0.2), 20],
+	"server_rack": [Color(0.4, 1.0, 0.5), 20],
+	"stasis_tube": [Color(0.35, 0.8, 1.0), 30],
+	"specimen_tank": [Color(0.4, 1.0, 0.5), 30],
+	"hydroponic_tray": [Color(0.4, 1.0, 0.5), 20],
+	"algae_tank": [Color(0.4, 1.0, 0.5), 30],
+	"uv_light": [Color(0.7, 0.4, 1.0), 40],
+	"water_purifier": [Color(1.0, 0.55, 0.2), 30],
+	"lab_console": [Color(0.35, 0.8, 1.0), 30],
+	"culture_cylinder": [Color(0.4, 1.0, 0.5), 30],
+}
+
+
 func _glow(pos: Vector2, col: Color, radius: float) -> void:
 	## Dancing ambient light: the halo breathes, shimmers and sways a few
 	## px around its prop, and casts a swaying pool on the floor below.
@@ -573,6 +625,7 @@ func _find_cell(type: String) -> int:
 
 # ------------------------------------------------------------------
 var _overlay: Node2D
+var _deck: Node2D   # smooth-filtered floor/backdrop layer, behind everything
 var _wall_tex: Texture2D = null   # inter-room wall art (null = hand-drawn strip)
 
 
@@ -592,14 +645,23 @@ func _ready() -> void:
 			_wall_tex = ImageTexture.create_from_image(_wimg)
 	# mipmapped filtering: hi-res prop art drawn small shimmers ("weird
 	# pixelation") under plain linear minification
-	texture_filter = TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	texture_filter = TEXTURE_FILTER_NEAREST_WITH_MIPMAPS_ANISOTROPIC
 	_load_device_anims()   # cache any device loop frames (silent if none on disk)
 	_define_stations()
+
+	# DECK layer: the tiled floor + hull backdrop draw here, BEHIND everything, and
+	# keep the smooth LINEAR+mipmap filter so the repeating floor pattern doesn't
+	# shimmer as the camera drifts. Sprites (on self/_overlay) stay crisp NEAREST.
+	_deck = Node2D.new()
+	_deck.texture_filter = TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	_deck.show_behind_parent = true
+	add_child(_deck)
+	_deck.draw.connect(_draw_deck)
 
 	# in-front-of-crew layer: added after Crew in the tree, so its draws
 	# cover the crew — the depth passes decide what lands where
 	_overlay = Node2D.new()
-	_overlay.texture_filter = TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	_overlay.texture_filter = TEXTURE_FILTER_NEAREST_WITH_MIPMAPS_ANISOTROPIC
 	add_child(_overlay)
 	_overlay.draw.connect(_draw_overlay)
 
@@ -626,6 +688,7 @@ func _ready() -> void:
 
 	crew.walk_check = _is_walkable
 
+	Sfx.ambient("amb_interior")   # the ship's warm interior room-tone
 	GameState.refill_oxygen(GameState.max_oxygen)
 	_build_hud()
 	GameState.notify.connect(_on_notify)
@@ -657,6 +720,12 @@ func _ready() -> void:
 		else:
 			GameState.say("You black out... and wake in your bunk. The lifeline reeled you home.")
 		GameState.last_lost = 0
+	elif GameState.enter_at_cockpit:
+		# stepped inside from the helm while cruising — appear at the pilot screen
+		GameState.enter_at_cockpit = false
+		crew.position = cell_rect(_find_cell("bridge")).get_center() + Vector2(-18, 48)
+		if ticked:
+			GameState.say("Shift %d. Board and market refreshed." % GameState.shift)
 	else:
 		crew.position = cell_rect(_find_cell("airlock")).get_center() + Vector2(-30, 0)
 		if ticked:
@@ -830,7 +899,8 @@ func _define_stations() -> void:
 # so this layer is fully non-destructive / fallback-safe.
 # ------------------------------------------------------------------
 const DEV_ANIM_DIR := "res://assets/sprites/device_anim"
-const DEV_ANIM_FPS := 3.0   # base loop speed; per-device rate jitter varies it
+const DEV_ANIM_FPS := 2.0   # base loop speed; per-device rate jitter varies it
+							# (slowed from 3.0 — calmer, smoother device idles)
 # P-key / prop-key -> device_anim id, for the few FIXED room props whose kit
 # key differs from the craft-file stem the frames are named after. Craft
 # furniture (keyed by stem) and same-named props fall through to identity.
@@ -1048,6 +1118,7 @@ func _process(delta: float) -> void:
 			Transition.to_scene("res://scenes/title.tscn")
 		queue_redraw()
 		_overlay.queue_redraw()
+		_deck.queue_redraw()
 		return
 	if _placing_id != "":
 		_update_placement()
@@ -1082,6 +1153,7 @@ func _process(delta: float) -> void:
 		_prompt_label.modulate.a = 0.0
 	queue_redraw()
 	_overlay.queue_redraw()
+	_deck.queue_redraw()
 
 
 func _update_npcs() -> void:
@@ -1288,9 +1360,10 @@ func _interact(st: Dictionary) -> void:
 				return
 			var part: Dictionary = GameState.quest_part()
 			if GameState.quest_install():
-				Sfx.play("upgrade", -4.0)
+				Sfx.play("drive_install", -4.0)
 				GameState.say("LOG: " + part["log"])
 				if GameState.game_complete:
+					Sfx.play("jump_drive_complete", -3.0)
 					GameState.say("THE JUMP DRIVE IS COMPLETE. Return to it when you're ready.")
 			else:
 				Sfx.play("deny", -10.0)
@@ -1301,7 +1374,7 @@ func _interact(st: Dictionary) -> void:
 		"board":
 			var n := GameState.deliver_contracts()
 			if n > 0:
-				Sfx.play("bank", -4.0)
+				Sfx.play("deliver_contract", -4.0)
 				GameState.say("%d contract%s delivered. Reputation %d. VESNA: Word travels." % [
 					n, "s" if n > 1 else "", GameState.reputation])
 			else:
@@ -1310,7 +1383,7 @@ func _interact(st: Dictionary) -> void:
 		"expand":
 			var cost: int = GameState.ROOM_TYPES["room"]["cost"]
 			if GameState.build_room(st["cell"], "room"):
-				Sfx.play("upgrade", -5.0)
+				Sfx.play("expand_build", -5.0)
 				GameState.say("Hull section built out. What it becomes is up to you — later.")
 				_define_stations()
 				_spawn_lights()
@@ -1319,7 +1392,13 @@ func _interact(st: Dictionary) -> void:
 				Sfx.play("deny", -10.0)
 				GameState.say("Can't build — need %d ore (have %d)." % [cost, GameState.banked])
 		"exit":
-			Transition.to_scene("res://scenes/main.tscn")
+			# only spacewalk when the ship sits in a gathering field
+			if GameState.at_field:
+				Sfx.play("hatch_open", -5.0)
+				Transition.to_scene("res://scenes/main.tscn")
+			else:
+				Sfx.play("deny", -12.0)
+				GameState.say("No field out there — take the helm and park at a gathering zone first.")
 		"cockpit":
 			Transition.to_scene("res://scenes/flight.tscn")
 		"o2", "tether", "laser", "suit":
@@ -1401,8 +1480,8 @@ func _confirm_placement() -> void:
 		var d := _furn_dims(id)
 		Vfx.sparkle(self, Vector2(_furn_cx(_place_cell, _place_col, int(it["size"])),
 			_furn_base_y(_place_cell, _place_row) - d.y * 0.5), Color(0.45, 0.9, 1.0))
-		# the print-in reveal: the piece materializes bottom-up in fab blue
-		_prints["%d:%d:%d" % [_place_cell, _place_col, _place_row]] = 0.0001
+		# (removed the bottom-up "print-in" materialize reveal per captain — the
+		# piece now simply appears; the sparkle VFX is the placement feedback)
 		GameState.say("%s printed." % it["name"])
 		# STAY in placement — print more, or Esc back to the catalogue
 	else:
@@ -1689,10 +1768,7 @@ func _on_rename_submitted(text: String) -> void:
 func _draw() -> void:
 	_ci = self
 	var total := GameState.SHIP_COLS * GameState.SHIP_ROWS
-	# hull silhouette backdrop (grown dark plates under everything)
-	for cell in total:
-		if GameState.cell_in_hull(cell):
-			draw_rect(cell_rect(cell).grow(10.0), Color(0.055, 0.065, 0.09), true)
+	# (hull backdrop + tiled floor draw on the _deck layer — see _draw_deck)
 	# bare hull cells: dark overlay + the visible build grid
 	for cell in total:
 		if not GameState.cell_in_hull(cell) or _built(cell):
@@ -1963,16 +2039,7 @@ func _draw_room_cell(cell: int) -> void:
 	var wall_s := row == GameState.SHIP_ROWS - 1 or not _built(cell + GameState.SHIP_COLS)
 	var wall_w := col == 0 or not _built(cell - 1)
 	var wall_e := col == GameState.SHIP_COLS - 1 or not _built(cell + 1)
-	# the kit's floor tiles, 2x2 per cell — each room type has its own deck.
-	# Lifted a touch so rooms read warm against the dark hull; each quarter
-	# drifts a hair in brightness so big floors don't read as one flat sheet.
-	var fkey: String = ROOM_FLOOR.get(type, "fl_plain")
-	for ty in 2:
-		for tx in 2:
-			var drift := fposmod(sin(cell * 12.99 + tx * 78.23 + ty * 37.72) * 437.585, 1.0) * 0.09 - 0.045
-			_prop_rect(fkey, Rect2(rect.position.x + tx * CELL_W * 0.5,
-				rect.position.y + ty * CELL_H * 0.5, CELL_W * 0.5, CELL_H * 0.5),
-				Color(1.34 + drift, 1.34 + drift, 1.28 + drift))
+	# (the kit's floor tiles draw on the _deck layer now — see _draw_room_floor)
 	# walls throw soft shade onto the deck — north deepest (the plating
 	# stands tall there), sides and south just enough to seat the floor
 	if wall_n:
@@ -1990,9 +2057,6 @@ func _draw_room_cell(cell: int) -> void:
 		if c[0] and c[1]:
 			draw_rect(Rect2(c[2] as Vector2, Vector2(24, 24)), Color(0, 0, 0, 0.05))
 			draw_rect(Rect2((c[2] as Vector2) + Vector2(5, 5), Vector2(14, 14)), Color(0, 0, 0, 0.07))
-	# soft room light
-	draw_circle(rect.get_center(), minf(rect.size.x, rect.size.y) * 0.42,
-		Color(0.85, 0.92, 1.0, 0.05))
 	# (furniture draws in the depth passes — see _draw_depth)
 	# name plate bottom-left, where no prop or station covers it. The merged
 	# quarters shows ONE label (only its anchor cell draws it).
@@ -2000,6 +2064,31 @@ func _draw_room_cell(cell: int) -> void:
 		draw_string(_font, rect.position + Vector2(8, CELL_H - 8),
 			GameState.room_display_name(cell).to_upper(),
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.55, 0.9, 1.0, 0.6))
+
+
+func _draw_deck() -> void:
+	## Floor + hull backdrop, on the smooth-filtered layer behind everything, so the
+	## repeating floor tiles don't shimmer while the sprites on self stay crisp.
+	_ci = _deck
+	var total := GameState.SHIP_COLS * GameState.SHIP_ROWS
+	for cell in total:
+		if GameState.cell_in_hull(cell):
+			_ci.draw_rect(cell_rect(cell).grow(10.0), Color(0.055, 0.065, 0.09), true)
+	for cell in GameState.rooms:
+		_draw_room_floor(cell)
+	_ci = self
+
+
+func _draw_room_floor(cell: int) -> void:
+	var rect := cell_rect(cell)
+	var type: String = GameState.rooms[cell]
+	var fkey: String = ROOM_FLOOR.get(type, "fl_plain")
+	for ty in 2:
+		for tx in 2:
+			var drift := fposmod(sin(cell * 12.99 + tx * 78.23 + ty * 37.72) * 437.585, 1.0) * 0.09 - 0.045
+			_prop_rect(fkey, Rect2(rect.position.x + tx * CELL_W * 0.5,
+				rect.position.y + ty * CELL_H * 0.5, CELL_W * 0.5, CELL_H * 0.5),
+				Color(1.34 + drift, 1.34 + drift, 1.28 + drift))
 
 
 # ------------------------------------------------------------------
@@ -2043,6 +2132,16 @@ func _spawn_lights() -> void:
 			var gk: String = STATION_PROP[st["kind"]][0]
 			if GLOWS.has(gk):
 				_add_light(st["pos"], (GLOWS[gk][0] as Color), GLOWS[gk][1])
+	# PLACED CRAFTABLE devices that glow — a real light pool at each one
+	for fcell in GameState.furniture:
+		for fp in GameState.furniture_at(fcell):
+			var fid: String = str(fp.get("id", ""))
+			if CRAFT_GLOWS.has(fid):
+				var fit: Dictionary = Craftables.ITEMS[fid]
+				var fdm := _furn_dims(fid)
+				_add_light(Vector2(_furn_cx(fcell, int(fp["col"]), int(fit["size"])),
+					_furn_base_y(fcell, int(fp["row"])) - fdm.y * 0.5),
+					CRAFT_GLOWS[fid][0], CRAFT_GLOWS[fid][1])
 	# the quarters viewport spills starlight (centred on the merged room)
 	var qc := _prop_center(_find_cell("quarters"))
 	_add_light(Vector2(qc.x, cell_rect(_find_cell("quarters")).position.y + 8.0),
@@ -2187,6 +2286,8 @@ func _draw_furniture(fy: float, behind: bool, flats: bool) -> void:
 			var dtex: Texture2D = tex
 			if _dev_anim.has(p["id"]):
 				dtex = _dev_frame(p["id"])
+			# (glowing devices are lit by a real GPU PointLight2D from _spawn_lights —
+			# no drawn opacity halo here)
 			_ci.draw_texture_rect(dtex, Rect2(cx - d.x * 0.5, base_y - d.y, d.x, d.y), false)
 
 

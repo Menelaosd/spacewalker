@@ -1,0 +1,275 @@
+[
+ {
+  "id": "tesla_coil",
+  "n": 6,
+  "canvas": "57x80",
+  "flags": [],
+  "score": 0.166
+ },
+ {
+  "id": "server_rack",
+  "n": 6,
+  "canvas": "62x95",
+  "flags": [],
+  "score": 0.13
+ },
+ {
+  "id": "sample_fridge",
+  "n": 6,
+  "canvas": "62x110",
+  "flags": [],
+  "score": 0.073
+ },
+ {
+  "id": "reactor",
+  "n": 6,
+  "canvas": "167x164",
+  "flags": [],
+  "score": 0.049
+ },
+ {
+  "id": "algae_tank",
+  "n": 5,
+  "canvas": "109x162",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "alien_plant",
+  "n": 5,
+  "canvas": "106x170",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "aquarium",
+  "n": 6,
+  "canvas": "101x82",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "arcade_cabinet",
+  "n": 5,
+  "canvas": "88x177",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "bar_counter",
+  "n": 5,
+  "canvas": "209x135",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "batteries",
+  "n": 6,
+  "canvas": "114x102",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "body_scanner",
+  "n": 5,
+  "canvas": "144x164",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "console_wide",
+  "n": 6,
+  "canvas": "141x95",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "conveyor",
+  "n": 5,
+  "canvas": "151x151",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "culture_cylinder",
+  "n": 5,
+  "canvas": "95x144",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "dance_pad",
+  "n": 5,
+  "canvas": "193x139",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "ecg_monitor",
+  "n": 6,
+  "canvas": "88x91",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "fabricator",
+  "n": 6,
+  "canvas": "119x118",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "fan_unit",
+  "n": 5,
+  "canvas": "105x112",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "fireplace",
+  "n": 5,
+  "canvas": "157x144",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "fountain",
+  "n": 6,
+  "canvas": "88x79",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "generator",
+  "n": 6,
+  "canvas": "88x84",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "grow_rack",
+  "n": 6,
+  "canvas": "66x69",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "holo_chess",
+  "n": 5,
+  "canvas": "199x137",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "hydroponic_tray",
+  "n": 6,
+  "canvas": "101x83",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "jukebox",
+  "n": 5,
+  "canvas": "112x170",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "lab_console",
+  "n": 5,
+  "canvas": "182x150",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "laser_cutter",
+  "n": 5,
+  "canvas": "152x172",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "monitors",
+  "n": 6,
+  "canvas": "123x87",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "planetarium",
+  "n": 5,
+  "canvas": "140x178",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "radar_disp",
+  "n": 6,
+  "canvas": "84x84",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "reactor_core",
+  "n": 5,
+  "canvas": "128x125",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "seedling_table",
+  "n": 6,
+  "canvas": "97x80",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "smelter",
+  "n": 5,
+  "canvas": "130x169",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "specimen_tank",
+  "n": 5,
+  "canvas": "108x175",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "stasis_tube",
+  "n": 5,
+  "canvas": "91x167",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "stove",
+  "n": 5,
+  "canvas": "104x140",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "tank",
+  "n": 6,
+  "canvas": "66x134",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "terrarium_dome",
+  "n": 6,
+  "canvas": "92x108",
+  "flags": [],
+  "score": 0
+ },
+ {
+  "id": "uv_light",
+  "n": 5,
+  "canvas": "157x75",
+  "flags": [],
+  "score": 0
+ }
+]

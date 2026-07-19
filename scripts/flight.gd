@@ -151,9 +151,12 @@ func _ready() -> void:
 	_build_background()
 	_load_trash_sprites()
 	_load_comet_sprites()
+	_build_stations()   # real GPU-lit station nodes (Sprite2D + PointLight2D)
 	ship_pos = GameState.sector
 	_flight_origin = ship_pos
 	cam.position = ship_pos
+	Sfx.ambient("amb_space")        # the void hum under cruising
+	Sfx.play("engine_start", -6.0)  # spinning up as you take the helm
 	cam.zoom = Vector2(FLIGHT_ZOOM, FLIGHT_ZOOM)
 	cam.reset_smoothing()
 	_build_hud()
@@ -195,9 +198,20 @@ func _ready() -> void:
 			"rare": true, "key": "w:debug", "taken": false,
 		}
 		_recipe_banner.show_recipe("jukebox")
+	# debug: SW_STATIONS=1 parks the ship at the station inspection cluster
+	if OS.get_environment("SW_STATIONS") != "":
+		ship_pos = Stations.CLUSTER
+		cam.position = ship_pos
+		_flight_origin = ship_pos
+		cam.reset_smoothing()
 	# populate the batched sky for ship_pos's FINAL location (post SW_FIELD /
 	# SW_NEBULA teleports) so there's no one-frame empty flash on entry
 	_update_background()
+	if OS.get_environment("SW_SHOT") != "":
+		await get_tree().create_timer(0.9).timeout
+		if is_inside_tree():
+			get_viewport().get_texture().get_image().save_png(OS.get_environment("SW_SHOT"))
+			get_tree().quit()
 
 
 func _process(delta: float) -> void:
@@ -231,11 +245,16 @@ func _process(delta: float) -> void:
 	vel = vel.lerp(Vector2.ZERO, 1.0 - exp(-DAMP * delta))
 	ship_pos += vel * delta
 	GameState.note_ship_at(ship_pos)   # reveal nearby nebulae on the star chart
-	GameState.sector = ship_pos        # keep the saved position live, so a
-	                                   # mid-flight save/quit doesn't rewind you
+	# keep the saved position live (so a mid-flight save/quit doesn't rewind you)
+	# — BUT NOT once a scene-leave has begun: parking sets sector to the FIELD
+	# centre, and clobbering it back to ship_pos mid-fade drops you into a
+	# different asteroid field than the one you parked on.
+	if not Transition.is_busy():
+		GameState.sector = ship_pos
 	cam.position = ship_pos
 
 	_near_field = _find_near_field()
+	GameState.at_field = not _near_field.is_empty()   # the interior airlock reads this
 	_near_beacon = GameState.rescue_available() \
 		and ship_pos.distance_to(GameState.rescue_beacon()) < 300.0
 	if not GameState.pending_shift \
@@ -252,6 +271,7 @@ func _process(delta: float) -> void:
 	_tick_absorbing(delta)
 	_collect_wrecks()
 	_update_comets(delta)
+	_update_stations(delta)   # float + rotation + breathing lights
 	_update_hud()
 	_update_background()
 	# cut the thrust loop the instant a dialog takes over, so it can't drone on
@@ -324,9 +344,14 @@ func _unhandled_input(event: InputEvent) -> void:
 				Sfx.play("clack", -8.0)
 				GameState.say("Parked at the field. Suit up and mine.")
 				Transition.to_scene("res://scenes/main.tscn")
+			# (no open-space E branch — E only acts at a field/beacon. What it should
+			#  do in open space is a captain decision — awaiting the answer.)
 		KEY_Q:
-			# hold position out here; the airlock can spacewalk this spot too
+			# step inside while cruising — fade to the interior and appear at the
+			# pilot screen (bridge cockpit). Holds position so you can fly back
+			# out or spacewalk from this spot.
 			GameState.sector = ship_pos
+			GameState.enter_at_cockpit = true
 			Transition.to_scene("res://scenes/ship_interior.tscn")
 
 
@@ -860,6 +885,7 @@ func _draw() -> void:
 	_draw_fields(center, half)
 	_draw_wrecks(center, half)
 	_draw_trash(center, half)
+	_draw_stations(center, half)
 	_draw_beacon(center)
 	_draw_ship()
 
@@ -879,6 +905,95 @@ func _draw_comets() -> void:
 		draw_set_transform(c["pos"], ang, Vector2(s, s))
 		draw_texture(tex, -ts * 0.5, Color(1, 1, 1))
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+# varied ambient light colours so the fleet reads warm/cool, not one flat teal
+const STATION_GLOW := [
+	Color(0.30, 0.85, 0.95), Color(0.42, 0.68, 1.0), Color(1.0, 0.62, 0.30),
+	Color(0.72, 0.52, 1.0), Color(0.42, 0.95, 0.60), Color(0.98, 0.82, 0.42),
+]
+
+var _station_nodes: Array = []      # [{node, base, phase, brot, lights}]
+var _slight_tex: GradientTexture2D
+
+
+func _build_stations() -> void:
+	## REAL GPU-lit stations. Each hull is a Sprite2D on its own light layer, drawn a
+	## touch DARK, then lit by two coloured PointLight2Ds (ADD blend) from different
+	## sides — so parts of the hull sit in shadow and parts glow in colour. The lights
+	## breathe and the whole thing floats + slowly rotates (updated in _update_stations).
+	var grad := Gradient.new()
+	grad.set_color(0, Color(1, 1, 1, 1))
+	grad.set_color(1, Color(1, 1, 1, 0))
+	_slight_tex = GradientTexture2D.new()
+	_slight_tex.gradient = grad
+	_slight_tex.fill = GradientTexture2D.FILL_RADIAL
+	_slight_tex.fill_from = Vector2(0.5, 0.5)
+	_slight_tex.fill_to = Vector2(0.5, 0.0)
+	_slight_tex.width = 256
+	_slight_tex.height = 256
+	var dpx: float = Stations.display_px()
+	for i in Stations.count():
+		var tex: Texture2D = Stations.tex(Stations.LIST[i]["id"])
+		if tex == null:
+			continue
+		var cont := Node2D.new()
+		cont.position = Stations.world_pos(i)
+		cont.z_index = -1
+		add_child(cont)
+		var spr := Sprite2D.new()
+		spr.texture = tex
+		spr.scale = Vector2.ONE * (dpx / maxf(tex.get_size().x, tex.get_size().y))
+		spr.light_mask = 2                                # only station-layer lights hit it
+		spr.self_modulate = Color(0.46, 0.49, 0.55)       # dark base so the lights read
+		spr.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+		cont.add_child(spr)
+		var gcol: Color = STATION_GLOW[i % STATION_GLOW.size()]
+		var lights: Array = []
+		for k in 2:
+			var lgt := PointLight2D.new()
+			lgt.texture = _slight_tex
+			lgt.color = gcol if k == 0 else gcol.lerp(Color(1, 1, 1), 0.55)
+			lgt.energy = 1.5
+			lgt.blend_mode = Light2D.BLEND_MODE_ADD
+			lgt.range_item_cull_mask = 2                  # light ONLY the station sprites
+			lgt.texture_scale = dpx / 150.0
+			lgt.position = Vector2.from_angle(float(i) * 1.7 + float(k) * PI) * dpx * 0.34
+			cont.add_child(lgt)
+			lights.append(lgt)
+		_station_nodes.append({
+			"node": cont, "base": Stations.world_pos(i),
+			"phase": float(i) * 1.618, "brot": (fmod(float(i) * 2.399, 1.0) - 0.5) * 0.7,
+			"spin": (fmod(float(i) * 1.73, 1.0) - 0.5) * 0.045,  # very slow continuous rotation, varied dir
+			"lights": lights,
+		})
+
+
+func _update_stations(_delta: float) -> void:
+	## Visible zero-g drift + rotation wobble + breathing lights, each on its own phase.
+	for st in _station_nodes:
+		var ph: float = st["phase"]
+		var cont: Node2D = st["node"]
+		# gentle zero-g float + a very slow, smooth, continuous rotation (loops seamlessly)
+		cont.position = (st["base"] as Vector2) + Vector2(
+			sin(_t * 0.14 + ph) * 22.0, cos(_t * 0.11 + ph * 1.3) * 18.0)
+		cont.rotation = float(st["brot"]) + _t * float(st["spin"])
+		var pulse := 1.2 + 0.22 * sin(_t * 0.5 + ph)
+		for lg in st["lights"]:
+			(lg as PointLight2D).energy = pulse
+
+
+func _draw_stations(center: Vector2, half: Vector2) -> void:
+	## Just the name plates now — the hulls + lighting are real nodes (_build_stations).
+	var dpx: float = Stations.display_px()
+	for i in _station_nodes.size():
+		var p: Vector2 = (_station_nodes[i]["node"] as Node2D).position
+		if absf(p.x - center.x) > half.x + dpx or absf(p.y - center.y) > half.y + dpx:
+			continue
+		var gcol: Color = STATION_GLOW[i % STATION_GLOW.size()]
+		draw_string(ThemeDB.fallback_font, p + Vector2(-140.0, dpx * 0.55 + 34.0),
+			str(Stations.LIST[i]["name"]), HORIZONTAL_ALIGNMENT_CENTER, 280.0, 22,
+			Color(gcol.r, gcol.g, gcol.b, 0.92))
 
 
 func _draw_wrecks(center: Vector2, half: Vector2) -> void:

@@ -241,6 +241,21 @@ func _plot_flight(c: Vector2, sp: Vector2, k: float, sweep: float, flick: float)
 		draw_line(c + bd * (R - 3.5), c + bd * (R - 1.0),
 			Color(tc.r, tc.g, tc.b, 0.5 * flick), 1.4)
 
+	# STATIONS — the giant endgame landmarks. In range: a bright cyan diamond blip;
+	# far: a cyan diamond bearing on the rim so you can steer toward them.
+	for i in Stations.count():
+		var srel: Vector2 = (Stations.world_pos(i) - sp) * k
+		var far: bool = srel.length() >= R - 6.0
+		var spos: Vector2 = c + (srel.normalized() * (R - 5.0) if far else srel)
+		var dd: float = 2.6 if far else 4.2
+		var sa: float = (0.75 if far else 0.95) * flick
+		draw_colored_polygon(PackedVector2Array([
+			spos + Vector2(0, -dd), spos + Vector2(dd, 0),
+			spos + Vector2(0, dd), spos + Vector2(-dd, 0)]),
+			Color(0.4, 0.95, 1.0, sa))
+		if not far:
+			draw_arc(spos, dd + 2.5, 0.0, TAU, 14, Color(0.4, 0.95, 1.0, 0.6 * flick), 1.0)
+
 	# asteroid fields — one ring per field, gold→cyan by richness
 	for cy in range(cc.y - span, cc.y + span + 1):
 		for cx in range(cc.x - span, cc.x + span + 1):

@@ -35,6 +35,9 @@ func _ready() -> void:
 	for i in GameState.NEBULAE.size():
 		_max_r = maxf(_max_r,
 			float(GameState.NEBULAE[i]["dist"]) + GameState.nebula_radius(i))
+	# keep the giant endgame stations inside the chart boundary
+	for i in Stations.count():
+		_max_r = maxf(_max_r, Stations.world_pos(i).length() + 500.0)
 	_max_r *= 1.06
 
 
@@ -120,19 +123,42 @@ func _draw() -> void:
 		draw_string(_font, bp + Vector2(9.0, 4.0), "DISTRESS",
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 10, dg)
 
+	# --- endgame STATIONS: giant rescue-station landmarks (art in stations_v2/;
+	# gameplay wiring is TODO — for now they mark the map so they aren't unused) ---
+	var pulse := 0.5 + 0.5 * sin(_t * 2.5)
+	for i in Stations.count():
+		var stp := center + Stations.world_pos(i) * scale
+		var sc := Color(0.4, 0.95, 1.0)
+		var dd := 8.0
+		# glow halo so the giant stations read clearly against the nebulae/blips
+		draw_circle(stp, dd + 5.0 + pulse * 2.0, Color(sc.r, sc.g, sc.b, 0.12))
+		draw_colored_polygon(PackedVector2Array([
+			stp + Vector2(0, -dd), stp + Vector2(dd, 0),
+			stp + Vector2(0, dd), stp + Vector2(-dd, 0)]), sc)
+		draw_colored_polygon(PackedVector2Array([
+			stp + Vector2(0, -dd * 0.45), stp + Vector2(dd * 0.45, 0),
+			stp + Vector2(0, dd * 0.45), stp + Vector2(-dd * 0.45, 0)]), Color(0.03, 0.06, 0.1))
+		draw_arc(stp, dd + 3.0, 0.0, TAU, 20, Color(sc.r, sc.g, sc.b, 0.7), 1.5)
+		draw_string(_font, stp + Vector2(dd + 5.0, 4.0), str(Stations.LIST[i]["name"]),
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(sc.r, sc.g, sc.b, 0.95))
+
 	# home
 	draw_circle(center, 4.0, acc)
 	draw_arc(center, 7.0, 0.0, TAU, 24, Color(acc.r, acc.g, acc.b, 0.6), 1.0)
 	draw_string(_font, center + Vector2(9.0, 4.0), "HOME",
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 9, UITheme.TEXT_DIM)
 
-	# the ship — a bright chevron so "you are here" pops
+	# the ship — a bright chevron that POINTS where you're heading (bow direction)
 	var sp := center + _ship_pos() * scale
 	var warm := UITheme.ACCENT_WARM
+	var head := 0.0
+	if flight != null and is_instance_valid(flight):
+		head = flight.heading   # ship bow angle (0 = +x); the arrow tip aligns to it
+	draw_set_transform(sp, head + PI * 0.5, Vector2.ONE)   # chevron models "up" = bow
 	draw_colored_polygon(PackedVector2Array([
-		sp + Vector2(0, -6), sp + Vector2(5, 6), sp + Vector2(0, 3),
-		sp + Vector2(-5, 6)]), warm)
-	draw_string(_font, sp + Vector2(8.0, -2.0), "YOU",
+		Vector2(0, -9), Vector2(6, 6), Vector2(0, 2.5), Vector2(-6, 6)]), warm)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	draw_string(_font, sp + Vector2(9.0, -2.0), "YOU",
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 9, warm)
 
 	# header + legend

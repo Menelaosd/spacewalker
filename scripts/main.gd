@@ -39,15 +39,13 @@ var _npc_pos := Vector2.ZERO
 # --- hazards ---
 var _flare_timer := 0.0
 var _flare_t := 0.0
-var _debris: Array = []        # {pos, vel, r}
-var _debris_timer := 0.0
-var _debris_hit_cd := 0.0
 
 
 func _ready() -> void:
 	texture_filter = TEXTURE_FILTER_LINEAR_WITH_MIPMAPS   # keep the small streak crisp
 	_make_stars()
 	_load_streak_sprite()
+	Sfx.ambient("amb_suit")   # the suit's close, breathing hum on a spacewalk
 
 	ship = SHIP_SCENE.instantiate()
 	add_child(ship)
@@ -100,8 +98,6 @@ func _ready() -> void:
 	_flare_timer = randf_range(35.0, 70.0) if hot else randf_range(70.0, 140.0)
 	if OS.get_environment("SW_FORCE_FLARE") != "":
 		_flare_timer = 1.5
-	_debris_timer = randf_range(6.0, 14.0) if rname == "The Belt" \
-		else randf_range(18.0, 34.0)
 
 
 func _process(delta: float) -> void:
@@ -112,7 +108,6 @@ func _process(delta: float) -> void:
 	_update_adrift()
 	_update_rescue()
 	_update_flare(delta)
-	_update_debris(delta)
 	_update_streaks(delta)
 	queue_redraw()   # parallax stars + hazards follow the camera
 
@@ -224,37 +219,6 @@ func _update_flare(delta: float) -> void:
 				GameState.flare_phase = ""
 				_flare_timer = randf_range(80.0, 150.0)
 				GameState.say("Sweep passed. It didn't find you. Radiation nominal.")
-
-
-func _update_debris(delta: float) -> void:
-	_debris_hit_cd = maxf(_debris_hit_cd - delta, 0.0)
-	_debris_timer -= delta
-	if _debris_timer <= 0.0 and player != null:
-		_debris_timer = randf_range(9.0, 20.0)
-		if GameState.region_at(GameState.sector)["name"] == "The Belt":
-			_debris_timer *= 0.45
-		var ang := randf() * TAU
-		var start: Vector2 = player.global_position + Vector2.from_angle(ang) * 1300.0
-		_debris.append({
-			"pos": start,
-			"vel": (player.global_position - start).normalized().rotated(
-				randf_range(-0.3, 0.3)) * randf_range(170.0, 260.0),
-			"r": randf_range(9.0, 16.0),
-		})
-	var keep: Array = []
-	for d in _debris:
-		d["pos"] += d["vel"] * delta
-		if player != null and _debris_hit_cd <= 0.0 \
-				and d["pos"].distance_to(player.global_position) < d["r"] + 14.0:
-			_debris_hit_cd = 1.5
-			player.velocity += d["vel"] * 0.7
-			player.hit_flash()
-			Sfx.play("thud", -3.0)
-			GameState.drain_oxygen(8.0)
-			GameState.say("Debris strike! Suit integrity holding — O2 vented.")
-		if player == null or d["pos"].distance_to(player.global_position) < 1800.0:
-			keep.append(d)
-	_debris = keep
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -439,13 +403,6 @@ func _draw() -> void:
 				base - dir * 9.0 + side, base, base - dir * 9.0 - side]),
 				Color(UITheme.ACCENT.r, UITheme.ACCENT.g, UITheme.ACCENT.b, a), 2.5)
 
-	# debris — tumbling fast rock with a motion trail
-	for d in _debris:
-		var dp: Vector2 = d["pos"]
-		var dv: Vector2 = (d["vel"] as Vector2).normalized()
-		draw_line(dp - dv * d["r"] * 3.5, dp, Color(1.0, 0.7, 0.4, 0.25), d["r"] * 0.7)
-		draw_circle(dp, d["r"], Color(0.45, 0.4, 0.36))
-		draw_circle(dp + dv.orthogonal() * d["r"] * 0.3, d["r"] * 0.4, Color(0.3, 0.27, 0.24))
 	# flare wash over the world
 	if GameState.flare_phase != "" and player != null:
 		var view := Rect2(player.global_position - Vector2(660, 380), Vector2(1320, 760))

@@ -5,6 +5,220 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 19/07/2026 — v1.85: atomic save (no more crash-wiped slots)
+
+A full-game bug scan (per-file review + adversarial verify) flagged `save_game()` as a data-loss
+risk: it opened the real slot file with `FileAccess.WRITE` (truncate-in-place), so the slot sat
+empty/half-written for the whole serialize+write — and `save_game()` fires **every frame** while
+cruising scrap (`_collect_trash`/`_collect_wrecks`). A crash or kill mid-write left a truncated
+file that parsed as `{}` → the entire save read as lost.
+
+- **Atomic write.** `save_game()` now serializes to `slot_N.json.tmp`, flushes/closes it, then
+  `DirAccess.rename_absolute()`-swaps it over the real slot. The real file is only ever the
+  previous complete save or the new complete save — never a partial one.
+- **Recovery fallback.** `slot_data()` now reads the real slot first and falls back to the `.tmp`
+  if the real file is missing/unreadable — covers a crash inside the tiny remove→rename window.
+- **Verified headless on Windows:** `rename_absolute` overwrites an existing destination (err=0,
+  content swapped, temp cleaned) and lone-`.tmp` recovery both PASS.
+
+The other scan findings (audio/rock-art/comet/station art vanishing in a *packed export* build) are
+real but **deferred to Steam-build day** — they only manifest in an exported `.pck`, and the game
+has never been exported yet. Parked, not forgotten.
+
+---
+
+## 19/07/2026 — v1.84: bug-scan fixes (starchart crash, double-shatter, dead flash)
+
+A whole-game GDScript bug scan (per-file review + adversarial verify) was cut short by an org
+spend limit — only ~14 of 58 agents ran, so most of the big files are still unscanned (re-run
+pending). Of the findings that landed before the cutoff, three were hand-verified as real and fixed:
+
+- **`starchart.gd` per-frame crash.** The "YOU" heading chevron read `flight.heading` guarded
+  only by `flight != null`. In Godot 4 a *freed* node isn't null, so a stale `flight` ref threw
+  "previously freed instance" every frame the chart was open. Now guarded with
+  `is_instance_valid(flight)` — matching `_ship_pos()` right above it, which already did this.
+- **`asteroid.gd` double-shatter.** `take_damage()` called `_shatter()` on `health <= 0` with no
+  already-dead guard. `queue_free()` is deferred, so a second hit the same frame (any multi-hit /
+  AoE beam) would shatter twice → duplicate pickups, double SFX, double `GameState.mined` write.
+  Added an early-out when already dead.
+- **`fabricator_modal.gd` dead confirm-flash.** `_flash` was declared, zeroed, decayed and drawn,
+  but never set positive — so the warm border pulse on a successful print never fired (its sibling
+  `upgrade_modal.gd` sets `_flash = 1.0`). Restored the one missing assignment in `_confirm()`.
+
+The `demo_breach.gd` softlock/false-win findings were ignored on purpose — that puzzle is being
+dropped (rogue logic kept for later, per the breach decision).
+
+---
+
+## 19/07/2026 — v1.83: station ambience + idle float
+
+- **Stations — REAL GPU lighting** (not opacity blobs). Each station is now a `Sprite2D` on
+  its own light layer (`light_mask 2`), drawn a touch DARK (`self_modulate ~0.46`), then lit by
+  **two coloured `PointLight2D`s (ADD blend, `range_item_cull_mask 2`)** from opposite sides —
+  so parts of the hull sit in shadow and parts glow in colour. Colours vary per station (warm/
+  cool palette). The lights **breathe** (energy pulse) and the whole node **floats + slowly
+  rotates**, each on its own phase, updated in `_update_stations`. Name plates tint to match.
+- **Ship idle float — only while SPACEWALKING** (not at the helm). In the EVA scene the ship
+  (`ship.gd`) gently bobs/drifts around its spawn point — hull, dock zone and tether hardpoint
+  move together so nothing mismatches. The cruise helm sits steady.
+- **Spacewalk ONLY from a gathering zone — both paths.** (1) Helm E works only near an asteroid
+  field. (2) The interior airlock hatch now checks `GameState.at_field` (flight keeps it fresh
+  from `_near_field`) and only opens to EVA when the ship is parked at a field; otherwise it
+  denies. No more spacewalking while cruising open space or sitting by a station.
+
+---
+
+## 18/07/2026 — v1.82: station navigation + camera/player-blur polish
+
+- **Star chart:** the 12 stations now render as bright pulsing cyan diamond landmarks with
+  labels (bumped up from tiny 5px ticks so they're findable at full-galaxy zoom). The "YOU"
+  marker is now a chevron that **points along the ship's heading** (`flight.heading`) so you
+  can see where you're pointed.
+- **Flight radar:** stations show as cyan diamonds — a rim bearing when out of range (steer
+  toward them) and a ringed blip when in range.
+- **Stations now RENDER in the world** (the missing piece — before, only markers existed and
+  flying to one showed empty space). `flight.gd::_draw_stations()` draws each at ~4× the ship
+  with a name plate, culled to view. And per captain, all 12 are **clustered in a grid north of
+  home** (`Stations.CLUSTER`) so you can fly up and inspect them side by side; `SW_STATIONS=1`
+  parks you there. (Scattering them as individual breach targets is a later roadmap step.)
+- **Player sprite blur:** downscaled the 80×121 walk frames to 90px tall (like the device/crew
+  frames) so the character's helmet stays crisp when stopped.
+- **Camera:** disabled `position_smoothing` on the interior Crew camera — it was trailing and
+  easing to a stop, which read as dizzy/shaky once sprites pixel-snap; now it follows 1:1.
+
+---
+
+## 18/07/2026 — v1.81: fixed in-game animation blur (render, not frames) + stations on the map
+
+**The blur was a RENDER-SCALE bug, not the frames** (proof: same frames are crisp in the
+NEAREST test room but blurry minified in ship_interior). `ship_interior` drew with
+`TEXTURE_FILTER_LINEAR_WITH_MIPMAPS`, and the device/crew frames were full-res (device up to
+209px drawn ~52px; crew 152×268 drawn ~40px — a 4–6× minify) → the filter sampled a blurry
+mip. Fixes:
+- **Downscaled every animation frame to ~2× its display size** (203 device + 150 crew frames;
+  originals backed up to `scratchpad/frame_backup/`) so they render ~1:1 instead of minifying.
+- **Switched the filter to `NEAREST_WITH_MIPMAPS`** — crisp pixels (no linear smear) while
+  keeping mipmaps for anti-shimmer on camera drift.
+- **Light unsharp (0.5) on all 365 frames** to counter box-downscale softness.
+This also fixes the crew idle/breathe blur, which was the same root cause.
+
+**Floor-tile shimmer follow-up:** switching to NEAREST made the repeating floor tiles shimmer
+on camera drift (they were smooth under the old LINEAR filter). Fix without touching any art:
+a new `_deck` layer (`show_behind_parent`, `LINEAR_WITH_MIPMAPS_ANISOTROPIC`) now draws the
+tiled floor + hull backdrop behind everything, so the floor keeps smooth mip-filtering while the
+sprites/crew on self/_overlay stay crisp NEAREST. Pure filter-layering — no textures or layout
+changed.
+
+**Object shake-on-stop follow-up:** NEAREST + the camera's `position_smoothing` (player.tscn)
+meant that as the camera eased to a stop at sub-pixel positions, sprites snapped between pixels
+= a small jitter. Enabled `rendering/2d/snap/snap_2d_transforms_to_pixel=true` so sprites land
+on whole pixels (camera stays smooth, jitter gone).
+
+**Stations on the map:** new `scripts/stations.gd` — the 12 finals as a data ARRAY, each placed
+as a giant landmark (≥4× ship, `SCALE_MULT 4.2`) just outside a themed nebula, resolved against
+GameState's nebula layout. `starchart.gd` now draws all 12 as labelled cyan diamond markers and
+extends the chart extent to fit them. Gameplay wiring (visit / breach) is still TODO — this makes
+them real map landmarks so they aren't unused assets.
+
+---
+
+## 18/07/2026 — v1.80: 12 final endgame stations (generate-image-v2, native transparent)
+
+Solved the station background problem for good. `create-image-pixflux` baked opaque
+backgrounds (the trap that ate hull art on the old set). **`generate-image-v2`** (PixelLab Pro
+flagship) with `no_background:true` yields NATIVE transparency — far higher detail AND clean
+separation, no post-removal. A 24-agent workflow authored 24 detailed top-down station designs;
+generated all 24; captain picked **12 finals**, now in `assets/sprites/stations_v2/` (imported):
+bastion_command_citadel, bulwark_arsenal_depot, cryo_sleeper_vault_hexpod, gilded_wake_derelict_liner,
+glacier_still_ice_harvester, halcyon_ring_habitat, helios_bloom_solar_array, tanker_cluster_fuel_depot,
+vantage_quarantine_biolab, verdant_bloom_spa_resort, verdant_halo_hydroponics_ring,
+vespers_reliquary_cloister. Picked via a scrollable numbered gallery scene
+(`scenes/stations_gallery.tscn`). Art-only for now (breach/Haven endgame); old station sets retired.
+
+---
+
+## 18/07/2026 — v1.79: removed the debris hazard from spacewalk
+
+Captain flagged the "brown ball with a tail" drifting through the spacewalk as ugly. It was
+the `_debris` hazard in `main.gd` — a tumbling rock (brown ball + darker centre + orange
+motion streak) that flew at the player and, on contact, knocked them and vented O2 ("Debris
+strike!"). Removed the WHOLE mechanic, not just the art: state vars, region-timer init, the
+`_update_debris` spawn/move/collision, and the draw block. Comets and shooting stars (the
+sprite-based ones in `flight.gd`) are untouched — those stay.
+
+---
+
+## 18/07/2026 — v1.78: regenerated 20 device animations via PixelLab + external-API config
+
+Player caught what the earlier audit missed: ~21 device idles had a "whole-object heartbeat"
+(the housing scaling/pulsing frame-to-frame) plus soft/mushy frames. A 12-agent deep
+diagnosis confirmed it per-device and wrote a precise motion brief for each.
+
+- **Regenerated 18 devices** via PixelLab `animate-with-text-v3`, each anchored on its CRISP
+  static sprite as the first frame + its motion brief ("housing perfectly still, ONLY <x>
+  animates"): algae_tank, alien_plant, arcade_cabinet, bar_counter, body_scanner, conveyor,
+  culture_cylinder, dance_pad, fan_unit, fireplace, jukebox, laser_cutter, planetarium,
+  reactor, smelter, specimen_tank, stasis_tube, uv_light. Result: housings dead-still and
+  crisp, motion confined to screens/glows/flames/bubbles. Verified: 0 canvas distortion,
+  housings sharp in the frame-average overlay.
+- **reactor_core, holo_chess, stove → reverted to static.** holo_chess kept colour-cycling
+  its board and stove kept drawing a phantom cross/X across the burners even under strict
+  "constant colour, almost-still" briefs — a steady sprite reads better than fighting the model.
+- **Removed the fabricator "print-in" materialize reveal** — placed pieces just appear now
+  (the sparkle VFX stays as feedback).
+
+**External APIs:** keys now persist in `config/external_apis.conf` (GITIGNORED — verified,
+never committed); `docs/EXTERNAL_APIS.md` documents the PixelLab endpoints we use + the
+"potentials" (rotations, tilesets, inpaint, map-objects, fonts). PixelLab is Tier 3.
+
+---
+
+## 18/07/2026 — v1.77: device-anim smoothness audit + all-craftables test room
+
+**60-agent animation audit** (38 device inspectors comparing each anim's frames to its
+crisp static sprite → 4 adversarial verifiers on the flagged ones). Verdict: 34/38 clean.
+Two confirmed real, both PixelLab-motion blur that needs frame REGENERATION (blocked until
+the PixelLab key is restored to `scratchpad/.pixellab_key`):
+- **planetarium** — frame 3 dissolves into a mushy blob (constellation lines gone, base
+  plate warps); a one-frame pop in the loop.
+- **server_rack** — the multi-colour status LEDs are smeared into a uniform blue glow
+  across all frames (loses the device's whole character).
+Programmatic pre-scan confirmed geometry is fine on all 38 (canvas 1:1, content aligned,
+0 aspect distortion) — the only defects are perceptual frame-content softness.
+
+**Test room** (`scenes/test_room.tscn` + `scripts/test_room.gd`, DELETABLE): an in-engine
+showroom of ALL 126 craftables grouped by category, each drawn at its true `dims_of` display
+size with the animated 32 looping on the exact in-game timing (`DEV_ANIM_FPS` + per-device
+hash rate/phase). Scroll wheel/arrows/PgUp-Dn, Home/End, Esc. For eyeballing every fabricated
+object in one place. `SW_SHOT` env screenshots it.
+
+---
+
+## 18/07/2026 — v1.76: asset audit fixes — park-seed bug, palette + broken-art cleanup
+
+Follow-up fixes from the deep asset scan (13 verified-real findings):
+
+**Park-lands-in-different-field (the "Selenium looks different inside vs outside" bug):**
+- `flight.gd`'s keep-position-live line was overwriting the parked field's seed centre
+  during the 0.45 s fade-to-black, so you dropped into a field seeded from a slightly
+  different coord than the preview — different rocks/elements/colours. Guarded it behind
+  `if not Transition.is_busy():` so the parked seed freezes once a scene-leave starts.
+  Preview field == dive field again.
+
+**Broken element rock-art (dive presentation):**
+- 4 bad variants (`el_metal_orange_7` baked watermark, `el_metal_palegold_8` /
+  `el_metal_red_7` wrong art, `el_liquid_silver_2` cube-morph) overwritten with a good
+  sibling from the same colour family — art fixed with no blank-rock holes (the loader
+  picks by `hash % 12`, so a deleted variant would render null).
+
+**Palette + reverted anims:**
+- `fuel_tank` recoloured purple → gunmetal steel (cyan fluid icon preserved);
+  `sofa` recoloured purple → deep navy-slate to match the interior.
+- `surgery_light` anim reverted to static (frames had recoloured the steel arm blue);
+  `ore_refinery` station art restored (bg-removal had mangled it).
+
+---
+
 ## 18/07/2026 — v1.75: 60-agent whole-game audit — bug/economy/graphics/completion fixes
 
 Ran a 60-agent audit (45 scanners across every script + cross-cutting concerns → dedupe

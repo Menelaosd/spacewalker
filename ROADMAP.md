@@ -4,6 +4,26 @@ Planned features, not yet built. Specs live here until they land in DEVLOG.
 
 ---
 
+## Polish & revisit (art / UX) — captain's list
+
+- **Revisit the star-chart graphics.** The chart works and now shows the 12 station
+  landmarks + a heading-pointing "YOU" arrow, but the whole overlay wants an art pass
+  (nebula rendering, station iconography, rings/labels, legend) to match the game's polish.
+- **Breach rogue-style minigame graphics.** The HELIOS breach demo (`demo_breach`) is all
+  placeholder vector shapes. Give the intrusion map + nodes real art — a proper "hacking a
+  station" look (station schematic, node icons per type, trace VFX).
+- **A puzzle game for EACH step of the breach.** Replace the single disliked trace-race
+  (see the breach decision: keep the rogue map, drop that puzzle) with a *variety* of small
+  puzzles — one per node type / difficulty step — so climbing a station is a sequence of
+  distinct mini-challenges, not the same minigame repeated. Research + pick the puzzle set
+  later. Ties into [[breach-roguelike-decision]] and the station-unlock loop.
+- **Journal / quest-log modal.** A dedicated modal that lists the ACTIVE quests and explains
+  each in detail — objectives, progress, next step, lore/why-it-matters — not just the terse
+  HUD objective line. Expand the existing `quest_log.gd` into a full readable panel the player
+  can open any time.
+
+---
+
 ## Haven endgame — TWO TRACKS (matter + people)
 
 Replaces the current flag-flip "Haven" win-state (`game_complete && rescued>=5`)

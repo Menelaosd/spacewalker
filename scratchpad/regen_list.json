@@ -1,0 +1,112 @@
+[
+ {
+  "id": "algae_tank",
+  "action": "tank body, glass, pipes and panel perfectly still; liquid level constant and glow held at steady brightness; only a few small cyan-green bubbles drift slowly upward with a faint shimmer",
+  "frames": 6
+ },
+ {
+  "id": "alien_plant",
+  "action": "stone pot and plant base perfectly still; overall plant size fixed; only the upper tentacle tips drift a few pixels side to side with a slow, subtle shimmer on the green edges",
+  "frames": 6
+ },
+ {
+  "id": "arcade_cabinet",
+  "action": "Cabinet body, marquee and control panel perfectly still and pixel-crisp; ONLY the CRT screen pixels animate — the invader sprites shuffle 1px side-to-side on an evenly bright blue screen. No dimming toward black, no soft/blurred pixels, no cabinet scaling or drift.",
+  "frames": 6
+ },
+ {
+  "id": "bar_counter",
+  "action": "Counter body, base and both stools perfectly still and matte, holding the static's dark-purple palette; ONLY a thin neon light strip along the underside lip of the countertop glows gently up and down in a slow soft cyan-to-purple pulse. No surface starbursts, no vapor, no brightness change on the stools, no whole-object glow.",
+  "frames": 6
+ },
+ {
+  "id": "body_scanner",
+  "action": "Scanner ring housing and side panel perfectly still and same size in every frame; only a soft cyan scan-light bar drifts slowly down the interior bed and the top emitter glow pulses gently — no scaling of the frame.",
+  "frames": 6
+ },
+ {
+  "id": "conveyor",
+  "action": "Outer frame, yellow handles, corner bolts and bottom roller housing dead still and identical size every frame; only the horizontal belt slats scroll slowly one notch downward per loop and the roller shows a faint highlight rotating — no housing scaling.",
+  "frames": 6
+ },
+ {
+  "id": "culture_cylinder",
+  "action": "Housing, top cap and blue LED bars perfectly locked; only inside the glass: tiny cyan bubbles rise slowly, water gently shimmers and the little fish drifts a few pixels. No scaling of the tank.",
+  "frames": 6
+ },
+ {
+  "id": "dance_pad",
+  "action": "Metal slab, bevels and outer rim completely fixed; only the arrow glyphs animate — their neon glow brightens and dims in a gentle sequence (e.g. a slow chase around the tiles). No change to the pad's size or position.",
+  "frames": 6
+ },
+ {
+  "id": "fan_unit",
+  "action": "only the inner circular fan blades rotate slowly clockwise; the square housing, rivets and panel seams stay 100% still and unchanged in size and position",
+  "frames": 6
+ },
+ {
+  "id": "fireplace",
+  "action": "blue flame flickers gently and sways, embers glow softly; the metal mantel frame, pillars and top bar stay 100% still and fixed in position and size",
+  "frames": 6
+ },
+ {
+  "id": "holo_chess",
+  "action": "The holographic chess board holds ONE constant cyan colour and constant brightness for the entire loop — it NEVER shifts to green or teal and NEVER pulses or flickers. Metal housing and every chess piece perfectly still. The ONLY motion is a single faint horizontal scan-line sliding slowly downward across the glass. Almost imperceptible.",
+  "frames": 6
+ },
+ {
+  "id": "jukebox",
+  "action": "The neon side tubes change colour crisply frame to frame but stay SHARP and pixel-defined with absolutely NO soft glow halo, bloom or haze; the round speaker grille and display stay crisp; cabinet body, chrome trim and outline perfectly still at fixed size. Every frame as sharp as a clean static sprite.",
+  "frames": 6
+ },
+ {
+  "id": "laser_cutter",
+  "action": "Housing, robotic arm, side panel and grid frame PERFECTLY still; only the orange/cyan laser focal cross on the blue grid bed glows gently brighter then fades back over the loop. No whole-object scaling, no positional drift, no global dimming of the housing.",
+  "frames": 6
+ },
+ {
+  "id": "planetarium",
+  "action": "Ringed metal base and the glass dome edge PERFECTLY still; only the cyan constellation star-map slowly rotates inside the sphere, with every node and connecting line staying sharp and readable on every frame. No blur, no dissolve, no loss of the line network.",
+  "frames": 6
+ },
+ {
+  "id": "reactor",
+  "action": "Housing and outer metal ring perfectly static; ONLY the small central core does a very gentle, slow brightness breath — stays a bright steady orange the whole time, never dims toward off and the ring never scales.",
+  "frames": 6
+ },
+ {
+  "id": "smelter",
+  "action": "molten forge cavity glows and flickers warm orange with small embers pulsing deep inside; the metal housing, top port and panel lines stay perfectly still and razor-sharp",
+  "frames": 6
+ },
+ {
+  "id": "specimen_tank",
+  "action": "gentle cyan-green bubbles rise slowly through the fluid and the specimen bobs a few pixels while the glass fluid shimmers softly; the dark pod housing, caps and blue LED indicators stay perfectly still and crisp",
+  "frames": 6
+ },
+ {
+  "id": "stasis_tube",
+  "action": "the suspended humanoid inside the glass glows with a slow gentle cyan shimmer; glass, cap and metal housing stay perfectly still and razor-crisp with no glow bloom spilling onto the frame",
+  "frames": 6
+ },
+ {
+  "id": "stove",
+  "action": "All four burner rings hold a STEADY identical soft blue glow the whole loop — no brightness pulse, no colour change, and absolutely NO pattern, cross, X or connecting lines between burners. Cooktop, knobs, oven door and bottom drawer stay completely still and unlit. The ONLY motion is a barely-perceptible faint shimmer on the four rings. Almost still.",
+  "frames": 6
+ },
+ {
+  "id": "uv_light",
+  "action": "UV LED strip pulses gently in brightness with a faint violet glow breathing in and out; metal housing and pipe frame held perfectly still, no scaling, no positional drift, color stays pure violet with no pink or blue shift",
+  "frames": 6
+ },
+ {
+  "id": "tank",
+  "action": "Only the liquid contents inside the glass shift gently; the metal tank body, rim, pipes and every panel line stay perfectly still and RAZOR SHARP with no blur or glow bloom in any frame — keep all edges crisp and pixel-defined every frame.",
+  "frames": 6
+ },
+ {
+  "id": "tesla_coil",
+  "action": "Only a thin bright crisp electric arc crackles at the top; the coil housing, rings, base and panel lines stay perfectly still and RAZOR SHARP in every frame, no soft glow bloom or haze on the metal, edges crisp and pixel-defined.",
+  "frames": 6
+ }
+]

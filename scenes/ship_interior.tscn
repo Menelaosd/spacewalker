@@ -10,5 +10,5 @@ script = ExtResource("1_interior")
 script = ExtResource("2_crew")
 
 [node name="Camera" type="Camera2D" parent="Crew"]
-position_smoothing_enabled = true
+position_smoothing_enabled = false
 position_smoothing_speed = 8.0

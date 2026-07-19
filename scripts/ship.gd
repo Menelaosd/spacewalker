@@ -5,6 +5,7 @@ extends StaticBody2D
 @onready var dock_zone: Area2D = $DockZone
 
 var _beacon_phase := 0.0
+var _float_base := Vector2.INF   # captured on first frame; the ship idle-floats around it
 
 
 func anchor_point() -> Vector2:
@@ -20,6 +21,12 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_beacon_phase += delta
+	# gentle idle float while you're spacewalking — the whole ship (hull, dock zone and
+	# tether hardpoint) drifts slowly together, so it reads as adrift, not bolted down
+	if _float_base == Vector2.INF:
+		_float_base = position
+	position = _float_base + Vector2(
+		sin(_beacon_phase * 0.5) * 7.0, cos(_beacon_phase * 0.38) * 5.5)
 	queue_redraw()
 
 

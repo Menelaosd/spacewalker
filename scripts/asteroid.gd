@@ -81,6 +81,8 @@ func _pulse() -> float:
 
 
 func take_damage(dmg: float, at: Vector2) -> void:
+	if health <= 0.0:
+		return   # already dead this frame; queue_free() is deferred, guard against a double-shatter
 	health -= dmg
 	_flash = 1.0
 	_hit_local = to_local(at)

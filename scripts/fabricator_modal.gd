@@ -78,6 +78,7 @@ func _confirm() -> void:
 	if not GameState.can_afford(Craftables.ITEMS[id]["cost"]):
 		Sfx.play("deny", -12.0)
 		return
+	_flash = 1.0   # warm confirm pulse on the panel border (mirrors upgrade_modal)
 	craft_chosen.emit(id)   # ship_interior closes us and starts placement
 
 
