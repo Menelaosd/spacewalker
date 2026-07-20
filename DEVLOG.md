@@ -5,6 +5,233 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 20/07/2026 — v1.90: grid board, floating cards, animated STRIKE button (breach only)
+
+Duel-board polish from live captain feedback:
+
+- **Fixed transparent-sort glitch.** Slot planes were blending over the cards. Cards now use
+  alpha-scissor (`ALPHA_CUT_DISCARD` on every sprite + Label3D → depth-writing); slot pads are
+  opaque. Nothing draws over a card anymore. Ghost/queue cards dim by RGB, never alpha.
+- **Real grid board.** New PixelLab `duel/slot_cell.png` (thin-bezel glowing card-bay) tiled
+  5×3 edge-to-edge (rows evened to 1.7 pitch, `CELL_W/CELL_H`) — reads as a proper socket grid.
+- **Floating cards + shadows.** Every card (yours AND HELIOS's) hovers `FLOAT_Y` above the slab
+  and casts a strong radial drop-shadow (per-unit mesh, fades on death), plus a discreet idle
+  up/down bob (paused while a card is tweening).
+- **Animated STRIKE button.** New PixelLab red-arcade-dome button with a 6-frame press
+  animation (`animate-with-text-v3`) — plays the frames + a physical sink/elastic rebound +
+  flash on click. Replaces the old bell sprite.
+
+Card roster is still the Act-3-curve PLACEHOLDER; real card designs pending captain's pick.
+
+## 21/07/2026 — v1.94: v2 node icons + thin path line + colored node lights (breach only)
+
+Captain feedback on the dark map: disliked the flat mono icons, path line too fat, stage too
+monochromatic.
+- **v2 node icons** regenerated (`hd/icon_*.png`): detailed dark engraved-metal casings, each
+  with its own accent glow (cyan access/vault, orange firewall, red sentinel, teal pod, amber
+  cache, violet ghost, red-orange core) but one cohesive family — not flat monochrome.
+- **Path line thinned** in `breach_map3d.gd` (0.16 → 0.07 wide).
+- **Colored node lights:** `TYPE_COLOR` per node type now drives each token's OmniLight, so the
+  corridor has pools of amber/teal/violet/red instead of one flat blue — kills the monochromatic
+  feel and lets the complex cube machinery read under the coloured light.
+
+## 21/07/2026 — v1.93: dark corridor-lit map + complex cubes + mono icons (breach only)
+
+Captain art direction on the cube map: "so dark it hides the map edges, corridor illuminated by
+lights, more complex cube art, icons monochromatic + one style."
+- **Lighting rebuilt for darkness:** removed the global/directional key light and the warm rim;
+  ambient dropped to ~0.08 + thick black fog. Only per-path-cell blue OmniLights + the emissive
+  blue path-line illuminate the corridor, so the cube field falls to black at the edges.
+- **Complex cube art:** regenerated `map3d/cube_top.png` + `cube_side.png` as dense detailed
+  machinery (greebles, pipes, panels) instead of plain plating; distinct `path_floor.png`.
+- **Monochromatic icon set:** regenerated all 8 `hd/icon_*.png` in a single steel-cyan hue,
+  uniform engraved style — one cohesive family, no per-node colors.
+
+## 21/07/2026 — v1.92: real card roster + sigil engine start + cube-field map (breach only)
+
+- **Full reskinned Act 3 roster is IN** (`breach_duel3d.gd`). Replaced the placeholder cards with
+  the `docs/BREACH_CARDS.md` set: player intrusion units (Power Siphon, Buckler Mite, Lance Drone,
+  Fork Turret, Grunt Bot, Sapper Worm, Watcher Seed, Hollow Shell side-deck…) + HELIOS firewall
+  units (Barrier Node, Sentry ICE, Packet Daemon, Raptor Proc, Heap Giant, Spike Wall, Firewall
+  Slab…) + boss cards (Freeze-Frame, Index Warden, Kernel Ghost, Ursa/Vespa/Quill daemons). Real
+  Act 3 stats. **11-card starter deck**, T1/T2/T3 firewall pools. Sigil field is now an Array.
+- **Sigil engine started** — working: `overcharge` (Battery Bearer), `ablative_plating` (Nano
+  Armor), `spike_casing` (struck attacker takes 1), `provoke` (card opposite strikes +1). Others
+  stored + labelled, effects land in later passes. Headless test rewritten to new ids: **27 PASS**.
+- **35 card portraits generated** (PixelLab) into `duel/` — cyan intrusion bots vs red/amber
+  firewall units.
+- **Duel-through-map bug fixed** — the 3D map geometry was rendering behind the duel; the map
+  world + HUD now hide while a duel is on screen and restore after.
+- **Map redesigned to a cube field** — whole area is solid raised blocks; the walkable path is
+  carved in as a recessed channel with a **glowing blue line** down the middle (per captain).
+  New materials: cube top / cube side / recessed path floor; cool-blue ambient + warm core-end
+  rim + fog. New textures + a moodier consistent icon set generating (agent) to swap in.
+
+## 21/07/2026 — v1.91: 3D corridor map + duel polish + card bible (breach only)
+
+- **THE MAP is now 3D** (`scripts/breach_map3d.gd`, new `Node3D` scene) — same angled
+  perspective as the duel. Nodes are round tokens (icon on a `token_base` disc) with
+  drop-shadows; grid-square corridors (Manhattan bends) link them over the void; the astronaut
+  marker walks the corridors node-to-node up to the HELIOS core. Battle nodes open the duel;
+  camera follows the marker. New art: `map3d/floor_top.png`, `floor_wall.png`, `token_base.png`.
+  Replaces the 2D chart; `flight.gd` + `breach.tscn` repointed to `breach_map3d.gd`.
+- **Duel:** grid tile swapped to the chosen machined-titanium plate (batch-2 #03, picked from
+  20 in-engine candidates); floating-card drop-shadow strengthened + a docked "card plate" now
+  sits under each floating card so it reads as lifting off.
+- **CARD BIBLE written** → `docs/BREACH_CARDS.md`. A researched, cross-checked reskin of ALL
+  Inscryption Act 3 cards (player intrusion + enemy firewall + boss/Uberbot cards) keeping real
+  Act 3 stats/sigils: full CARDS table, 11-card starter deck, T1/T2/T3 + 4 boss decks, every
+  sigil with rule + difficulty, and the 12-station (4 zones × 3, 3 duels→boss) collect-as-you-go
+  progression. This is the blueprint for the card build. Deck-builder is deliberately LATER.
+
+### v1.90c follow-up (same day)
+- **Grid tile restored** to the bright cyan L-corner-bracket design the captain liked (the
+  de-glow/muted attempts were rejected). Regenerated from the original prompt (exact file was
+  overwritten); `slot_cell.png`. Nothing else changed — thick slab, button, cards all kept.
+
+### v1.90b follow-up (same day)
+- **Restored the loved tile.** Reverted the bolted-panel misstep — `slot_cell.png` is the
+  corner-bracket design again, just muted (dim steel-cyan brackets, no neon glow).
+- **Thick platform back & prominent.** Slabs are now 1.4 tall (was 0.55), reach forward past
+  the front row so the thick lip faces the camera; hall floor dropped to y=-1.55; camera tilted
+  to show the raised platform + side pedestal.
+- **Button remade complete.** Octagonal armored sci-fi console module with a cyan-lit core and
+  large margin so it never crops (`strike_btn.png`; `strike_btn_alt.png` = hazard-slam spare).
+
+### v1.90a follow-up (same day)
+- **Redesigned grid tile.** Generated 3 fresh candidates, kept/refined the flat one:
+  `duel/slot_cell.png` is now a dark plate with clean cyan L-corner brackets (not the old
+  chunky frame). Reads as a proper grid.
+- **No card clipping.** Cards shrunk (`CARD_W 1.7→1.5`) and rows spread (`ROW_Z` 2.35 pitch,
+  `CELL_H 2.3`), camera pulled back — floating cards no longer overlap the neighbouring row.
+- **Button redone.** Dropped the cropped PixelLab frame-swap; new clean padded
+  `duel/strike_btn.png` + a code-driven squash / hard-sink / elastic-rebound / flash press.
+
+---
+
+## 20/07/2026 — v1.89: proper path-map + floating duel cards (breach only)
+
+Captain rejected v1.88's map ("terrible", "repeated texture", "stupid spread graphics") and
+flagged the duel's slot overlays drawing over cards. Fixes:
+
+- **Real map paths.** New PixelLab graphic `hd/path_seg.png` (glowing cyan conduit) is tiled
+  along every node link — solid trail, not dotted ink: dim locked, bright pulsing on the live
+  branch, cyan on walked edges. New `hd/node_pad.png` / `node_pad_boss.png` socket platforms
+  sit under every node icon. This is the "proper map" — a lit conduit trail from ACCESS PORT
+  up to the core.
+- **Removed the clutter.** Deleted the scattered props and shadow-blotch systems entirely
+  (`_scatter_props`/`_scatter_blotches` gone). Background is now a calm, darkened tile with a
+  vignette on the flanks so the central path column is the focus.
+- **Floating duel cards.** Cards now hover `FLOAT_Y` above the slab and cast a soft radial
+  drop-shadow onto it (per-unit shadow mesh, dimmer for queued cards, fades out on death) —
+  the slot pads sit below, so nothing draws over a card anymore.
+
+---
+
+## 20/07/2026 — v1.88: thick 3D platform + map de-wallpapering + cost badges (breach only)
+
+Captain's polish round on v1.87:
+
+- **Cost badges.** The duel's energy costs were tiny pips — now an unmissable top-left badge
+  on every hand card (battery icon + big number, cyan = payable, red = not this turn), a
+  bigger energy cell bank with "+1 max each turn, refills full" hint, and selecting a card
+  burns the cells it will drain amber.
+- **Thick dueling platform.** The board is a real armored slab (BoxMesh body + top plane)
+  with new PixelLab textures: `duel/platform_top.png` (gunmetal panels, cyan trim) and
+  `duel/platform_side.png` (plated side wall with a glowing light strip). Bell + draw piles
+  sit on a matching side pedestal; the hall floor is sunk 0.55 under the platforms.
+- **Map repetition killed.** The chart tile no longer reads as wallpaper: every cell draws
+  with a deterministic 0/90/180/270 rotation, random mirror, and ±22% brightness from its
+  map coordinates (one tile = 16 looks), tiles render 1.3x bigger, prop count up to 20-29,
+  and 7 soft shadow pools + 4 faint amber/cyan glows break the macro pattern.
+
+---
+
+## 20/07/2026 — Breach map art library (assets only, PixelLab bulk pass)
+
+Generated the pixel-art library for randomized Inscryption-style breach maps —
+no code changes, assets only.
+
+- **12 themed floor tiles** (`assets/sprites/breach/themes/`, 256×256, one per
+  rescue-station id): seamless-ish tileable, deliberately near-black so glowing
+  map icons render on top. 7 re-rolled once with a stronger "flat overhead,
+  edge-to-edge, no walls" prompt after first pass returned isometric scenes.
+- **24 scatter props** (`assets/sprites/breach/props/`, 64×64 base; drone wreck /
+  skeleton / fountain 80×80, server rack 64×96): vents, pipes, crates, barrels,
+  terminals, skeleton, candles, vines, ice, gold ornament, etc. — dark palette,
+  cyan/amber glow accents, transparent background.
+- Known weak spots to maybe re-touch later: halcyon (faint ring motif),
+  verdant_halo (vine strips hug the edges), verdant_bloom / vespers / glacier
+  (subtle frame rim); prop_bed and prop_gold are upright, not toppled.
+
+## 20/07/2026 — v1.87: THE DUEL in 3D + Act-3 energy system + HD art (breach only)
+
+Same-day hot redesign of v1.86, driven by captain feedback ("not smoothly playable",
+"no indicator of the cards required", "3D duel", "Act 3 cards", "badass graphics").
+Built with 7 parallel agents (2 researchers, 3 PixelLab passes, UX audit, autoplay QA).
+
+- **THE DUEL is now a real 3D table** (`scripts/breach_duel3d.gd`, code-built Node3D):
+  angled camera, moody cyan/amber omni-lights, deck-plated table, machine-hall backdrop
+  with a distant red eye. Cards are physical layered stacks (HD frame + portrait sprites,
+  Label3D stats) that drop in, glide out of the queue, lunge on attack, flash on damage,
+  and collapse on death (tweens). 2D HUD overlay: hand fan, energy bank, trace-scale,
+  toasts, phase chip. Input: ray-picked board + screen-space hand. Chart stays 2D.
+- **Act 3 (Botopia) combat, researched & exact:** 5 lanes; ENERGY replaces blood/bones —
+  max starts 1, +1 per turn to cap 6, full refill (verified: turn 1 = 1/1); Empty-Vessel
+  analog (scrap mite) costs 1⚡ and is 0/2, side pile of 10; mandatory draw, turn 1 skips;
+  queue advances BEFORE HELIOS strikes; overkill spills into the queued unit, never the
+  scale; scale tips at ±5. Two Act 3 sigils in: BATTERY BEARER (+1 max & current, resolves
+  before cost) and NANO ARMOR (negates first damage). PLACEHOLDER deck on Act 3's real
+  cost curve — card designs still to come (captain's call).
+- **UX pass (audit + autoplay QA):** cost pips top-left (never occluded), hand no longer
+  overlaps, energy cell bank + ENERGY n/n, unaffordable cards dim with red deficit pips,
+  playable cards pulse, placement lanes glow, row labels, dead-click deny + pile flash,
+  phase chip (DRAW amber / PLAY cyan / HELIOS red), attacker cursors both sides, floating
+  damage numbers, scale needle tween + center-fill, OVER-screen click lockout, hover
+  lift/pointer cursor. Autoplay QA confirmed 59/59 clicks land and both outcomes complete.
+- **HD "badass" art pass** (`assets/sprites/breach/hd/`, PixelLab, highly-detailed):
+  128px chart icons + 192px monstrous HELIOS core, seamless dark map tile, ornate card
+  frame/back, atmospheric duel backdrop. Chart loads hd/ first, falls back to scifi/.
+- **Random maps groundwork:** breach picks `themes/<station_id>.png` tile per station and
+  scatters 14–22 props (`props/prop_*.png`) between rows and in the margins per roll —
+  12 themed tiles + 24 props generating in the background, code already integrated.
+- **Fixed:** dict-keyed 3D node lookup broke on hp mutation (Godot hashes dict keys by
+  content — now uid-keyed); headless test never actually ran (typed-var parse error +
+  hang) — rewritten for the energy engine: **27/27 PASS** (`tools/test_duel.tscn`).
+  Removed `scripts/breach_duel.gd` (2D duel superseded).
+
+---
+
+## 20/07/2026 — v1.86: THE BREACH — Inscryption-style intrusion chart (breach only)
+
+The HELIOS breach got its keeper structure. The old demo (Slay-the-Spire columns + the disliked
+Deus-Ex trace-race) is gone; in its place, a map that works exactly like **Inscryption Act 1**:
+
+- **The chart.** A vertical hand-drawn paper map, taller than the screen, that scrolls as the
+  pewter astronaut marker hops node to node (forward only, hop-arc animation, mouse-wheel peek).
+- **Inscryption generation rules** (researched): rows are *category-typed* — repeating
+  gain → utility → battle triads from the ACCESS PORT up to the HELIOS CORE boss on top. A row
+  with 2-3 nodes offers different *variants of the same category* (cache vs vault, pod vs ghost,
+  firewall vs sentinel) — the choice is which flavour, like Inscryption's card/event/battle rows.
+  Dotted ink paths branch AND merge; every node is guaranteed reachable; cleared nodes get a
+  red-ink X.
+- **PixelLab art** (`assets/sprites/breach/`): seamless parchment tile, 8 hand-drawn-ink node
+  icons (airlock, burning wall, skull drone, cryo pod, data crate, radio ghost, vault door, and
+  a glaring mechanical-sun boss core), plus the astronaut game-piece marker.
+- **Minigame slot.** Battle nodes open a parchment challenge card — `[ MINIGAME SLOT ]`,
+  click-to-win placeholder. The future node-challenge drops into `_arrive()`/`_finish_node()`
+  with no map changes. (Trace-race deleted with the demo files.)
+- **Testing wiring:** approaching ANY of the 12 stations in flight now opens the breach
+  (`_check_station_breach()` in flight.gd — arms in open space so returning from a breach
+  doesn't insta-retrigger). ESC or freeing the core returns to the helm at the same spot.
+  Nothing else touched — breach only.
+
+New: `scenes/breach.tscn`, `scripts/breach.gd`. Removed: `scenes/demo_breach.tscn`,
+`scripts/demo_breach.gd`. Verified via real-window screenshots: map, challenge card, and the
+full flight→approach→breach handoff (SW_STATIONS=1 SW_THRUST=1; SW_BREACH_CH=1 for the card).
+
+---
+
 ## 19/07/2026 — v1.85: atomic save (no more crash-wiped slots)
 
 A full-game bug scan (per-file review + adversarial verify) flagged `save_game()` as a data-loss

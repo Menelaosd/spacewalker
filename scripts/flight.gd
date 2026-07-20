@@ -257,6 +257,7 @@ func _process(delta: float) -> void:
 	GameState.at_field = not _near_field.is_empty()   # the interior airlock reads this
 	_near_beacon = GameState.rescue_available() \
 		and ship_pos.distance_to(GameState.rescue_beacon()) < 300.0
+	_check_station_breach()   # TESTING: any station opens THE BREACH on approach
 	if not GameState.pending_shift \
 			and ship_pos.distance_to(_flight_origin) > 600.0:
 		GameState.pending_shift = true   # you actually flew somewhere
@@ -671,6 +672,40 @@ func _find_near_field() -> Dictionary:
 			if ship_pos.distance_to(f["center"]) < f["radius"] + PARK_REACH:
 				return f
 	return {}
+
+
+# ==================================================================
+# THE BREACH — station approach trigger (testing wiring: every station
+# runs the same breach; scattering/gating them is a later step)
+# ==================================================================
+# arms only in open space, so returning from a breach beside the hull
+# doesn't instantly re-trigger it — fly away and back to breach again
+var _breach_armed := false
+
+
+func _near_station_idx() -> int:
+	var reach: float = Stations.display_px() * 0.75
+	for i in Stations.count():
+		if ship_pos.distance_to(Stations.world_pos(i)) < reach:
+			return i
+	return -1
+
+
+func _check_station_breach() -> void:
+	var near := _near_station_idx()
+	if near == -1:
+		_breach_armed = true
+		return
+	if not _breach_armed or _in_dialog or Transition.is_busy():
+		return
+	_breach_armed = false
+	GameState.sector = ship_pos   # come back to this exact spot after the breach
+	var breach_gd := load("res://scripts/breach_map3d.gd")
+	breach_gd.station_name = str(Stations.LIST[near]["name"])
+	breach_gd.station_id = str(Stations.LIST[near]["id"])
+	Sfx.play("radio", -6.0)
+	GameState.say("Docking clamps bite — HELIOS firewall detected. Breaching.")
+	Transition.to_scene("res://scenes/breach.tscn")
 
 
 # ==================================================================
