@@ -23,6 +23,17 @@ Duel-board polish from live captain feedback:
 
 Card roster is still the Act-3-curve PLACEHOLDER; real card designs pending captain's pick.
 
+## 21/07/2026 — v1.95: premium map icons + new player avatar + smaller sizing (breach only)
+
+Captain: icons too large/stretched/cartoony, disliked the astronaut player skin.
+- **v3 icons** (`hd/icon_*.png`) regenerated with a serious AAA-concept-art direction — tight
+  detailed emblems (spoked vault, armored cache, horned kill-drone sentinel, molten eye-sun
+  core), grim/desaturated, not cartoonish.
+- **New player avatar** (`hd/marker.png`): a hooded cyber-infiltrator hologram in cyan wireframe
+  instead of the astronaut — fits the intrusion theme.
+- **Sizing shrunk** in `breach_map3d.gd`: icons, token discs, marker, and drop-shadows all
+  scaled down so nothing reads as a big sticker.
+
 ## 21/07/2026 — v1.94: v2 node icons + thin path line + colored node lights (breach only)
 
 Captain feedback on the dark map: disliked the flat mono icons, path line too fat, stage too

@@ -389,7 +389,7 @@ func _build_token(i: int) -> void:
 	# drop shadow on the floor
 	var sh := MeshInstance3D.new()
 	var sp := PlaneMesh.new()
-	var ssz := CELL * (1.05 if big else 0.82)
+	var ssz := CELL * (0.8 if big else 0.56)
 	sp.size = Vector2(ssz, ssz)
 	sh.mesh = sp
 	var smat := StandardMaterial3D.new()
@@ -402,7 +402,7 @@ func _build_token(i: int) -> void:
 	# round token disc
 	var disc := MeshInstance3D.new()
 	var dp := PlaneMesh.new()
-	var dsz := CELL * (1.05 if big else 0.85)
+	var dsz := CELL * (0.8 if big else 0.58)
 	dp.size = Vector2(dsz, dsz)
 	disc.mesh = dp
 	var dmat := StandardMaterial3D.new()
@@ -415,12 +415,12 @@ func _build_token(i: int) -> void:
 	disc.position.y = 0.04
 	root.add_child(disc)
 	nd["token"] = disc
-	# icon standing upright on the token, billboarded
+	# icon standing upright on the token, billboarded — kept small + tight
 	var icon := Sprite3D.new()
 	icon.texture = _tex.get(TYPES[nd["type"]][1])
 	if icon.texture != null:
-		icon.pixel_size = (CELL * (1.15 if big else 0.8)) / icon.texture.get_height()
-	icon.position.y = CELL * (0.7 if big else 0.5)
+		icon.pixel_size = (CELL * (0.82 if big else 0.5)) / icon.texture.get_height()
+	icon.position.y = CELL * (0.52 if big else 0.36)
 	icon.billboard = BaseMaterial3D.BILLBOARD_FIXED_Y
 	icon.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	icon.shaded = false
@@ -453,7 +453,7 @@ func _place_marker() -> void:
 	add_child(_marker)
 	var sh := MeshInstance3D.new()
 	var sp := PlaneMesh.new()
-	sp.size = Vector2(CELL * 0.8, CELL * 0.8)
+	sp.size = Vector2(CELL * 0.55, CELL * 0.55)
 	sh.mesh = sp
 	var smat := StandardMaterial3D.new()
 	smat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -465,8 +465,8 @@ func _place_marker() -> void:
 	var spr := Sprite3D.new()
 	spr.texture = _tex.get("marker")
 	if spr.texture != null:
-		spr.pixel_size = (CELL * 0.9) / spr.texture.get_height()
-	spr.position.y = CELL * 0.5
+		spr.pixel_size = (CELL * 0.62) / spr.texture.get_height()
+	spr.position.y = CELL * 0.42
 	spr.billboard = BaseMaterial3D.BILLBOARD_FIXED_Y
 	spr.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	spr.shaded = false
