@@ -5,6 +5,207 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 24/07/2026 — v0.208: breach map camera rework + entry framing + trigger/save fixes
+
+- **Near-iso camera**: long lens (fov 20 at 34u) on the flat angle — parallel-ish lines, honest
+  proportions; O toggles pure orthographic. Zoom + gentle ~44° tilt tuned by captain.
+- **Entry shot**: camera snaps close on the astronaut and eases out; aims AT him (not ahead);
+  soft frame-clamp keeps him in the middle band; node icon hides while he stands on a node.
+- **Full-body entry fixed**: cubes on the CAMERA side of the access node are no longer generated.
+  Root cause of a long night: `_cell_world` returns z = -gz, so "south of the start" is gz-1,
+  NOT gz+1 — every earlier carve removed backdrop instead of the occluder. Axis conventions
+  matter; verify with screenshots (SW_SEED + SW_SHOT), not assumptions.
+- **Breach trigger**: saves made at/inside a station no longer soft-lock it — only the station
+  you spawned inside stays quiet until you fly clear once (flight.gd `_breach_ignore`).
+  Captain's slot-1 save relocated to open space (backup kept). "BREACH: entering" debug print.
+- Lane travel slower (WALK_SPEED 3.1) + step cadence retuned (cyc 3.6); marker narrower (0.72);
+  arrival scale-pop removed.
+
+## 24/07/2026 — v0.207 (final): back walk SOLVED after a 40+ candidate campaign
+
+- Captain demanded proper contralateral arms ("one hand and one foot at a time") on the
+  walking-away cycle. Winning recipe: **/animate-with-text-v2, direction='north'**, reference =
+  clean keyed back pose, explicit low-arm choreography ("BIG visible arm swing, gloves below the
+  waist"), aggressive leg language ("ONLY the right boot leaves the ground, sole visible"), seed
+  sweep + loop rotation (rotating the 4+mirror assembly rescues mid-stride seeds). Result: 32px
+  boot lifts with visible treaded soles, 11px anti-phase arm swing, pixel-stable suit.
+- Quantitative gates that made agent verification honest: motion.gd (leg silhouette diff),
+  armband/armctr.gd (per-arm centroid anti-phase), legs.gd (boot-bottom lift sinusoid + splice
+  jumps). "Looks fine" was never accepted again after the first two rejected batches.
+- Root-cause postmortem: an earlier procedurally-pasted arm frame (stride_A2) carried a shoulder
+  seam bar that poisoned every generation conditioned on it — the captain's "cut arm" report.
+  Never condition generations on composited frames.
+- Captain picked the natural-recipe seed-55 back walk from the final sweep. Final polish, 3
+  directions only (front walk dropped — moving toward camera keeps the last side profile; idle
+  stays the front render): left/right smoothed 8→16 frames (50% blends); back stabilized
+  (torso-anchored, per-frame drift up to 4px removed), fly-away kick keys replaced with neighbor
+  averages, smoothed 8→24 frames (1/3+2/3 blends), 1.5x longer stride cycle, bob softened to 3%.
+  Walk-frame loader now takes any set size up to 32 (stops at first gap); frame step and bob both
+  derive from the active set's cycle. A raw-keys 6-frame tryout was tested and rejected in favor
+  of the smooth version.
+
+
+## 23/07/2026 — v0.207: map marker gets true directional walk cycles
+
+- Captain supplied a 3-pose green-screen render of the SAME astronaut (back, left profile, right
+  profile). Cropped + chroma-keyed each pose to the 128×240 marker canvas (headless Godot script,
+  auto-detects figures by column scan, despills green fringes).
+- Each pose animated via PixelLab `animate-with-text-v3` (2 parallel agents, 8-frame walk cycles),
+  visually verified frame-by-frame to be the captain's astronaut — no reinvented character this time.
+- First batch rejected (back was a vibrating statue, sides wobbled). Regenerated with
+  `enhance_prompt` + aggressive stride prompts + seed retries, gated by a quantitative leg-motion
+  score (silhouette diff in leg region; accepted front = 0.21 baseline, bar 0.15) AND per-frame
+  visual review. Left 0.27 / right 0.30 / back 0.15 shipped; front redo scored below the existing
+  cycle so the original front stays.
+- Captain's verdict on batch 2: only LEFT approved. RIGHT is now the approved left mirrored
+  (flip_x — guarantees identical gait both ways). BACK reanimated across 5 more seed/prompt
+  candidates (best: seed 99, boots visibly lifting). Added a distance-synced **walk bob** to the
+  marker sprite (2 beats per 8-frame stride, ~4.5% of figure height) — the flat glide was a big
+  part of why the cycles read stiff; idle resets to base height.
+- FINAL round (3-agent inspection, every frame read individually): LEFT = captain-approved cycle
+  (beat 2 challengers), RIGHT = its mirror (beat 2 challengers), BACK = guided half-cycle
+  (stride pose → mirrored stride pose) mirror-assembled into a full loop — true alternating
+  boots with visible soles, even pair-diffs, clean splices. Dead ends worth remembering:
+  PixelLab create-character + walking template = great gait but identity flickers per frame
+  (+ view flips); outfit-transfer keeps colors but not backpack/proportions. Marker art must
+  always derive from the captain's own renders.
+- Installed as `marker_walk_left/right/back_01..08.png` in `map3d/`; the breach map's existing
+  direction-picking code (dominant movement axis) now has real art for all four facings.
+- Why it matters: the map figure finally turns with his movement instead of always facing camera.
+
+
+## 22/07/2026 — v0.206: right-click inspect, card-face + HUD redesign (breach only)
+
+Batch off a 5-agent design fan-out (specs) integrated inline:
+
+- **Right-click card INSPECT panel** — shows stats, attack pattern, each sigil's plain-English rule,
+  and the card's in-fiction lore line. Works on hand cards AND board units. (`_hud_inspect`,
+  `_card_id_at`, `SIGIL_RULES` + `LORE` tables.)
+- **Card face redesign** — name font 28→20 (thinner outline); energy cost is now one discreet
+  badge (top-left) instead of a pip row; a small **attack-direction glyph** sits top-right of each
+  striking card (straight / fork / target-crosshair / chain), built from thin QuadMesh bars.
+- **Energy bar** — replaced the chunky textured bank with a discreet segmented cyan charge strip
+  (ghost slots show growth room; spend-preview goes amber). Dropped the tutorial helper line.
+- **Duel fog reworked into a layered system** — 3 parallax sheets of domain-warped billowing
+  cloud noise + rising GPUParticles wisps (`_build_duel_fog`), then dialed way down per captain to
+  a subtle low-opacity haze confined to the front BASE of the board (the play area stays clear).
+- **STRIKE button** un-billboarded and tilted into the board plane so it follows the perspective.
+- DEV hooks: `SW_DUELDBG` seeds a board, `SW_INSPECT=<id>` opens the inspect panel (for screenshots).
+
+Still open: the energy pips fully in 3D perspective (button done; pips redesigned but still 2D).
+
+
+## 22/07/2026 — v0.205: attack arrows, radial meter, strong cards, playable interior proto
+
+Big multi-agent pass (6 agents scanned/designed in parallel; duel-code done inline):
+
+- **Attack-direction arrows** — the board now shows each unit's strike direction: cyan for yours
+  (→ HELIOS), red for HELIOS (→ you), projected from the 3D board into the HUD. FORK draws its two
+  diagonal arrows, SNIPER/TARGET points at the weakest enemy, plus a preview arrow from the hovered
+  lane while a card is selected. (`_hud_attack_arrows`/`_arrows_for`/`_draw_arrow`.)
+- **Meter → radial decryption dial** — replaced the (rejected) segmented bar AND the oscilloscope
+  with a semicircular TRACE-LOCK dial: needle swings to the leader, 5 ticks/side lock in, numeric
+  core, outer ring flares near ±5.
+- **6 strong cards** added (captain-approved) with 2 new sigils: OVERFLOW (STACK SMASH 5/1 — pierce
+  carries to the trace) and CHAIN (KERNEL PANIC 3/3 — 3-lane strike); plus DDOS SWARM, THERMITE,
+  SNIPER-SHELL, OVERVOLT. All slotted into the starter deck.
+- **Fog** made fuller and effectively infinite (wide plane + L/R fade), sitting below the tiles with
+  a board contact-shadow. **Card base-plate frame removed** (shadow kept).
+- **Fake-3D interior** is now a PLAYABLE standalone demo (`scenes/interior3d_proto.tscn` +
+  `scripts/interior3d_proto.gd`): boxed walls, WASD/arrow movement, follow-cam, top-down. Delete
+  those 2 files to remove.
+- Lore lines, HELIOS taunt barks, and sigil inspect text are written and staged for the right-click
+  inspect panel (next).
+
+
+## 22/07/2026 — v0.204: duel-board polish — hex tiles, front fog, trace gauge (breach only)
+
+- **Hex grid tiles** — swapped the slot bays to the captain-picked hex_pad (`slot_cell.png`).
+- **Duel fog** — a low additive FBM-noise plane hugging the front lip of the board (denser toward
+  the camera) so the table sits in atmosphere instead of black. Same Compatibility-safe trick as
+  the map floor fog.
+- **Scoreboard redesign** — the plain EJECT↔CRACK bar is now a segmented **INTRUSION TRACE** gauge:
+  notches that light from centre toward the leader, a diamond marker, bracket corners, glow band.
+
+
+## 21/07/2026 — v0.203: Act-3 energy recost + real card sigils (breach only)
+
+Balance + depth pass on the duel, from a 10-agent Inscryption Act-3 study (energy felt "too fat"):
+
+- **Recost the whole roster into a 1-4 curve, cap 6→5.** The old bimodal curve (three 6-cost +
+  two 5-cost vs a +1/turn ramp) meant top cards never got cast. Now: starter averages 2.0, the
+  finisher lands ~turn 4. FORK BOMB 6→4 (now 2/2), BOTNET 6→4, HYDRA 6→3, ZERO-DAY/ROOTKIT 5→3,
+  SPEAR-PHISH/PORT SCANNER 3→2, BRUTE-FORCER 3→1.
+- **Fixed a strict-domination:** CRYPTOJACKER → cost-1 pure ramp (was a strictly-worse
+  OVERCLOCK DAEMON).
+- **Implemented 6 previously-cosmetic sigils** (effects signed off by captain): split_bore
+  (FORK/bifurcated diagonal strike), targeting_laser (TARGET/auto-sniper weakest enemy),
+  meltdown (DETONATE/on-death AoE 2), mite_spawner (BOTNET/spawn a SHELLCODE STUB), autoturret
+  (enemy SENTRY zaps a freshly-played unit), morphogen (UNPACK/+1/+1 at turn start). Added a
+  small sigil engine (`_unit_atk` buff support, `_resolve_hit`, `_kill`+`_detonate`).
+- **Fixed the provoke trap:** NOISE now jams incoming attacks (-1 dmg to the striker) — it helped
+  the enemy before. `interpose`/Guardian left as a labelled no-op (enemy-only) for a later pass.
+- Card-name label 40→28 (was too big). DEV env hooks `SW_CUBE_TEX`/`SW_SLOT_TEX`/`SW_SEED` for
+  previewing textures + fixed layouts.
+
+
+## 21/07/2026 — v0.202: high-tech circuit-etch cubes (breach only)
+
+Retextured the map's block field — captain wanted "more high tech" and the old panels were too
+fussy (portholes, hatches, coloured vents):
+
+- **New PixelLab circuit-etch texture** (`cube_side.png` + `cube_top.png` matched) — a dark PCB
+  panel etched with fine circuit traces + surface-mount detail. Reads as a data-fortress you're
+  breaking into (on-theme for THE BREACH) and the etching stays legible on the cubes even in deep
+  shadow. Picked from a 10-candidate batch (4-agent generate+screenshot sweep); runners-up were
+  the hex data-lattice and modular greeble.
+- Old porthole textures dropped (recoverable from git history if ever needed).
+- **Lighting untouched.** Briefly tried faint self-emission on the cubes so texture would read on
+  the shadowed ones — it flattened the black falloff and killed the dark mood, so it was reverted.
+  Cubes are lit by the corridor lights only; the field still falls to black at the edges.
+- **DEV hooks added** (env-gated, default off): `SW_CUBE_TEX` loads a cube texture from an external
+  PNG at runtime (no repo import touched) and `SW_SEED` fixes the map layout — used to A/B the
+  candidates on an identical scene. Left in for future texture comparisons.
+
+Note: we're in beta — versioning is now `0.2xx`.
+
+
+## 21/07/2026 — v0.201: energy-conduit corridors + thicker fog (breach only)
+
+Live captain feedback pass on the map:
+
+- **Corridors rebuilt as a glowing energy conduit.** The old flat box "tape" line is replaced by
+  three layers: a soft floor **halo ribbon** (procedural cross-section glow texture laid flat and
+  oriented along each segment), a thin crisp **core line** riding just above it, and a **glow dot**
+  at every corridor cell so L-corners read as smooth connectors instead of notched seams.
+  Halo tuned to glow, not flood (`albedo_color` 0.82, width 0.5) so the dark mood survives.
+- **Floor fog thicker.** Base layer `density` 0.5→0.72 and `coverage_bias` 0.30→0.22; parallax
+  layer 0.3→0.46. More visible ground mist without blowing past the bloom threshold.
+
+
+## 21/07/2026 — v0.200: low-lying floor fog on the breach map (breach only)
+
+Ground mist creeping along the corridor floor — the atmosphere the dark map was missing:
+
+- **Additive noise-scrolling fog planes**, not volumetric. GL Compatibility has no `FogVolume`
+  / `shader_type fog` and no readable depth texture, so the usual soft-particle/volumetric
+  tricks are dead. Instead: two large `PlaneMesh` sheets ~0.3 m above the recessed floor with a
+  spatial shader sampling scrolling FBM value-noise in world XZ. Additive blend of near-black
+  adds nothing → no hard clip line where the plane meets the floor, so soft edges come free
+  with no depth buffer needed.
+- **Confined to the corridors by a baked coverage mask.** `_build_floor_fog()` reuses the same
+  `path_cells` the walkway is carved from, rasterizes a fat disc per cell into an L8 image,
+  box-blurs it for soft edges, and the shader kills anything off-mask — mist pools in the
+  channels, not over the void gaps between towers.
+- **Two parallax layers** (lower dense + higher thin, counter-scrolling) for a rolling-volume
+  read; tall towers occlude far mist (depth-test on, depth-write off) and the scene's black
+  environment fog fades distance for free.
+- Cyan `fog_color` kept below the glow HDR threshold so it doesn't bloom into haze.
+
+Why it matters: the dark station finally reads as a *place* with air in it — the corridors feel
+lodged in a cold, breathing hull instead of floating in a void. Duel untouched.
+
+
 ## 20/07/2026 — v1.90: grid board, floating cards, animated STRIKE button (breach only)
 
 Duel-board polish from live captain feedback:
@@ -22,6 +223,79 @@ Duel-board polish from live captain feedback:
   flash on click. Replaces the old bell sprite.
 
 Card roster is still the Act-3-curve PLACEHOLDER; real card designs pending captain's pick.
+
+## 21/07/2026 — v1.99: THE DIORAMA map + bots/nanobots card art (breach only)
+
+Captain reversed v1.98: didn't like the abstract-software card art (wants BOTS/NANOBOTS) and the
+holographic map (wants the textured look but "something else, blow my mind"). 5-agent swarm
+(3 map concepts + reference survey + Godot juice plan) → captain picked **THE DIORAMA**.
+- **Map = a lit miniature MODEL of the station** on a dark plinth (reverted the hologram). Void
+  cells are now varied ROOM set-pieces (`_build_setpiece`: random height/tilt + glowing
+  window/vent QuadMesh strips in teal/amber/violet), a `_build_plinth` base under the field,
+  warm-rim + cool-key DirectionalLights (no metallic — reads black in Compatibility), FILMIC
+  tonemap + contrast/saturation grade, and the signature **tilt-shift blur band** in the post
+  shader (`hint_screen_texture`, sharp mid-band / soft top+bottom) that sells "tiny model on a
+  table." Steeper tabletop camera + idle drift. Node logic + duel untouched.
+- **Card art regenerated as bots/nanobots** (31 portraits): player = cyan intrusion nanobots,
+  enemy/boss = amber/red security bots. Hacking names kept; duel untouched.
+- Docs: `docs/ART_DIRECTION.md` (COLD PROTOCOL) kept; future-mechanics + this in memory.
+
+### v1.99a follow-up (same day)
+Captain: liked the FIRST dark light/shadow map best, not the bright diorama. Put the new room
+set-pieces onto the DARK base — removed the bright directional key/rim + tilt-shift + plinth,
+restored dark ambient/fog/bloom + the previous camera; kept `_build_setpiece` (varied room
+towers + glowing window strips) so the dark version now has real light/shadow depth. Then per
+captain: removed the path flow-chevron ARROWS, and toned the too-colorful node lights + window
+strips to a restrained cool palette (cyan objectives, warm only on threat nodes).
+
+## 21/07/2026 — v1.98: clinical-horror redesign — hacking cards + holographic map (breach only)
+
+Captain: "more serious redesign" → CLINICAL / COLD-HORROR; don't touch the duel; new map design;
+reskin ALL cards to software-hacking. Driven by a 5-agent research swarm (map-design proposals,
+card reskin, similar-games survey, art bible, hacking lexicon). New docs: `docs/ART_DIRECTION.md`
+("COLD PROTOCOL" bible), `docs/BREACH_CARDS.md` updated; future-mechanics parked in memory.
+- **Cards reskinned to software-hacking** (names + sigils only; stats/ids/logic unchanged in
+  `breach_duel3d.gd`): player exploits (CRYPTOJACKER, NOP SLED, FORK BOMB, ROOTKIT, ZERO-DAY,
+  LOGIC BOMB, BOTNET, SPEAR-PHISH…) vs HELIOS ICE (PACKET FILTER, HUNTER DAEMON, TARPIT, TRACER,
+  HARDENED WAF, REVERSE PROXY…) + boss daemons (GR1ZZ/S0N1A/QU177). Sigils → OVERCLOCK / BUFFER /
+  TRIPWIRE / NOISE / TARGET / FORK / DETONATE / INTERCEPT / BOTNET / UNPACK.
+- **31 card portraits regenerated** clinical-horror software (terminal windows, network diagrams,
+  spectral daemons, cracked 0-DAY glyphs — no robots), cyan exploits vs amber-green ICE.
+- **Map redesigned to the HOLOGRAPHIC STATION MODEL** (captain's pick of 3): cubes → translucent
+  fresnel-glow + scanline hologram (`_holo_shader`/`_make_holo`), clinical TYPE_COLOR
+  (cyan-white objectives / amber-green ICE / red core), bloom dialed down + global desaturation.
+  Traversal/logic + the duel untouched.
+
+## 21/07/2026 — v1.97: map atmosphere pass — flowing energy, dust, rings, overlay (breach only)
+
+Completed the "blow my mind" pass with the FX-art batch (`map3d/fx/`):
+- **Energy chevrons stream up every corridor toward the core** (`flow_arrow` sprites sampled
+  along each link's polyline, looping) — the signature effect.
+- **Drifting dust field** (GPUParticles3D + `dust.png`, additive, box emitter over the path
+  bounds; Compatibility-safe — plain emission, no attractors/trails).
+- **Reachable-node pulse rings** (`node_ring.png`, accent-tinted, shown only on `reach` nodes,
+  scale+alpha pulse).
+- **Arrival shockwave** (`shockwave.png` quad, scale-out + fade) on top of the earlier bump+flash.
+- **Scanline + vignette + grain overlay** (inline canvas_item shader on a CanvasLayer below the
+  HUD; hidden with the world during a duel).
+All new Node3D children auto-hide during the duel; the overlay CanvasLayer is toggled manually.
+
+## 21/07/2026 — v1.96: smooth movement + bloom + camera/arrival juice (breach only)
+
+Captain: marker movement too fast/glitchy; "make it blow my mind." Researched game-feel with
+4 agents (Slay the Spire / Inscryption / Darkest Dungeon + Nijman/Swink/Juice-It canon) →
+prioritized, Compatibility-safe plan. Applied so far:
+- **Movement fixed at the root** (`breach_map3d.gd`): `_corridor_cells` is now direction-aware
+  (leftward moves no longer zig-zag backward), and `_walk_to` builds a de-duped path incl. the
+  start cell and glides it at a constant ~4.6 u/s with ease only on take-off/arrival (was:
+  no start cell + zig-zag + per-cell ease at ~12 u/s = the stutter).
+- **Bloom** on the WorldEnvironment — emissive path-line, node lights and icons bloom into the
+  black. Biggest single visual win.
+- **Camera** leads toward the destination while moving and settles with inertia (smoothed
+  position + look target).
+- **Arrival juice**: marker bump (scale punch) + node-light flash + sfx on arrival.
+Still queued (blocked on FX-art agent): dust particle field, energy chevrons flowing up the
+path to the core, arrival shockwave, reachable-node pulse rings, scanline/vignette overlay.
 
 ## 21/07/2026 — v1.95: premium map icons + new player avatar + smaller sizing (breach only)
 

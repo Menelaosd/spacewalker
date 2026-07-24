@@ -204,6 +204,9 @@ func _ready() -> void:
 		cam.position = ship_pos
 		_flight_origin = ship_pos
 		cam.reset_smoothing()
+	# if the save drops us inside a station's reach, that station stays quiet
+	# until we fly clear once — everything else can breach immediately
+	_breach_ignore = _near_station_idx()
 	# populate the batched sky for ship_pos's FINAL location (post SW_FIELD /
 	# SW_NEBULA teleports) so there's no one-frame empty flash on entry
 	_update_background()
@@ -681,6 +684,7 @@ func _find_near_field() -> Dictionary:
 # arms only in open space, so returning from a breach beside the hull
 # doesn't instantly re-trigger it — fly away and back to breach again
 var _breach_armed := false
+var _breach_ignore := -1   # station the ship spawned inside reach of — quiet until you fly clear
 
 
 func _near_station_idx() -> int:
@@ -695,7 +699,13 @@ func _check_station_breach() -> void:
 	var near := _near_station_idx()
 	if near == -1:
 		_breach_armed = true
+		_breach_ignore = -1
 		return
+	if not _breach_armed and near != _breach_ignore:
+		# saves can drop the ship barely INSIDE a station's reach (post-breach respawn)
+		# — that one station stays quiet until you fly clear, but any OTHER station,
+		# or the same one after leaving its radius once, triggers normally.
+		_breach_armed = true
 	if not _breach_armed or _in_dialog or Transition.is_busy():
 		return
 	_breach_armed = false
