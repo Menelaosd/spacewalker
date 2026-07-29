@@ -30,10 +30,17 @@ func _ready() -> void:
 	var d := DirAccess.open(DIR)
 	if d != null:
 		for f in d.get_files():
-			if f.ends_with(".mp3"):
-				var s: AudioStream = load(DIR + f)
+			# EXPORTED BUILDS: the source .mp3 is NOT packed — Godot ships the imported
+			# resource and the directory lists "name.mp3.remap" (or ".import" in the
+			# editor). Filtering on ".mp3" therefore found NOTHING in an export and the
+			# whole game shipped silent. Strip the wrapper suffix before testing.
+			var fname := f
+			if fname.ends_with(".remap") or fname.ends_with(".import"):
+				fname = fname.get_basename()
+			if fname.ends_with(".mp3"):
+				var s: AudioStream = load(DIR + fname)
 				if s != null:
-					_streams[f.get_basename()] = s
+					_streams[fname.get_basename()] = s
 	for _i in 8:
 		var p := AudioStreamPlayer.new()
 		p.process_mode = Node.PROCESS_MODE_ALWAYS

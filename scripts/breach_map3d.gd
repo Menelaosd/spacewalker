@@ -16,7 +16,12 @@ const THEME_DIR := "res://assets/sprites/breach/themes/"
 
 const ROW_PLAN := ["access", "gain", "util", "battle", "gain", "util", "battle", "gain", "util", "core"]
 const CATEGORY := {
-	"gain": ["cache", "vault"], "util": ["pod", "ghost"], "battle": ["firewall", "sentinel"],
+	"gain": ["cache", "vault", "recycler", "cache"],
+	# quarantine IS in the pool — it was defined in TYPES with art and an effect but never
+	# listed here, so the gate (and therefore the vault tool that opens it) never spawned
+	"util": ["pod", "ghost", "splicer", "overclock", "exchange", "merge", "uplink", "blackice",
+		"quarantine"],
+	"battle": ["firewall", "sentinel", "bounty"],
 }
 # type -> [label, icon, challenge difficulty (0 = event)]
 const TYPES := {
@@ -24,6 +29,20 @@ const TYPES := {
 	"sentinel": ["SENTINEL", "icon_sentinel", 2], "pod": ["SURVIVOR POD", "icon_pod", 0],
 	"cache": ["DATA CACHE", "icon_cache", 0], "ghost": ["GHOST SIGNAL", "icon_ghost", 0],
 	"vault": ["DATA VAULT", "icon_vault", 0], "core": ["HELIOS CORE", "icon_core", 3],
+	# --- the sigil economy: shards fund the deck-editing rigs (Act 3 Robobucks) ---
+	"recycler": ["RECYCLER", "icon_recycler", 0],
+	"splicer": ["CODE SPLICER", "icon_splicer", 0],
+	"overclock": ["OVERCLOCK RIG", "icon_overclock", 0],
+	"exchange": ["EXCHANGE TERMINAL", "icon_exchange", 0],
+	"bounty": ["BOUNTY DAEMON", "icon_bounty", 2],
+	"merge": ["MERGE LAB", "icon_merge", 0],
+	"blackice": ["BLACK ICE", "icon_blackice", 0],
+	"uplink": ["UPLINK RELAY", "icon_uplink", 0],
+	"quarantine": ["QUARANTINE GATE", "icon_quarantine", 0],
+}
+# what each rig costs in code shards (0 = free / grants shards)
+const NODE_COST := {
+	"splicer": 12, "overclock": 9, "exchange": 7, "merge": 6, "blackice": 0, "uplink": 3,
 }
 
 const GRIDW := 7           # corridor grid columns
@@ -38,10 +57,24 @@ const TYPE_COLOR := {
 	"sentinel": Color(0.9, 0.48, 0.34), "pod": Color(0.46, 0.82, 0.9),
 	"cache": Color(0.54, 0.8, 0.92), "ghost": Color(0.5, 0.76, 0.9),
 	"vault": Color(0.5, 0.8, 0.95), "core": Color(0.95, 0.42, 0.26),
+	"recycler": Color(0.55, 0.86, 0.6), "splicer": Color(0.5, 0.82, 0.95),
+	"overclock": Color(0.74, 0.55, 0.96), "exchange": Color(0.52, 0.86, 0.8),
+	"bounty": Color(0.95, 0.36, 0.3), "merge": Color(0.6, 0.9, 0.62),
+	"blackice": Color(0.76, 0.5, 0.96), "uplink": Color(0.6, 0.85, 0.95),
+	"quarantine": Color(0.92, 0.72, 0.36),
 }
 
 enum Mode { MAP, CHALLENGE, WON }
 var mode: int = Mode.MAP
+
+# ---- run state: what you carry through this station ----
+var shards := 0             # code shards — the Act 3 Robobucks equivalent
+var colonists := 0          # SURVIVOR PODs banked; they land when the core falls
+var has_tool := false       # DATA VAULT breach tool — opens QUARANTINE GATEs
+var streak := 0             # duels won this run; BOUNTY DAEMON scales off it
+var revealed := false       # UPLINK RELAY: upcoming rows show their threat tier
+# keyboard choice modal: {"title": String, "opts": Array[String], "cb": Callable}
+var _choice := {}
 
 var nodes: Array = []      # {row,col,ncol,type,links,state,gx,gz, node:Node3D, token:MeshInstance3D}
 var cur := -1
@@ -76,6 +109,19 @@ var _font: Font = ThemeDB.fallback_font
 var _flows: Array = []      # {spr, pts:PackedVector3Array, cum, len, phase, speed}
 var _overlay: CanvasLayer   # scanline/vignette/tilt-shift post overlay (hidden during duel)
 var _emis_cache := {}       # shared emissive materials for set-piece windows
+var _icon_anim := {}        # node type -> ping-ponged frame list for its idle animation
+const ICON_FPS := 7.0
+var _edge_mats := {}        # Vector2i(from,to) -> [halo mat, core mat] for that corridor
+var _edge_cells := {}       # Vector2i(from,to) -> Array[Vector2i] cells that corridor covers
+var _cell_light := {}       # cell -> its corridor OmniLight3D
+var _cell_dot := {}         # cell -> its junction dot material
+var _seg_owners := {}       # Vector4i(cellA,cellB) -> Array of edge keys using that stretch
+var _conduit: MeshInstance3D          # the whole corridor network, one mesh
+var _conduit_mat: StandardMaterial3D
+var _hover_node := -1       # reachable node the cursor is over; its corridor previews yellow
+const EDGE_LIVE := Color(0.75, 0.92, 1.0)    # walkable from here
+const EDGE_PICK := Color(1.0, 0.86, 0.32)    # the route you're pointing at
+const EDGE_DEAD := Color(0.30, 0.33, 0.38)   # spent or unreachable
 
 
 func _ready() -> void:
@@ -101,9 +147,28 @@ func _ready() -> void:
 		var mb := _load_png(MAP_DIR + "marker_walk_back_%02d.png" % _mi)
 		if mb != null and _mf_back.size() == _mi - 1:
 			_mf_back.append(mb)
+	# per-sigil idle animations (PixelLab, 6 frames each) — the props breathe on the map
+	for t in TYPES:
+		var frames: Array = []
+		for fi in range(1, 7):
+			var ft := _load_png(ART_DIRS[0] + "anim/%s_%02d.png" % [t, fi])
+			if ft != null:
+				frames.append(ft)
+		if frames.size() >= 2:
+			# ping-pong: several sigils fade monotonically bright->dark, so wrapping would
+			# pop. Bouncing the sequence reads smooth whatever the frames do.
+			var seq: Array = frames.duplicate()
+			for bi in range(frames.size() - 2, 0, -1):
+				seq.append(frames[bi])
+			_icon_anim[t] = seq
 	_tex["token_base"] = _load_png(MAP_DIR + "token_base.png")
-	for fx in ["dust", "flow_arrow", "node_ring", "shockwave"]:
+	for fx in ["dust", "flow_arrow", "node_ring", "shockwave", "light_shaft", "spark"]:
 		_tex[fx] = _load_png(MAP_DIR + "fx/" + fx + ".png")
+	# a fresh station means a fresh deck: the sigil rigs edit THIS array all run long
+	DUEL.run_deck = DUEL.PLAYER_DECK.duplicate()
+	DUEL.atk_boost = {}
+	DUEL.graft = {}
+	DUEL.fragile = []
 	_build_shadow_tex()
 	_build_stage()
 	_gen_map()
@@ -117,6 +182,19 @@ func _ready() -> void:
 				_pending = i
 				_start_duel(int(TYPES[nodes[i]["type"]][2]))
 				break
+	# debug: SW_SIGIL=<type> retypes the first reachable node and resolves it, so a rig's
+	# modal can be screenshotted (e.g. SW_SIGIL=vault, =recycler, =splicer)
+	if OS.get_environment("SW_SIGIL") != "":
+		var want := OS.get_environment("SW_SIGIL")
+		if TYPES.has(want):
+			for i in nodes.size():
+				if i != cur:
+					nodes[i]["type"] = want
+					shards = 40           # fund the rig so the cost gate doesn't block the shot
+					has_tool = true
+					_pending = i
+					_finish_node(i)
+					break
 	if OS.get_environment("SW_SHOT") != "":
 		await get_tree().create_timer(0.6).timeout
 		if is_inside_tree():
@@ -172,8 +250,8 @@ func _build_stage() -> void:
 	e.background_mode = Environment.BG_COLOR
 	e.background_color = Color(0.01, 0.015, 0.025)
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	e.ambient_light_color = Color(0.14, 0.2, 0.34)
-	e.ambient_light_energy = 0.08   # almost nothing — darkness hides the map edges
+	e.ambient_light_color = Color(0.30, 0.36, 0.46)
+	e.ambient_light_energy = 0.62   # fill so the block faces shade instead of reading as black cutouts
 	e.fog_enabled = true
 	e.fog_light_color = Color(0.0, 0.0, 0.0)
 	e.fog_density = 0.05            # thick black fog eats the far cubes
@@ -185,10 +263,28 @@ func _build_stage() -> void:
 	e.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
 	env.environment = e
 	add_child(env)
-	# NO global key light — the field falls to black at the edges; only the corridor
-	# point lights + node lights + the rooms' own glowing windows carry the light/shadow.
-	# NO global key light — the field must fall into black at the edges. Only the
-	# lights placed ALONG the corridor illuminate anything (see _build_path_glow).
+	# NO global key light — the field must fall into black at the edges. Only the lights
+	# placed ALONG the corridor illuminate anything (see _build_path_glow).
+	# The one exception: a very dim, SHADOWLESS fill from the camera side purely so the
+	# blocks' unlit faces shade instead of reading as flat black cutouts. Kept far below
+	# the corridor lights so the falloff into darkness is untouched.
+	var fill := DirectionalLight3D.new()
+	fill.rotation_degrees = Vector3(-42.0, 26.0, 0.0)
+	fill.light_color = Color(0.62, 0.70, 0.80)   # cold steel: bounce off bare hull, no colour story
+	fill.light_energy = 0.72
+	fill.shadow_enabled = false
+	fill.light_specular = 0.0
+	add_child(fill)
+	# a second, dimmer fill from the OPPOSITE side. One directional light always leaves the
+	# faces turned away from it pure black; a counter-fill gives those faces a readable
+	# edge without lifting the whole scene (which is what flattens the falloff).
+	var back := DirectionalLight3D.new()
+	back.rotation_degrees = Vector3(-28.0, -142.0, 0.0)
+	back.light_color = Color(0.48, 0.56, 0.70)
+	back.light_energy = 0.46
+	back.shadow_enabled = false
+	back.light_specular = 0.0
+	add_child(back)
 	_path_mat = StandardMaterial3D.new()
 	var pf := _load_png(MAP_DIR + "path_floor.png")
 	if pf == null:
@@ -213,7 +309,7 @@ func _build_stage() -> void:
 	_cube_side_mat.uv1_triplanar = true
 	_cube_side_mat.uv1_scale = Vector3(0.55, 0.55, 0.55)
 	_cube_side_mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-	_cube_side_mat.albedo_color = Color(0.66, 0.7, 0.78)
+	_cube_side_mat.albedo_color = Color(0.78, 0.82, 0.90)
 	_cube_side_mat.roughness = 0.72
 	# DEV: override the cube texture at runtime from an external PNG (candidate preview);
 	# loads outside res:// so it never touches the repo import system. Default: unused.
@@ -280,7 +376,12 @@ func _gen_map() -> void:
 		for c in w:
 			idx[Vector2i(r, c)] = nodes.size()
 			var gx := 3 if w == 1 else clampi(int(round((c + 0.5) / w * (GRIDW - 1))), 0, GRIDW - 1)
-			nodes.append({"row": r, "col": c, "ncol": w, "type": _pick_variant(cat, c),
+			var kind: String = _pick_variant(cat, c)
+			# difficulty ramp: the FIRST battle row is always the tier-1 FIREWALL. Rolling
+			# a SENTINEL (tier 2) or a BOUNTY DAEMON as the opening fight was brutal.
+			if cat == "battle":
+				kind = "firewall" if r < 5 else kind
+			nodes.append({"row": r, "col": c, "ncol": w, "type": kind,
 				"links": [], "state": "locked", "gx": gx, "gz": r * ROWSTEP})
 	# spread same-row columns apart so tokens don't overlap
 	for r in ROW_PLAN.size():
@@ -338,6 +439,148 @@ func _update_reach() -> void:
 	for j in nodes[cur]["links"]:
 		if nodes[j]["state"] == "locked":
 			nodes[j]["state"] = "reach"
+	_paint_edges()
+
+
+func _paint_edges() -> void:
+	## Corridors read their own state: the ones you can take from here glow cyan, the one
+	## under the cursor previews YELLOW, and everything spent or unreachable goes grey so
+	## the route you've burned is visibly behind you.
+	var live_cells := {}
+	var hot_cells := {}
+	var live_edges := {}
+	var hot_edges := {}
+	for key in _edge_cells:
+		var k: Vector2i = key
+		if k.x != cur or nodes[k.y]["state"] != "reach":
+			continue
+		live_edges[key] = true
+		var hot: bool = k.y == _hover_node
+		if hot:
+			hot_edges[key] = true
+		for c in (_edge_cells[key] as Array):
+			live_cells[c] = true
+			if hot:
+				hot_cells[c] = true
+	# one colour per CELL, then the whole network is rebuilt as a single mesh — that's what
+	# makes it read as one conduit instead of a row of separately-lit pieces
+	var cell_col := {}
+	for key in _edge_cells:
+		for c in (_edge_cells[key] as Array):
+			var col: Color = EDGE_DEAD * 0.55
+			if hot_cells.has(c):
+				col = EDGE_PICK * 1.5
+			elif live_cells.has(c):
+				col = EDGE_LIVE
+			cell_col[c] = col
+	_rebuild_conduit(cell_col)
+	# the conduit's own lights + junction dots follow the same states, so a corridor you
+	# have already walked goes properly dark instead of staying lit behind you
+	for c in _cell_light:
+		var lg: OmniLight3D = _cell_light[c]
+		if live_cells.has(c):
+			var hotc: bool = hot_cells.has(c)
+			lg.light_color = Color(1.0, 0.88, 0.46) if hotc else Color(0.4, 0.75, 1.0)
+			lg.light_energy = 4.6 if hotc else 2.2
+			lg.omni_range = 5.4 if hotc else 3.6
+		else:
+			lg.light_color = Color(0.42, 0.48, 0.58)
+			lg.light_energy = 0.34
+	for c in _cell_dot:
+		var dm: StandardMaterial3D = _cell_dot[c]
+		if live_cells.has(c):
+			dm.albedo_color = EDGE_PICK if hot_cells.has(c) else Color(0.82, 0.82, 0.82)
+		else:
+			dm.albedo_color = Color(0.26, 0.29, 0.34)
+
+
+func _quad(im: ImmediateMesh, a: Vector3, b: Vector3, w: float, ca: Color, cb: Color) -> void:
+	var d := (b - a)
+	d.y = 0.0
+	if d.length() < 0.0001:
+		return
+	var n := Vector3(-d.z, 0.0, d.x).normalized() * w * 0.5
+	im.surface_set_color(ca)
+	im.surface_add_vertex(a - n)
+	im.surface_set_color(ca)
+	im.surface_add_vertex(a + n)
+	im.surface_set_color(cb)
+	im.surface_add_vertex(b + n)
+	im.surface_set_color(ca)
+	im.surface_add_vertex(a - n)
+	im.surface_set_color(cb)
+	im.surface_add_vertex(b + n)
+	im.surface_set_color(cb)
+	im.surface_add_vertex(b - n)
+
+
+func _patch(im: ImmediateMesh, c: Vector3, w: float, col: Color) -> void:
+	## square joint filler, coplanar with the stretches so corners read continuous
+	var h := w * 0.5
+	for v in [Vector3(-h, 0, -h), Vector3(h, 0, -h), Vector3(h, 0, h),
+			Vector3(-h, 0, -h), Vector3(h, 0, h), Vector3(-h, 0, h)]:
+		im.surface_set_color(col)
+		im.surface_add_vertex(c + v)
+
+
+func _rebuild_conduit(cell_col: Dictionary) -> void:
+	## Rewrites the single conduit mesh. Called whenever states change (walk / hover) —
+	## it's ~40 quads, so rebuilding is cheaper than juggling per-segment materials.
+	if _conduit == null:
+		return
+	var im: ImmediateMesh = _conduit.mesh
+	im.clear_surfaces()
+	var W_HALO := CELL * 0.20
+	var W_CORE := CELL * 0.035
+	# pass 1: wide soft body, pass 2: bright core, both in the same surface
+	im.surface_begin(Mesh.PRIMITIVE_TRIANGLES, _conduit_mat)
+	for pass_i in 2:
+		var w: float = W_HALO if pass_i == 0 else W_CORE
+		var mul: float = 0.30 if pass_i == 0 else 1.0
+		var y: float = 0.05 if pass_i == 0 else 0.062
+		for key in _seg_owners:
+			var k: Vector4i = key
+			var ca: Color = cell_col.get(Vector2i(k.x, k.y), EDGE_DEAD) * mul
+			var cb: Color = cell_col.get(Vector2i(k.z, k.w), EDGE_DEAD) * mul
+			_quad(im, _cell_world(k.x, k.y) + Vector3(0, y, 0),
+				_cell_world(k.z, k.w) + Vector3(0, y, 0), w, ca, cb)
+		for c in cell_col:
+			_patch(im, _cell_world((c as Vector2i).x, (c as Vector2i).y) + Vector3(0, y, 0),
+				w, (cell_col[c] as Color) * mul)
+	im.surface_end()
+
+
+func _hover_at(m: Vector2) -> int:
+	## which reachable node the cursor is over (same y=0 ray pick as _click)
+	if mode != Mode.MAP or _moving:
+		return -1
+	var from := _cam.project_ray_origin(m)
+	var dir := _cam.project_ray_normal(m)
+	if absf(dir.y) < 0.0001:
+		return -1
+	var hit := from + dir * (-from.y / dir.y)
+	var p2 := Vector2(hit.x, hit.z)
+	# the node itself
+	for i in nodes.size():
+		if nodes[i]["state"] != "reach":
+			continue
+		var np := _cell_world(nodes[i]["gx"], nodes[i]["gz"])
+		if p2.distance_to(Vector2(np.x, np.z)) < CELL * 0.85:
+			return i
+	# ...or anywhere along the CORRIDOR leading to it, so pointing at the route counts too
+	var best := -1
+	var best_d := CELL * 0.6
+	for key in _edge_cells:
+		var k: Vector2i = key
+		if k.x != cur or nodes[k.y]["state"] != "reach":
+			continue
+		for c in (_edge_cells[key] as Array):
+			var cw := _cell_world((c as Vector2i).x, (c as Vector2i).y)
+			var d := p2.distance_to(Vector2(cw.x, cw.z))
+			if d < best_d:
+				best_d = d
+				best = k.y
+	return best
 
 
 func _corridor_cells(i: int, j: int) -> Array:
@@ -397,7 +640,17 @@ func _build_map_nodes() -> void:
 	for gz in range(minz, maxz + 1):
 		for gx in range(minx, maxx + 1):
 			var w := _cell_world(gx, gz)
-			if apron.has(Vector2i(gx, gz)):
+			if apron.has(Vector2i(gx, gz)) and not path_cells.has(Vector2i(gx, gz)):
+				# no BLOCK here (it would hide the astronaut at the start node) — but the
+				# cell still needs a floor, or you get a black hole in the deck. `continue`
+				# used to skip both, which is the gap the captain spotted in front of him.
+				var afl := MeshInstance3D.new()
+				var afp := PlaneMesh.new()
+				afp.size = Vector2(CELL, CELL)
+				afl.mesh = afp
+				afl.mesh.surface_set_material(0, _cube_top_mat)   # plating, not walkway
+				afl.position = w
+				add_child(afl)
 				continue
 			if path_cells.has(Vector2i(gx, gz)):
 				var fl := MeshInstance3D.new()
@@ -412,6 +665,7 @@ func _build_map_nodes() -> void:
 	_build_path_glow()
 	for i in nodes.size():
 		_build_token(i)
+	_paint_edges()   # the corridor materials only exist now — colour them for the start node
 
 
 func _emis_mat(c: Color) -> StandardMaterial3D:
@@ -502,38 +756,35 @@ func _build_path_glow() -> void:
 	var dotted := {}
 	for i in nodes.size():
 		for j in nodes[i]["links"]:
+			# each corridor owns its own material pair so it can be tinted on its own:
+			# cyan = walkable, YELLOW = the route you're pointing at, grey = spent/locked
+			var e_halo: StandardMaterial3D = halo_mat.duplicate()
+			var e_core: StandardMaterial3D = core_mat.duplicate()
+			_edge_mats[Vector2i(i, j)] = [e_halo, e_core]
 			var pts := [Vector2i(nodes[i]["gx"], nodes[i]["gz"])]
 			pts.append_array(_corridor_cells(i, j))
 			pts.append(Vector2i(nodes[j]["gx"], nodes[j]["gz"]))
+			_edge_cells[Vector2i(i, j)] = pts.duplicate()
+			# CLAIM segments instead of drawing them: sibling corridors leaving the same
+			# node share their first cells, so drawing per-edge stacked two strips on the
+			# same stretch — with different states they read as a grey line offset behind
+			# the cyan one, which is the "broken, not straight" look. Each stretch is now
+			# built exactly once, and remembers every edge that uses it.
 			for k in range(pts.size() - 1):
-				var a := _cell_world(pts[k].x, pts[k].y)
-				var b := _cell_world(pts[k + 1].x, pts[k + 1].y)
-				if a.distance_to(b) < 0.01:
+				var ca: Vector2i = pts[k]
+				var cb: Vector2i = pts[k + 1]
+				if ca == cb:
 					continue
-				var d := b - a
-				var yaw := atan2(d.x, d.z)
-				var mid := (a + b) * 0.5
-
-				# soft floor halo (flat plane, oriented along the segment)
-				var rib := MeshInstance3D.new()
-				var rm := PlaneMesh.new()
-				rm.size = Vector2(0.5, a.distance_to(b) + 0.12)
-				rib.mesh = rm
-				rib.mesh.surface_set_material(0, halo_mat)
-				rib.position = mid + Vector3(0, 0.045, 0)
-				rib.rotation.y = yaw
-				add_child(rib)
-
-				# crisp core
-				var seg := MeshInstance3D.new()
-				var bm := BoxMesh.new()
-				bm.size = Vector3(0.05, 0.03, a.distance_to(b) + 0.06)
-				seg.mesh = bm
-				seg.mesh.surface_set_material(0, core_mat)
-				seg.position = mid + Vector3(0, 0.08, 0)
-				seg.look_at_from_position(seg.position, b, Vector3.UP)
-				add_child(seg)
-			# glow dot at each cell — hides corner seams, gives connector nodes
+				# order-independent key so A->B and B->A are the same stretch
+				var key := Vector4i(ca.x, ca.y, cb.x, cb.y)
+				if ca.x > cb.x or (ca.x == cb.x and ca.y > cb.y):
+					key = Vector4i(cb.x, cb.y, ca.x, ca.y)
+				if not _seg_owners.has(key):
+					_seg_owners[key] = []
+				(_seg_owners[key] as Array).append(Vector2i(i, j))
+			# junction glow dot at each cell, on THIS edge's material — sharing one dot
+			# material was what kept crossed corridors lit and made the run read as a
+			# chain of blobs instead of one conduit
 			for c in pts:
 				if not dotted.has(c):
 					dotted[c] = true
@@ -541,11 +792,15 @@ func _build_path_glow() -> void:
 					var dpm := PlaneMesh.new()
 					dpm.size = Vector2(0.72, 0.72)
 					dot.mesh = dpm
-					dot.mesh.surface_set_material(0, dot_mat)
+					var d_mat: StandardMaterial3D = dot_mat.duplicate()
+					d_mat.albedo_texture = dot_tex
+					dot.mesh.surface_set_material(0, d_mat)
 					dot.position = _cell_world(c.x, c.y) + Vector3(0, 0.05, 0)
 					add_child(dot)
+					_cell_dot[c] = d_mat
 			# a blue point light on every path cell — lights the trench + nearby cube
-			# walls, and everything past its reach falls to black
+			# walls, and everything past its reach falls to black. Registered per cell so
+			# _paint_edges can dim the stretches you've already walked.
 			for c in pts:
 				if lit.has(c):
 					continue
@@ -556,6 +811,25 @@ func _build_path_glow() -> void:
 				lg.light_energy = 2.2
 				lg.omni_range = 3.6
 				add_child(lg)
+				_cell_light[c] = lg
+	# --- ONE mesh for the whole conduit ---
+	# Per-segment planes could never look unified: every stretch was its own object with
+	# its own soft edges, so joints double-brightened and states lit "in pieces". The
+	# network is now a single ImmediateMesh — a quad per stretch plus a square patch at
+	# every cell to fill the joints — with state carried in VERTEX COLOUR, so it is one
+	# object, one material, one draw, and colour transitions are continuous.
+	_conduit_mat = StandardMaterial3D.new()
+	_conduit_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_conduit_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_conduit_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	_conduit_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_conduit_mat.vertex_color_use_as_albedo = true
+	_conduit = MeshInstance3D.new()
+	_conduit.mesh = ImmediateMesh.new()
+	_conduit.material_override = _conduit_mat
+	_conduit.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_conduit.custom_aabb = AABB(Vector3(-60, -1, -60), Vector3(120, 2, 120))
+	add_child(_conduit)
 
 
 func _glow_line_tex() -> Texture2D:
@@ -617,6 +891,10 @@ func _build_token(i: int) -> void:
 	dmat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	disc.mesh.surface_set_material(0, dmat)
 	disc.position.y = 0.04
+	# the sigil art carries its own isometric pedestal, so the old round token disc
+	# just fought with it — kept in the tree (the pulse code and reach feedback ride
+	# on it) but invisible: the pedestal IS the base now.
+	disc.visible = false
 	root.add_child(disc)
 	nd["token"] = disc
 	# a pulsing target ring on the floor, shown only when the node is reachable
@@ -637,18 +915,46 @@ func _build_token(i: int) -> void:
 		ring.visible = false
 		root.add_child(ring)
 		nd["ring"] = ring
-	# icon standing upright on the token, billboarded — kept small + tight
+	# the sigil itself, billboarded and standing ON the deck — its pedestal is the base,
+	# so it's sized bigger than the old floating icon and sits with its feet at y=0
 	var icon := Sprite3D.new()
 	icon.texture = _tex.get(TYPES[nd["type"]][1])
 	if icon.texture != null:
-		icon.pixel_size = (CELL * (0.82 if big else 0.5)) / icon.texture.get_height()
-	icon.position.y = CELL * (0.52 if big else 0.36)
-	icon.billboard = BaseMaterial3D.BILLBOARD_FIXED_Y
+		icon.pixel_size = (CELL * (0.92 if big else 0.62)) / icon.texture.get_height()
+		icon.scale = Vector3(0.88, 1.0, 1.0)   # the art runs wide; narrow it a touch
+		icon.position.y = icon.texture.get_height() * icon.pixel_size * 0.5 + 0.02
+	else:
+		icon.position.y = CELL * (0.52 if big else 0.36)
+	# NOT billboarded: a sigil is a machine bolted to the deck, so it keeps a fixed facing
+	# and gets lit + shadowed like scenery. Billboarding was a big part of why they read as
+	# stickers floating over the map.
+	icon.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+	icon.rotation_degrees.y = 0.0
 	icon.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	icon.shaded = false
 	icon.alpha_cut = SpriteBase3D.ALPHA_CUT_DISCARD
+	# it throws a real shadow from the node light above it and the astronaut's suit lamp
+	icon.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
 	root.add_child(icon)
+	# soft contact shadow pooled under the pedestal — grounds it into the deck and the fog
+	var gsh := MeshInstance3D.new()
+	var gp := PlaneMesh.new()
+	var gsz := CELL * (0.72 if big else 0.5)
+	gp.size = Vector2(gsz, gsz * 0.72)
+	gsh.mesh = gp
+	var gmat := StandardMaterial3D.new()
+	gmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	gmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	gmat.albedo_texture = _shadow_tex
+	gmat.albedo_color = Color(0, 0, 0, 0.85)
+	gsh.mesh.surface_set_material(0, gmat)
+	gsh.position = Vector3(0.0, 0.03, gsz * 0.1)
+	gsh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(gsh)
 	nd["icon"] = icon   # hidden while the astronaut stands on this node
+	# stagger each prop's idle so a row of them doesn't pulse in lockstep
+	nd["iphase"] = randf() * 6.0
+	nd["ifi"] = -1
 	# a light on the token in its own accent colour — pools of orange/teal/violet/red
 	# down the corridor so the stage isn't one flat blue
 	var acol: Color = TYPE_COLOR.get(nd["type"], CYAN)
@@ -657,16 +963,49 @@ func _build_token(i: int) -> void:
 	lgt.light_color = acol
 	lgt.light_energy = 3.4 if big else 2.0
 	lgt.omni_range = 8.0 if big else 4.6
+	# real cast shadows — ONLY on node lights (one per node, ~10 total). The per-cell
+	# corridor lights stay shadowless fill; shadowing all of them would tank GL compat.
+	lgt.shadow_enabled = true
+	lgt.shadow_bias = 0.04
+	lgt.shadow_normal_bias = 1.4
+	lgt.shadow_opacity = 0.82
+	lgt.distance_fade_enabled = true
+	lgt.distance_fade_begin = 26.0
+	lgt.distance_fade_length = 8.0
 	root.add_child(lgt)
 	nd["light"] = lgt
+	# a shaft of light standing in the haze above the node — GL compat has no volumetric
+	# fog, so the beam is an additive billboard: the light looks like it hangs in the air
+	if _tex.get("light_shaft") != null:
+		var shaft := Sprite3D.new()
+		shaft.texture = _tex["light_shaft"]
+		shaft.pixel_size = (CELL * (2.5 if big else 1.7)) / shaft.texture.get_height()
+		shaft.position.y = CELL * (1.25 if big else 0.9)
+		shaft.billboard = BaseMaterial3D.BILLBOARD_FIXED_Y
+		shaft.shaded = false
+		shaft.transparent = true
+		shaft.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR
+		shaft.modulate = Color(acol.r, acol.g, acol.b, 0.16 if big else 0.11)
+		shaft.render_priority = -1     # behind the icon, in front of the floor haze
+		shaft.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		root.add_child(shaft)
+		nd["shaft"] = shaft
 	# floating name label
 	var lab := Label3D.new()
 	lab.text = str(TYPES[nd["type"]][0])
 	lab.font_size = 40
 	lab.pixel_size = 0.004
 	lab.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	lab.modulate = Color(0.8, 0.9, 1.0)
-	lab.outline_size = 12
+	# WHITE with a heavy BLACK stroke — the sigil's name has to read over lit deck plating,
+	# a glowing pedestal or pure black void, so no tint and a fat outline
+	lab.modulate = Color(1, 1, 1)
+	lab.outline_modulate = Color(0, 0, 0, 1)
+	# 14 against a 40px font: a real stroke. At 30 the outline bled into the glyphs and
+	# greyed the white out from the inside.
+	lab.outline_size = 14
+	lab.shaded = false
+	lab.render_priority = 4
+	lab.outline_render_priority = 3
 	lab.position.y = 0.08
 	lab.position.z = CELL * 0.55
 	root.add_child(lab)
@@ -722,7 +1061,7 @@ func _build_atmosphere() -> void:
 # texture (unsupported in GL Compatibility) — additive blend of near-
 # black is its own soft edge, and the scene's black fog fades distance.
 # ------------------------------------------------------------------
-const FOG_Y := 0.30            # height above the recessed floor
+const FOG_Y := 0.11            # low: the sigil props must stand clear of it
 const FOG_PAD_CELLS := 1       # extra cells of mask bleed around the path
 const MASK_PX_PER_CELL := 12   # coverage-mask resolution
 const MASK_BLUR := 3           # soft-edge radius in mask pixels
@@ -870,7 +1209,7 @@ func _build_floor_fog() -> void:
 	mat2.set_shader_parameter("density", 0.46)
 	mat2.set_shader_parameter("noise_scale", 0.22)
 	mat2.set_shader_parameter("scroll_speed", -0.04)
-	_spawn_fog_layer(mat2, Vector3((xmin + xmax) * 0.5, FOG_Y + 0.35, (zmin + zmax) * 0.5),
+	_spawn_fog_layer(mat2, Vector3((xmin + xmax) * 0.5, FOG_Y + 0.26, (zmin + zmax) * 0.5),
 		Vector2(xmax - xmin, zmax - zmin))
 
 
@@ -927,6 +1266,50 @@ func _sample_poly(pts: PackedVector3Array, cum: PackedFloat32Array, d: float) ->
 	return pts[pts.size() - 1]
 
 
+func _tick_sigils() -> void:
+	## step every visible sigil's idle animation. Only touches the sprite when its frame
+	## index actually changes, so this is a handful of assignments a second, not per-frame work.
+	if _icon_anim.is_empty():
+		return
+	for nd in nodes:
+		var seq = _icon_anim.get(nd["type"])
+		if seq == null:
+			continue
+		var icon = nd.get("icon")
+		if icon == null or not is_instance_valid(icon) or not (icon as Sprite3D).visible:
+			continue
+		var fi: int = int((_t + float(nd.get("iphase", 0.0))) * ICON_FPS) % (seq as Array).size()
+		if fi != int(nd.get("ifi", -1)):
+			nd["ifi"] = fi
+			(icon as Sprite3D).texture = (seq as Array)[fi]
+
+
+func _light_marker() -> void:
+	## The astronaut is an unshaded sprite, so nothing in the engine tints him and he
+	## reads as pasted onto the scene. Gather the light actually reaching his cell —
+	## the cool corridor wash plus each node's coloured pool, falling off with distance
+	## — and modulate him with it. Now he darkens between nodes and picks up the
+	## orange of a FIREWALL or the cyan of a cache as he steps into it.
+	if _marker_spr == null:
+		return
+	var p := _marker.position
+	var lit := Color(0.42, 0.48, 0.58)          # ambient + corridor fill floor
+	for nd in nodes:
+		var lg = nd.get("light")
+		if lg == null or not is_instance_valid(lg):
+			continue
+		var d := p.distance_to((lg as OmniLight3D).global_position)
+		var rng: float = maxf((lg as OmniLight3D).omni_range, 0.001)
+		var fall: float = pow(clampf(1.0 - d / rng, 0.0, 1.0), 1.7)
+		if fall <= 0.001:
+			continue
+		var c: Color = (lg as OmniLight3D).light_color * ((lg as OmniLight3D).light_energy * 0.34 * fall)
+		lit = Color(lit.r + c.r, lit.g + c.g, lit.b + c.b, 1.0)
+	# soft ceiling so a bright node never blows him out, and never let him go black
+	var tone := Color(minf(lit.r, 1.06), minf(lit.g, 1.06), minf(lit.b, 1.08), 1.0)
+	_marker_spr.modulate = _marker_spr.modulate.lerp(tone, 0.12)
+
+
 func _place_marker() -> void:
 	_marker = Node3D.new()
 	add_child(_marker)
@@ -950,9 +1333,25 @@ func _place_marker() -> void:
 		spr.position.z = 0.0
 	spr.billboard = BaseMaterial3D.BILLBOARD_FIXED_Y
 	spr.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-	spr.shaded = false
+	spr.shaded = false                                  # tinted by hand in _process instead
+	spr.alpha_cut = SpriteBase3D.ALPHA_CUT_DISCARD      # opaque pixels: sorts + casts shadows
+	# a camera-facing billboard casts a degenerate shadow when a light is straight
+	# overhead (it showed up as a dark ring at his feet) — the soft contact blob under
+	# him sells the grounding instead
+	spr.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_marker.add_child(spr)
 	_marker_spr = spr
+	# his suit lamp: a small warm pool that travels with him, so the deck brightens
+	# under his boots and he belongs to the scene instead of floating over it
+	var lamp := OmniLight3D.new()
+	lamp.position = Vector3(0.0, 0.62, 0.1)
+	lamp.light_color = Color(0.86, 0.93, 1.0)
+	lamp.light_energy = 1.35
+	lamp.omni_range = 2.9
+	lamp.omni_attenuation = 1.8
+	lamp.shadow_enabled = true
+	lamp.shadow_bias = 0.05
+	_marker.add_child(lamp)
 	_marker.position = _cell_world(nodes[cur]["gx"], nodes[cur]["gz"])
 	_marker_last_pos = _marker.position
 	if cur >= 0 and nodes[cur].has("icon"):
@@ -1001,6 +1400,15 @@ func _process(delta: float) -> void:
 			var bx := _cam.global_transform.basis
 			_look_at += (bx.x * over.x - bx.y * over.y) * wpp
 			_cam.look_at(_look_at)
+		_light_marker()
+		# re-evaluate hover from the live cursor position, not only on mouse-motion events:
+		# after a walk or a duel the mouse often hasn't moved, so the flare used to stay
+		# stale (or never appear at all) until you wiggled it
+		if mode == Mode.MAP and not _moving and _hud != null:
+			var h := _hover_at(_hud.get_viewport().get_mouse_position())
+			if h != _hover_node:
+				_hover_node = h
+				_paint_edges()
 		# astronaut walk cycle — advance frames by DISTANCE moved; idle when stopped
 		if _marker_spr != null and not (_mf_left.is_empty() and _mf_right.is_empty() and _mf_back.is_empty()):
 			var dpos := _marker.position - _marker_last_pos
@@ -1032,6 +1440,7 @@ func _process(delta: float) -> void:
 				_marker_spr.texture = _tex.get("marker")
 				var mh: float = _marker_spr.texture.get_height() * _marker_spr.pixel_size
 				_marker_spr.position.y = mh * 0.5 + 0.03
+	_tick_sigils()
 	# pulse reachable tokens + their target rings
 	var pulse := 0.6 + 0.4 * sin(_t * 4.0)
 	for nd in nodes:
@@ -1068,6 +1477,15 @@ func _process(delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if _duel != null:
 		return
+	# a sigil rig is asking a question — it owns the keyboard until answered
+	if not _choice.is_empty() and event is InputEventKey and event.pressed and not event.echo:
+		if event.physical_keycode == KEY_ESCAPE:
+			_choice = {}
+			_msg = "Walked away from the rig."
+			_hud.queue_redraw()
+		elif event.physical_keycode >= KEY_1 and event.physical_keycode <= KEY_6:
+			_choose(int(event.physical_keycode) - int(KEY_1))
+		return
 	if event is InputEventKey and event.pressed and not event.echo \
 			and event.physical_keycode == KEY_ESCAPE:
 		_exit_to_flight("Breach aborted — back to the helm.")
@@ -1083,6 +1501,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			_cam.projection = Camera3D.PROJECTION_ORTHOGONAL
 			_cam.size = 13.0
 			_msg = "Camera: pure orthographic (O to switch back)"
+		return
+	if event is InputEventMouseMotion:
+		var h := _hover_at((event as InputEventMouseMotion).position)
+		if h != _hover_node:
+			_hover_node = h
+			_paint_edges()   # yellow-preview the corridor under the cursor
 		return
 	if event is InputEventMouseButton and event.pressed \
 			and event.button_index == MOUSE_BUTTON_LEFT:
@@ -1191,8 +1615,17 @@ func _spawn_shockwave(pos: Vector3, col: Color) -> void:
 # Resolve nodes / duel
 # ==================================================================
 func _arrive(i: int) -> void:
-	if int(TYPES[nodes[i]["type"]][2]) > 0:
-		_start_duel(int(TYPES[nodes[i]["type"]][2]))
+	var t := str(nodes[i]["type"])
+	if t == "quarantine" and not has_tool:
+		# the gate stays shut and the node stays OPEN — come back with a vault tool
+		_pending = -1
+		_msg = "QUARANTINE GATE is sealed. Find a DATA VAULT's breach tool and return."
+		return
+	if int(TYPES[t][2]) > 0:
+		var diff: int = int(TYPES[t][2])
+		if t == "bounty":
+			diff = clampi(1 + streak / 2, 1, 3)   # the daemon grows with your win streak
+		_start_duel(diff)
 	else:
 		_finish_node(i)
 
@@ -1230,9 +1663,119 @@ func _on_duel_finished(won: bool) -> void:
 	_cam.current = true   # take the view back from the duel camera
 	mode = Mode.MAP
 	if won:
+		streak += 1
 		_finish_node(_pending)
 	else:
-		_msg = "EJECTED — the node holds. Walk back in to breach again."
+		# losing ENDS the run: HELIOS throws you off the station and everything banked in
+		# there is gone — shards, colonists, deck edits. Fly back to breach it again fresh.
+		streak = 0
+		DUEL.run_deck = []
+		DUEL.atk_boost = {}
+		DUEL.graft = {}
+		DUEL.fragile = []
+		mode = Mode.CHALLENGE   # locks map input while the fade runs
+		_msg = "FIREWALL HOLDS — ejected from the station."
+		if _hud != null:
+			_hud.queue_redraw()
+		await get_tree().create_timer(1.1).timeout
+		_exit_to_flight("Ejected from %s — the breach collapsed. Everything aboard is lost."
+			% (station_name if station_name != "" else "the station"))
+
+
+const LORE := [
+	"…the crew logged 41 days of silence before HELIOS answered them.",
+	"…she kept feeding the greenhouse long after the lights went.",
+	"…HELIOS learned to imitate the captain's voice on the intercom.",
+	"…the last entry is a lullaby, hummed, no words.",
+	"…they voted to stay. All of them. Twice.",
+]
+
+
+func _deck() -> Array:
+	return DUEL.run_deck
+
+
+func _card_name(id: String) -> String:
+	var c: Array = DUEL.CARDS.get(id, [])
+	if c.is_empty():
+		return id
+	var boost: int = int(DUEL.atk_boost.get(id, 0))
+	var extra: String = "  +%d" % boost if boost > 0 else ""
+	return "%s  %d/%d  c%d%s" % [str(c[0]), int(c[2]) + boost, int(c[3]), int(c[4]), extra]
+
+
+func _sig_count(id: String) -> int:
+	var c: Array = DUEL.CARDS.get(id, [])
+	var n: int = 0 if c.is_empty() else (c[5] as Array).size()
+	return n + (DUEL.graft.get(id, []) as Array).size()
+
+
+func _loot_pool(n: int) -> Array:
+	## Cards you can be OFFERED. Enemy and boss cards are excluded outright: every HELIOS
+	## card costs 0, so without this filter a vault could hand you a free 4/4 daemon and
+	## the whole energy curve stops meaning anything.
+	var foe := {}
+	for tier in DUEL.OPP_DECKS:
+		for id in (DUEL.OPP_DECKS[tier]["deck"] as Array):
+			foe[id] = true
+	var pool: Array = []
+	for id in DUEL.CARDS:
+		if foe.has(id):
+			continue
+		var cost: int = int(DUEL.CARDS[id][4])
+		if cost >= 1 and cost <= 4 and _deck().count(id) < 3:
+			pool.append(id)
+	pool.shuffle()
+	return pool.slice(0, n)
+
+
+func _ask_cards(title: String, ids: Array, note: String, cb: Callable) -> void:
+	## card choices get the real thing: art, cost, stats, sigils, hover — see
+	## breach_card_picker.gd. It frees itself after emitting, and it swallows the keys it
+	## uses so the map's own hover/click never sees them.
+	if ids.is_empty():
+		_msg = "%s — nothing applicable." % title
+		return
+	var p = load("res://scripts/breach_card_picker.gd").make(ids, title, note)
+	p.power_bonus = DUEL.atk_boost     # show OVERCLOCK / MERGE upgrades
+	p.extra_sigils = DUEL.graft        # ...and anything a SPLICER grafted on
+	p.chosen.connect(func(i: int):
+		cb.call(i)
+		_hud.queue_redraw())
+	p.cancelled.connect(func():
+		_msg = "Walked away from the rig."
+		_hud.queue_redraw())
+	add_child(p)
+
+
+func _ask(title: String, opts: Array, cb: Callable) -> void:
+	## tiny keyboard modal — 1..6 choose, ESC walks away. Cheap, and it keeps the map
+	## readable instead of throwing a full card-picker UI over the corridor.
+	if opts.is_empty():
+		_msg = "%s — nothing applicable." % title
+		return
+	_choice = {"title": title, "opts": opts.slice(0, 6), "cb": cb}
+	_hud.queue_redraw()
+
+
+func _choose(k: int) -> void:
+	if _choice.is_empty():
+		return
+	var opts: Array = _choice["opts"]
+	if k < 0 or k >= opts.size():
+		return
+	var cb: Callable = _choice["cb"]
+	_choice = {}
+	cb.call(k)
+	_hud.queue_redraw()
+
+
+func _spend(n: int) -> bool:
+	if shards < n:
+		_msg = "Needs %d shards — you carry %d." % [n, shards]
+		return false
+	shards -= n
+	return true
 
 
 func _finish_node(i: int) -> void:
@@ -1240,15 +1783,170 @@ func _finish_node(i: int) -> void:
 	cur = i
 	_pending = -1
 	_update_reach()
-	match str(nodes[i]["type"]):
-		"pod": _msg = "SURVIVOR POD — a cryo-berth wakes. Ready when the core falls."
-		"ghost": _msg = "GHOST SIGNAL — a survivor's log crackles through."
-		"cache": _msg = "DATA CACHE — spare code siphoned."
-		"vault": _msg = "DATA VAULT — a breach tool for the climb."
-		"firewall", "sentinel": _msg = "Node cleared. The corridor ahead unlocks."
+	var t := str(nodes[i]["type"])
+	match t:
+		"pod":
+			colonists += 1
+			_msg = "SURVIVOR POD — a cryo-berth wakes. %d aboard when the core falls." % colonists
+		"ghost":
+			shards += 2
+			_msg = "GHOST SIGNAL %s  (+2 shards)" % LORE[randi() % LORE.size()]
+		"cache":
+			var g := 5 + randi() % 3
+			shards += g
+			_msg = "DATA CACHE — %d code shards siphoned." % g
+		"vault":
+			has_tool = true
+			var offer := _loot_pool(3)
+			_msg = "DATA VAULT — breach tool secured. Pick a card to carry."
+			_ask_cards("DATA VAULT — keep one", offer, "free",
+				func(k: int):
+					_deck().append(offer[k])
+					_msg = "%s joins the deck." % str(DUEL.CARDS[offer[k]][0]))
+		"recycler":
+			var d := _deck().duplicate()
+			d.shuffle()
+			var opts := d.slice(0, 5)
+			_ask_cards("RECYCLER — scrap one for shards", opts, "pays 4 + 3 per sigil",
+				func(k: int):
+					var id: String = opts[k]
+					var pay: int = mini(16, 4 + 3 * _sig_count(id))
+					_deck().erase(id)
+					shards += pay
+					_msg = "%s shredded — +%d shards." % [str(DUEL.CARDS[id][0]), pay])
+		"splicer":
+			if not _spend(int(NODE_COST["splicer"])):
+				return
+			var donors: Array = []
+			for id in _deck():
+				# must have a BASE sigil to donate: gating on _sig_count would also count
+				# grafted ones, then indexing CARDS[id][5][0] below would run off the end
+				if not (DUEL.CARDS[id][5] as Array).is_empty() and not donors.has(id):
+					donors.append(id)
+			_ask_cards("CODE SPLICER — donor card (destroyed)", donors, "its sigil moves on",
+				func(k: int):
+					var dn: String = donors[k]
+					var sig = (DUEL.CARDS[dn][5] as Array)[0]
+					var targets := _deck().duplicate()
+					targets.erase(dn)
+					var uniq: Array = []
+					for id in targets:
+						if not uniq.has(id):
+							uniq.append(id)
+					# the donor is destroyed only once the graft actually happens — erasing it
+					# here meant cancelling the second prompt ate the card for nothing
+					_ask_cards("Graft %s onto…" % str(sig).to_upper(), uniq, "keeps its own sigils",
+						func(j: int):
+							var tg: String = uniq[j]
+							_deck().erase(dn)
+							var cur_g: Array = DUEL.graft.get(tg, [])
+							cur_g = cur_g.duplicate()
+							cur_g.append(sig)
+							DUEL.graft[tg] = cur_g
+							_msg = "%s now carries %s." % [str(DUEL.CARDS[tg][0]), str(sig).to_upper()]))
+		"overclock":
+			if not _spend(int(NODE_COST["overclock"])):
+				return
+			var d2 := _deck().duplicate()
+			d2.shuffle()
+			var uniq2: Array = []
+			for id in d2:
+				if not uniq2.has(id) and uniq2.size() < 6:
+					uniq2.append(id)
+			_ask_cards("OVERCLOCK RIG — weld one card permanently stronger", uniq2,
+				"the card you pick gets +1 POWER for the rest of the run — but if it ever dies in a duel it is gone from your deck forever   ·   costs 9 shards",
+				func(k: int):
+					var id: String = uniq2[k]
+					DUEL.atk_boost[id] = int(DUEL.atk_boost.get(id, 0)) + 1
+					if not DUEL.fragile.has(id):
+						DUEL.fragile.append(id)
+					_msg = "%s overclocked — it will not survive a death." % str(DUEL.CARDS[id][0]))
+		"exchange":
+			if not _spend(int(NODE_COST["exchange"])):
+				return
+			var d3 := _deck().duplicate()
+			d3.shuffle()
+			var give := d3.slice(0, 4)
+			_ask_cards("EXCHANGE — trade away", give, "one for one",
+				func(k: int):
+					var out_id: String = give[k]
+					var offer2 := _loot_pool(3)
+					_ask_cards("…for one of these", offer2, "",
+						func(j: int):
+							_deck().erase(out_id)
+							_deck().append(offer2[j])
+							_msg = "%s traded for %s." % [str(DUEL.CARDS[out_id][0]),
+								str(DUEL.CARDS[offer2[j]][0])]))
+		"merge":
+			var dupes: Array = []
+			for id in _deck():
+				if _deck().count(id) >= 2 and not dupes.has(id):
+					dupes.append(id)
+			if dupes.is_empty():
+				shards += 4
+				_msg = "MERGE LAB — no matching pair to fuse. Stripped for 4 shards."
+			elif _spend(int(NODE_COST["merge"])):
+				_ask_cards("MERGE LAB — fuse a pair", dupes, "two become one, +1 power",
+					func(k: int):
+						var id: String = dupes[k]
+						_deck().erase(id)   # two become one, and the one is stronger
+						DUEL.atk_boost[id] = int(DUEL.atk_boost.get(id, 0)) + 1
+						_msg = "%s fused — +1 power on every copy." % str(DUEL.CARDS[id][0]))
+		"uplink":
+			if not _spend(int(NODE_COST["uplink"])):
+				return
+			revealed = true
+			_msg = "UPLINK RELAY — the corridor ahead resolves. Threat tiers exposed."
+		"blackice":
+			if randi() % 2 == 0:
+				var g2 := 8 + randi() % 5
+				shards += g2
+				_msg = "BLACK ICE cracked clean — %d shards spill out." % g2
+			else:
+				var toll: int = mini(shards, 4)
+				shards -= toll
+				_msg = "BLACK ICE bites — %d shards burned." % toll
+		"bounty":
+			var pay2 := 10 + 4 * streak
+			shards += pay2
+			_msg = "BOUNTY DAEMON put down — %d shards claimed." % pay2
+		"firewall", "sentinel":
+			_msg = "Node cleared. The corridor ahead unlocks."
+		"quarantine":
+			shards += 8
+			_msg = "QUARANTINE GATE forced with the breach tool — +8 shards."
 		"core":
 			_msg = "HELIOS CORE CRACKED — the station is FREE. Click to return."
+			# BANK the run's takings — until now colonists and shards existed only as a
+			# toast and died with the scene, so a whole cleared station rewarded nothing
+			if colonists > 0:
+				_msg += "  %d survivors bound for Haven." % colonists
+				GameState.breach_colonists += colonists
+			if shards > 0:
+				GameState.banked += shards * 2   # leftover code shards cash out as ore-value
+				_msg += "  %d shards cashed out." % shards
+			GameState.save_game()
 			mode = Mode.WON
+
+
+func _draw_choice(vp: Vector2) -> void:
+	var opts: Array = _choice["opts"]
+	var w := 560.0
+	var h := 66.0 + opts.size() * 34.0
+	var r := Rect2((vp.x - w) * 0.5, (vp.y - h) * 0.5, w, h)
+	_hud.draw_rect(r, Color(0.03, 0.05, 0.08, 0.94))
+	_hud.draw_rect(r, Color(CYAN.r, CYAN.g, CYAN.b, 0.5), false, 2.0)
+	_hud.draw_string(_font, r.position + Vector2(22, 34), str(_choice["title"]).to_upper(),
+		HORIZONTAL_ALIGNMENT_LEFT, w - 44, 18, CYAN)
+	for i in opts.size():
+		var y := r.position.y + 62.0 + i * 34.0
+		_hud.draw_string(_font, Vector2(r.position.x + 26, y), "%d" % (i + 1),
+			HORIZONTAL_ALIGNMENT_LEFT, 30, 17, Color(0.95, 0.8, 0.4))
+		_hud.draw_string(_font, Vector2(r.position.x + 56, y), str(opts[i]),
+			HORIZONTAL_ALIGNMENT_LEFT, w - 80, 17, Color(0.86, 0.93, 1.0))
+	_hud.draw_string(_font, Vector2(r.position.x + 22, r.end.y - 12),
+		"press 1-%d   ·   ESC walks away" % opts.size(), HORIZONTAL_ALIGNMENT_LEFT, w - 44, 12,
+		Color(CYAN.r, CYAN.g, CYAN.b, 0.6))
 
 
 func _exit_to_flight(note: String) -> void:
@@ -1268,9 +1966,21 @@ func _on_hud_draw() -> void:
 	_hud.draw_string(_font, Vector2(24, 50),
 		"walk the corridors to the HELIOS core   ·   ESC leaves the breach",
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(CYAN.r, CYAN.g, CYAN.b, 0.6))
+	# run purse: shards fund the rigs, colonists ride home when the core cracks
+	var purse := "◈ %d SHARDS" % shards
+	if colonists > 0:
+		purse += "    ☻ %d SURVIVORS" % colonists
+	if has_tool:
+		purse += "    ⚿ BREACH TOOL"
+	if streak > 1:
+		purse += "    ✦ STREAK %d" % streak
+	_hud.draw_string(_font, Vector2(vp.x - 470, 30), purse, HORIZONTAL_ALIGNMENT_RIGHT, 446, 17,
+		Color(0.72, 0.9, 1.0))
 	_hud.draw_rect(Rect2(0, vp.y - 40, vp.x, 40), Color(0.02, 0.03, 0.05, 0.82))
 	_hud.draw_string(_font, Vector2(24, vp.y - 14), _msg, HORIZONTAL_ALIGNMENT_LEFT, -1, 15,
 		Color(0.85, 0.92, 1.0))
+	if not _choice.is_empty():
+		_draw_choice(vp)
 	if mode == Mode.WON:
 		_hud.draw_string(_font, Vector2(0, vp.y * 0.5), "STATION FREED",
 			HORIZONTAL_ALIGNMENT_CENTER, vp.x, 40, CYAN)

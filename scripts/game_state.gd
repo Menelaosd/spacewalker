@@ -164,6 +164,7 @@ var oxygen: float = 100.0
 var carried: int = 0                              # ore-value on the suit
 var carried_items := {"iron": 0, "crystal": 0}    # per-type, this walk
 var banked: int = 0                               # ore-value currency
+var breach_colonists: int = 0                     # survivors freed from HELIOS stations (Haven)
 var inventory := {"iron": 0, "crystal": 0}        # chunk counts ever banked
 var elements := {}                                # symbol -> INTEGER units (cap 9999)
 var carried_veins := {}                           # symbol -> units held on the suit
@@ -764,6 +765,7 @@ func save_game() -> void:
 		"mined": mined.keys(),
 		"oxygen": oxygen,
 		"banked": banked,
+		"breach_colonists": breach_colonists,
 		# the live spacewalk haul — persisted so a mid-dive save/quit no longer
 		# discards it while the rocks that produced it stay `mined` (and so
 		# SOLA's kept-half survives a save+quit after a blackout)
@@ -833,6 +835,7 @@ func load_game(s: int) -> bool:
 		mined[str(k)] = true
 	oxygen = data.get("oxygen", max_oxygen)
 	banked = int(data.get("banked", 0))
+	breach_colonists = int(data.get("breach_colonists", 0))
 	var inv: Dictionary = data.get("inventory", {})
 	for k in inventory:
 		inventory[k] = int(inv.get(k, 0))

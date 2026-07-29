@@ -153,6 +153,7 @@ func _ready() -> void:
 	_load_comet_sprites()
 	_build_stations()   # real GPU-lit station nodes (Sprite2D + PointLight2D)
 	ship_pos = GameState.sector
+	_build_ship_shadow()   # ship silhouette that darkens the station hull it passes over
 	_flight_origin = ship_pos
 	cam.position = ship_pos
 	Sfx.ambient("amb_space")        # the void hum under cruising
@@ -199,6 +200,12 @@ func _ready() -> void:
 		}
 		_recipe_banner.show_recipe("jukebox")
 	# debug: SW_STATIONS=1 parks the ship at the station inspection cluster
+	# debug: SW_SHIPAT=<station index> parks the ship ON that station's hull (shadow shots)
+	if OS.get_environment("SW_SHIPAT") != "":
+		ship_pos = Stations.world_pos(int(OS.get_environment("SW_SHIPAT")))
+		cam.position = ship_pos
+		_flight_origin = ship_pos
+		cam.reset_smoothing()
 	if OS.get_environment("SW_STATIONS") != "":
 		ship_pos = Stations.CLUSTER
 		cam.position = ship_pos
@@ -210,6 +217,7 @@ func _ready() -> void:
 	# populate the batched sky for ship_pos's FINAL location (post SW_FIELD /
 	# SW_NEBULA teleports) so there's no one-frame empty flash on entry
 	_update_background()
+	_update_ship_shadow()   # …and the silhouette, so frame one already shadows right
 	if OS.get_environment("SW_SHOT") != "":
 		await get_tree().create_timer(0.9).timeout
 		if is_inside_tree():
@@ -255,6 +263,7 @@ func _process(delta: float) -> void:
 	if not Transition.is_busy():
 		GameState.sector = ship_pos
 	cam.position = ship_pos
+	_update_ship_shadow()   # the ship silhouette stamped on the station hull below
 
 	_near_field = _find_near_field()
 	GameState.at_field = not _near_field.is_empty()   # the interior airlock reads this
@@ -342,6 +351,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				vel = Vector2.ZERO
 				Sfx.play("radio", -4.0)
 				_dialog.start(str(GameState.rescue_target()["name"]))
+			elif _breach_ready >= 0:
+				vel = Vector2.ZERO
+				_enter_breach(_breach_ready)
 			elif not _near_field.is_empty():
 				GameState.sector = _near_field["center"]
 				GameState.save_game()
@@ -685,6 +697,7 @@ func _find_near_field() -> Dictionary:
 # doesn't instantly re-trigger it — fly away and back to breach again
 var _breach_armed := false
 var _breach_ignore := -1   # station the ship spawned inside reach of — quiet until you fly clear
+var _breach_ready := -1    # station in reach and offered: E commits to the breach
 
 
 func _near_station_idx() -> int:
@@ -696,19 +709,33 @@ func _near_station_idx() -> int:
 
 
 func _check_station_breach() -> void:
+	## Flying close only OFFERS the breach now — the captain presses E to commit, so you
+	## can cross the station cluster without being yanked into a run.
 	var near := _near_station_idx()
 	if near == -1:
 		_breach_armed = true
 		_breach_ignore = -1
+		_breach_ready = -1
 		return
 	if not _breach_armed and near != _breach_ignore:
 		# saves can drop the ship barely INSIDE a station's reach (post-breach respawn)
 		# — that one station stays quiet until you fly clear, but any OTHER station,
-		# or the same one after leaving its radius once, triggers normally.
+		# or the same one after leaving its radius once, offers the breach normally.
 		_breach_armed = true
 	if not _breach_armed or _in_dialog or Transition.is_busy():
 		return
+	if _breach_ready != near:
+		_breach_ready = near
+		Sfx.play("radio", -9.0)
+		GameState.say("%s in reach — press E to breach the hull."
+			% str(Stations.LIST[near]["name"]))
+
+
+func _enter_breach(near: int) -> void:
+	if near < 0 or near >= Stations.count() or _in_dialog or Transition.is_busy():
+		return
 	_breach_armed = false
+	_breach_ready = -1
 	GameState.sector = ship_pos   # come back to this exact spot after the breach
 	var breach_gd := load("res://scripts/breach_map3d.gd")
 	breach_gd.station_name = str(Stations.LIST[near]["name"])
@@ -1534,6 +1561,154 @@ func _crew_wreck_tex(tname: String) -> Texture2D:
 const SHIP_TEX := preload("res://assets/sprites/ship_hd.png")
 const SHIP_SCALE := 0.46
 const SHIP_SHADOW_R := 90.0   # how far the hull's shadow reaches onto rocks
+# --- ship shadow on station hulls ----------------------------------------
+# A ship passing over a station should darken the plating under it. 2D light
+# occluders were tried first and cannot do this job:
+#   * a Light2D shadow is a WEDGE projected from the occluder out to the light's
+#     rim, so it lands magnified and smeared, never as a ship-shaped stamp;
+#   * and a "black caster on SUB blend" paints nothing at all, because Godot
+#     tints shadow_color by the light's own colour — a black light gives a black
+#     shadow_color, and subtracting black is a no-op. (Verified: the same rig
+#     with a white ADD caster and a red shadow_color does draw a wedge.)
+# So the silhouette is stamped by the HULL SPRITE'S OWN SHADER instead. It reads
+# the ship texture's alpha at the matching spot and darkens itself there, which
+#   * clips the shadow to real plating for free — it can only draw where the
+#     sprite draws, so nothing ever smears across the starfield or a ring's hole;
+#   * keeps the silhouette exactly ship-shaped at 1:1, sliding and turning with
+#     the ship; and
+#   * is a true no-op at shade 0 — every other station, and every frame with the
+#     ship away from the cluster, renders bit-identically to before.
+const SHIP_SHADOW_DARK := 0.20    # hull brightness under the silhouette (1 = untouched)
+const SHIP_SHADOW_OFF := 78.0     # px the shadow slides off the hull: the ship's "height"
+# Penumbra width, as a fraction of the ship's own size — the one number to turn
+# if the shadow wants softer or crisper edges. The station lights are big, close
+# and soft, so the silhouette should have a real penumbra rather than a cutout
+# edge; much past ~0.09 and the nose and wings stop being readable.
+const SHIP_SHADOW_BLUR := 0.055
+const SHIP_SHADOW_SPREAD := 1.08  # silhouette size vs the drawn hull
+const SHIP_SHADOW_SHADER := """
+shader_type canvas_item;
+// The passing ship's silhouette, stamped onto this station's plating. Every
+// vector below is in the hull sprite's own local space (= its texture's pixels),
+// so the maths does not care how large the station happens to be drawn.
+uniform sampler2D ship_tex : filter_linear, repeat_disable;
+uniform vec2 tex_size = vec2(400.0);      // this hull texture's size, px
+uniform vec2 ship_c = vec2(0.0);          // ship centre, sprite-local px
+uniform vec2 ship_b = vec2(1.0, 0.0);     // (cos, sin) of the ship's heading here
+uniform vec2 ship_half = vec2(1.0);       // half the silhouette's size, sprite-local px
+uniform float shade = 0.0;                // 0 = off, and then nothing is touched
+uniform float dark = 0.20;      // set from SHIP_SHADOW_DARK
+uniform float blur = 0.055;     // set from SHIP_SHADOW_BLUR
+
+float tap(vec2 uv) {
+	// Off the ship's own texture there is no ship, so no shadow. Sampling with
+	// clamp-to-edge instead would smear the hull's edge pixels outward, and the
+	// art runs right up to the texture border.
+	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+		return 0.0;
+	}
+	return texture(ship_tex, uv).a;
+}
+
+float ship_alpha(vec2 suv) {
+	// A real penumbra: average the ship's alpha over a small disc in ship space
+	// (13 taps, two rings plus diagonals) so the edge falls off over a band
+	// instead of a single hard step. The radius is a fraction of the ship, so
+	// the softness holds however large the hull is drawn.
+	vec2 ax = vec2(blur, 0.0);
+	vec2 dg = vec2(blur * 0.7071, blur * 0.7071);
+	float a = tap(suv) * 2.0;                       // centre carries most weight
+	a += tap(suv + ax * 0.5) + tap(suv - ax * 0.5);
+	a += tap(suv + ax.yx * 0.5) + tap(suv - ax.yx * 0.5);
+	a += tap(suv + ax) + tap(suv - ax);
+	a += tap(suv + ax.yx) + tap(suv - ax.yx);
+	a += tap(suv + dg) + tap(suv - dg);
+	a += tap(suv + vec2(dg.x, -dg.y)) + tap(suv - vec2(dg.x, -dg.y));
+	return a / 14.0;
+}
+
+void fragment() {
+	if (shade > 0.002) {
+		// this fragment's offset from the ship, rotated into ship space
+		vec2 d = UV * tex_size - tex_size * 0.5 - ship_c;
+		vec2 l = vec2(d.x * ship_b.x + d.y * ship_b.y,
+				d.y * ship_b.x - d.x * ship_b.y);
+		vec2 suv = l / (ship_half * 2.0) + 0.5;
+		// the penumbra spreads past the ship's own outline, so test a box widened
+		// by the blur radius — a tight test would slice the soft edge off flat
+		if (suv.x > -blur && suv.x < 1.0 + blur
+				&& suv.y > -blur && suv.y < 1.0 + blur) {
+			COLOR.rgb *= mix(1.0, dark, ship_alpha(suv) * shade);
+		}
+	}
+}
+"""
+
+var _shadow_mats: Array[ShaderMaterial] = []
+var _shadow_on := -1     # which station currently carries the silhouette
+
+
+func _build_ship_shadow() -> void:
+	## Hand every station hull the silhouette shader, switched off. Runs after
+	## _build_stations(), so _station_nodes is already populated.
+	var sh := Shader.new()
+	sh.code = SHIP_SHADOW_SHADER
+	for st in _station_nodes:
+		var spr: Sprite2D = (st["node"] as Node2D).get_child(0) as Sprite2D
+		var mat := ShaderMaterial.new()
+		mat.shader = sh
+		mat.set_shader_parameter("ship_tex", SHIP_TEX)
+		mat.set_shader_parameter("tex_size", spr.texture.get_size())
+		mat.set_shader_parameter("dark", SHIP_SHADOW_DARK)
+		mat.set_shader_parameter("blur", SHIP_SHADOW_BLUR)
+		mat.set_shader_parameter("shade", 0.0)
+		spr.material = mat
+		_shadow_mats.append(mat)
+	_update_ship_shadow()
+
+
+func _update_ship_shadow() -> void:
+	## Only the station the ship is actually over carries a silhouette. The shadow
+	## slides AWAY from that station's KEY light, taken from where the light sits
+	## INSIDE the station rather than from the light-to-ship line: the lights are
+	## only a few dozen px off the hull centre, so a ship drifting over one would
+	## otherwise whip its shadow right around. Taken this way the station reads as
+	## lit from one side, and each station shadows in its own direction.
+	if _shadow_mats.is_empty():
+		return
+	var dpx: float = Stations.display_px()
+	var idx := -1
+	var best := INF
+	var dir := Vector2.RIGHT
+	for i in _station_nodes.size():
+		var cont: Node2D = _station_nodes[i]["node"]
+		var d := ship_pos.distance_to(cont.position)
+		if d < best:
+			best = d
+			idx = i
+			var key: PointLight2D = (_station_nodes[i]["lights"] as Array)[0]
+			var off := key.global_position - cont.position
+			if off.length() > 1.0:
+				dir = -off.normalized()   # shadows fall AWAY from the light
+	# fade out as the ship leaves the hull, so the silhouette never pops on or off
+	var shade := clampf(inverse_lerp(dpx * 1.0, dpx * 0.66, best), 0.0, 1.0)
+	if _shadow_on != idx and _shadow_on >= 0:
+		_shadow_mats[_shadow_on].set_shader_parameter("shade", 0.0)
+	_shadow_on = idx
+	if idx < 0:
+		return
+	var mat: ShaderMaterial = _shadow_mats[idx]
+	mat.set_shader_parameter("shade", shade)
+	if shade <= 0.0:
+		return
+	var spr: Sprite2D = (_station_nodes[idx]["node"] as Node2D).get_child(0) as Sprite2D
+	# world px -> this sprite's local px (the hull is drawn scaled up from its art)
+	var inv := 1.0 / maxf(spr.global_scale.x, 0.0001)
+	mat.set_shader_parameter("ship_c", spr.to_local(ship_pos + dir * SHIP_SHADOW_OFF))
+	var rot := heading - spr.global_rotation
+	mat.set_shader_parameter("ship_b", Vector2(cos(rot), sin(rot)))
+	mat.set_shader_parameter("ship_half",
+		SHIP_TEX.get_size() * 0.5 * SHIP_SCALE * SHIP_SHADOW_SPREAD * inv)
 
 
 func _draw_ship() -> void:

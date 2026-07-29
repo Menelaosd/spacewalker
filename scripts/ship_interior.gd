@@ -223,6 +223,11 @@ const GLOWS := {
 	"generator": [Color(1.0, 0.7, 0.3), 18.0],
 	"medkit": [Color(1.0, 0.5, 0.5), 12.0],
 	"cylinders": [Color(0.5, 0.8, 1.0), 16.0],
+	# bedside lamps — the QUARTERS' only fixtures that make light. Without them
+	# the biggest room aboard (two whole cells) had exactly ONE light in it, the
+	# window at the far north wall, and the bunk row sat in the dark. Warm and
+	# small: a reading lamp, not a floodlight.
+	"nightstand": [Color(1.0, 0.62, 0.30), 15.0],
 	"hatch": [Color(0.9, 0.75, 0.3), 20.0],
 	"fabricator": [Color(0.35, 0.85, 1.0), 24.0],
 	"sample_fridge": [Color(0.5, 0.85, 1.0), 16.0],
@@ -494,15 +499,21 @@ const CRAFT_GLOWS := {
 }
 
 
-func _glow(pos: Vector2, col: Color, radius: float) -> void:
+func _glow(pos: Vector2, col: Color, radius: float, rate := 1.0) -> void:
 	## Dancing ambient light: the halo breathes, shimmers and sways a few
 	## px around its prop, and casts a swaying pool on the floor below.
+	## `rate` is the room's ROOM_TEMPO — the drawn halo used to ignore it while
+	## the prop's real PointLight2D honoured it, so in every room whose tempo
+	## isn't 1.0 (engine 1.25, quarters 0.7, botany 0.72...) a prop's halo and
+	## its own light breathed at different speeds and beat against each other.
 	var phase := pos.x * 0.7 + pos.y * 1.3
 	var t := _reactor
-	var a := 0.72 + 0.18 * sin(t * 1.8 + phase) + 0.10 * sin(t * 5.3 + phase * 2.0)
-	if fmod(t * 0.9 + phase, 9.0) < 0.07:
-		a *= 0.35   # rare electrical flicker
-	var sway := Vector2(sin(t * 1.1 + phase) * 2.6, cos(t * 1.7 + phase * 0.7) * 1.8)
+	# same level and the same stutter as this prop's real PointLight2D (see
+	# _animate_lights / DECK_LEVEL), so a halo and its light never disagree
+	var a := (0.72 + 0.18 * sin(t * 1.8 * rate + phase)
+		+ 0.10 * sin(t * 5.3 * rate + phase * 2.0)) * DECK_LEVEL * _flicker(t, phase)
+	var sway := Vector2(sin(t * 1.1 * rate + phase) * 2.6,
+		cos(t * 1.7 * rate + phase * 0.7) * 1.8)
 	var p := pos + sway
 	_ci.draw_circle(p, radius * 0.45, Color(col.r, col.g, col.b, 0.11 * a))
 	_ci.draw_circle(p, radius, Color(col.r, col.g, col.b, 0.06 * a))
@@ -625,6 +636,8 @@ func _find_cell(type: String) -> int:
 
 # ------------------------------------------------------------------
 var _overlay: Node2D
+var _amb: ColorRect   # full-screen GPU ambient / atmosphere pass
+var _amb_mat: ShaderMaterial
 var _deck: Node2D   # smooth-filtered floor/backdrop layer, behind everything
 var _wall_tex: Texture2D = null   # inter-room wall art (null = hand-drawn strip)
 
@@ -671,20 +684,23 @@ func _ready() -> void:
 	add_child(cm)
 	_spawn_lights()
 
-	# GPU ambient / atmosphere pass — ONE full-screen shader (analytic
-	# vignette + drifting FBM haze + dither). No gradient textures, so none
+	# GPU ambient / atmosphere pass — ONE full-screen shader (analytic room
+	# falloff + drifting FBM haze + dither). No gradient textures, so none
 	# of the banded "opacity circles" the old free-standing light pools made.
 	# Added before the HUD (same layer) so the HUD stays crisp on top.
+	# The pass is WORLD-ANCHORED: _update_ambient() hands it the rect of the
+	# room the crew is standing in, so panning the view never re-grades a deck.
 	var amb_layer := CanvasLayer.new()
 	amb_layer.layer = 1
 	add_child(amb_layer)
 	var amb := ColorRect.new()
 	amb.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	amb.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var amb_mat := ShaderMaterial.new()
-	amb_mat.shader = preload("res://assets/shaders/ambient.gdshader")
-	amb.material = amb_mat
+	_amb_mat = ShaderMaterial.new()
+	_amb_mat.shader = preload("res://assets/shaders/ambient.gdshader")
+	amb.material = _amb_mat
 	amb_layer.add_child(amb)
+	_amb = amb
 
 	crew.walk_check = _is_walkable
 
@@ -822,6 +838,9 @@ func _ready() -> void:
 			var vp := get_viewport().get_visible_rect().size
 			var z := minf(vp.x / (bb.size.x + 160.0), vp.y / (bb.size.y + 160.0))
 			cam.zoom = Vector2(z, z)
+	_apply_debug_view()
+	# snap the ambient pool onto the room we spawned in — no first-frame flash
+	_update_ambient(0.0)
 	# SW_SHOT=path: grab the real framebuffer (captures 2D lights + the ambient
 	# shader, which PrintWindow drops) after a beat, then quit. DEBUG ONLY.
 	if OS.get_environment("SW_SHOT") != "":
@@ -831,6 +850,76 @@ func _ready() -> void:
 			var _img := get_viewport().get_texture().get_image()
 			_img.save_png(_sp)
 			get_tree().quit()
+
+
+func _apply_debug_view() -> void:
+	## Screenshot / QA hooks for the interior view. DEBUG BUILDS ONLY.
+	##   SW_AT=<room|cell>   stand in a named room (quarters, medbay, engine,
+	##                       upgrade, bridge, airlock, cargo, botany) or a cell
+	##                       index; optional ",dx,dy" offset from its centre.
+	##   SW_CAMOFF=dx,dy     shove the CAMERA off the crew without moving the
+	##                       crew — i.e. "look" somewhere else from the same
+	##                       spot. The regression test for view-coupled light.
+	##   SW_AMB=off          hide the full-screen ambient/vignette pass, so a
+	##                       shot shows the raw 2D light pools only.
+	##   SW_LIGHTDBG=1       dump every spawned light + the renderer's per-item
+	##                       light limit (the GL-Compatibility ceiling).
+	if not OS.is_debug_build():
+		return
+	var at := OS.get_environment("SW_AT")
+	if at != "":
+		var parts := at.split(",")
+		var cell := -1
+		if parts[0].is_valid_int():
+			cell = int(parts[0])
+		else:
+			for c in GameState.rooms:
+				if GameState.rooms[c] == parts[0]:
+					cell = c
+					break
+		if cell >= 0 and GameState.rooms.has(cell):
+			var p := _prop_center(cell) + Vector2(0, 34.0)
+			if parts.size() >= 3:
+				p = cell_rect(cell).get_center() \
+					+ Vector2(float(parts[1]), float(parts[2]))
+			if not _is_walkable(p):
+				for r in [18.0, 30.0, 44.0, 58.0]:
+					for a in range(0, 360, 30):
+						var q: Vector2 = p + Vector2.from_angle(deg_to_rad(float(a))) * r
+						if _is_walkable(q):
+							p = q
+							break
+					if _is_walkable(p):
+						break
+			crew.position = p
+			print("SW_AT room=%s cell=%d pos=%s" % [parts[0], cell, str(p)])
+		else:
+			print("SW_AT: no such room '%s'" % parts[0])
+	var co := OS.get_environment("SW_CAMOFF")
+	if co != "":
+		var cp := co.split(",")
+		if cp.size() >= 2:
+			var cam2 := crew.get_node_or_null("Camera") as Camera2D
+			if cam2 != null:
+				cam2.position = Vector2(float(cp[0]), float(cp[1]))
+				print("SW_CAMOFF cam_offset=%s (crew stays at %s)" % [
+					str(cam2.position), str(crew.position)])
+	if OS.get_environment("SW_AMB") == "off" and _amb != null:
+		# kill the screen-space atmosphere pass, so a shot shows the raw 2D lights
+		_amb.visible = false
+		print("SW_AMB=off — ambient/vignette pass hidden")
+	if OS.get_environment("SW_LIGHTDBG") != "":
+		_amb_dbg = true
+		print("LIGHTDBG lights=%d max_lights_per_object=%s renderable=%s" % [
+			_lights.size(),
+			str(ProjectSettings.get_setting("rendering/limits/opengl/max_lights_per_object", 8)),
+			str(ProjectSettings.get_setting("rendering/limits/opengl/max_renderable_lights", 256))])
+		for l in _lights:
+			var lt: PointLight2D = l[0]
+			print("  light cell=%2d pos=%-18s reach=%3.0f energy=%.2f (deck %.2f) colour=%s" % [
+				cell_at(lt.position), str(lt.position),
+				lt.texture_scale * 256.0 * 0.5, l[3], float(l[3]) * DECK_LEVEL,
+				str(lt.color)])
 
 
 func _debug_build_room() -> int:
@@ -1109,6 +1198,7 @@ func _draw_wall_run(x0: float, x1: float) -> void:
 func _process(delta: float) -> void:
 	_reactor += delta
 	_animate_lights()
+	_update_ambient(delta)
 	_update_npcs()
 	if _ending_t > 0.0:
 		_ending_t += delta
@@ -1969,7 +2059,8 @@ func _draw() -> void:
 	var qc := _prop_center(_find_cell("quarters"))
 	var win_pos := Vector2(qc.x, cell_rect(_find_cell("quarters")).position.y - 3)
 	_prop("window", win_pos, 66.0)
-	_glow(win_pos + Vector2(0, 10), (GLOWS["window"][0] as Color), GLOWS["window"][1])
+	_glow(win_pos + Vector2(0, 10), (GLOWS["window"][0] as Color), GLOWS["window"][1],
+		ROOM_TEMPO.get("quarters", 1.0))
 	# (inter-room bulkhead walls are drawn inside the depth passes now — see
 	# _draw_walls — so the crew/props sit correctly in front of / behind them)
 	_draw_expansions()
@@ -2099,15 +2190,42 @@ func _draw_room_floor(cell: int) -> void:
 var _lights: Array = []   # [node, base_pos, phase, base_energy, tempo]
 var _light_tex: GradientTexture2D
 
+# --- the flicker, and the brownout it was hiding --------------------------
+# `phase` is seeded from a light's world position (pos.x * 0.7 + pos.y * 1.3),
+# and the interior grid lives at NEGATIVE coordinates, so every light's phase
+# is a big negative number. The old test `fmod(t * 0.9 + phase, 9.0) < 0.07`
+# used fmod, which keeps the SIGN OF THE DIVIDEND: for all 23 lights it
+# returned something in (-9, 0), which is always < 0.07. So the "rare
+# electrical flicker" was never rare and never a flicker — it was a permanent
+# ×0.35 brownout on every light and every drawn halo, every frame.
+# fposmod fixes the test. DECK_LEVEL keeps the brownout as an explicit,
+# deliberate level, because the whole interior was lit and art-tuned against
+# it: removing it silently made the deck ~1.7× brighter and flattened the
+# falloff the captain has been protecting. Same pixels, honest code.
+const DECK_LEVEL := 0.35     # steady-state fraction of a light's rated output
+const FLICKER_PERIOD := 12.0 # seconds between stutters, per light (staggered)
+const FLICKER_SPAN := 0.22   # seconds a stutter lasts
+const FLICKER_DEPTH := 0.5   # deepest dip during one
+
 
 func _spawn_lights() -> void:
 	for l in _lights:
 		(l[0] as PointLight2D).queue_free()
 	_lights = []
 	if _light_tex == null:
+		# EASED falloff, not a straight ramp: a linear white->clear gradient hits
+		# zero with slope, which shows as a faint hard ring at every pool's rim
+		# (a Mach band on flat deck plating). This is smoothstep sampled into
+		# stops — it lands on zero FLAT so the rim disappears, while holding the
+		# same 0.5 alpha at mid radius as the old ramp, so no pool gains or
+		# loses weight. (Do NOT use GRADIENT_INTERPOLATE_CUBIC for this: with
+		# few stops it overshoots and fattens every pool — measured +70% luma.)
 		var grad := Gradient.new()
 		grad.set_color(0, Color(1, 1, 1, 1))
 		grad.set_color(1, Color(1, 1, 1, 0))
+		for i in range(1, 8):
+			var r := float(i) / 8.0
+			grad.add_point(r, Color(1, 1, 1, 1.0 - smoothstep(0.0, 1.0, r)))
 		_light_tex = GradientTexture2D.new()
 		_light_tex.gradient = grad
 		_light_tex.fill = GradientTexture2D.FILL_RADIAL
@@ -2131,7 +2249,12 @@ func _spawn_lights() -> void:
 		if STATION_PROP.has(st["kind"]):
 			var gk: String = STATION_PROP[st["kind"]][0]
 			if GLOWS.has(gk):
-				_add_light(st["pos"], (GLOWS[gk][0] as Color), GLOWS[gk][1])
+				# a station's console breathes on ITS room's tempo too — the
+				# reactor used to pulse at 1.0 while the engine bay it sits in
+				# ran at 1.25, so the bay's biggest light was off the beat
+				var stt: float = ROOM_TEMPO.get(
+					GameState.rooms.get(cell_at(st["pos"]), ""), 1.0)
+				_add_light(st["pos"], (GLOWS[gk][0] as Color), GLOWS[gk][1], stt)
 	# PLACED CRAFTABLE devices that glow — a real light pool at each one
 	for fcell in GameState.furniture:
 		for fp in GameState.furniture_at(fcell):
@@ -2142,10 +2265,15 @@ func _spawn_lights() -> void:
 				_add_light(Vector2(_furn_cx(fcell, int(fp["col"]), int(fit["size"])),
 					_furn_base_y(fcell, int(fp["row"])) - fdm.y * 0.5),
 					CRAFT_GLOWS[fid][0], CRAFT_GLOWS[fid][1])
-	# the quarters viewport spills starlight (centred on the merged room)
-	var qc := _prop_center(_find_cell("quarters"))
-	_add_light(Vector2(qc.x, cell_rect(_find_cell("quarters")).position.y + 8.0),
-		(GLOWS["window"][0] as Color), GLOWS["window"][1])
+	# the quarters viewport spills starlight (centred on the merged room).
+	# Guarded: _find_cell falls back to "some room" when the type is missing, so
+	# an unguarded call would hang a stray window light in an unrelated deck.
+	if GameState.has_room("quarters"):
+		var qcell := _find_cell("quarters")
+		var qc := _prop_center(qcell)
+		_add_light(Vector2(qc.x, cell_rect(qcell).position.y + 8.0),
+			(GLOWS["window"][0] as Color), GLOWS["window"][1],
+			ROOM_TEMPO.get("quarters", 1.0))
 
 
 func _add_light(pos: Vector2, col: Color, glow_r: float, tempo := 1.0,
@@ -2161,6 +2289,20 @@ func _add_light(pos: Vector2, col: Color, glow_r: float, tempo := 1.0,
 		clampf(glow_r / 34.0, 0.5, 1.4) * e_scale, tempo])
 
 
+func _flicker(t: float, phase: float) -> float:
+	## 1.0 almost always; a shaped ~0.22s stutter once every FLICKER_PERIOD for
+	## each light, staggered by its position-seeded phase. Two eased dips, so
+	## it reads as tired wiring rather than as a dropped frame (the old hard
+	## step to 0.35 for a single frame read as the latter — when it fired at
+	## all; see DECK_LEVEL for why it always fired).
+	var f := fposmod(t * 0.9 + phase, FLICKER_PERIOD)
+	if f >= FLICKER_SPAN:
+		return 1.0
+	var u := f / FLICKER_SPAN
+	var dip := sin(u * PI) * (0.55 + 0.45 * sin(u * TAU * 2.5))
+	return 1.0 - FLICKER_DEPTH * clampf(dip, 0.0, 1.0)
+
+
 func _animate_lights() -> void:
 	var t := _reactor
 	for l in _lights:
@@ -2168,11 +2310,110 @@ func _animate_lights() -> void:
 		var ph: float = l[2]
 		var rate: float = l[4]   # per-room tempo — scales speed, never amplitude
 		var a := 0.72 + 0.18 * sin(t * 1.8 * rate + ph) + 0.10 * sin(t * 5.3 * rate + ph * 2.0)
-		if fmod(t * 0.9 + ph, 9.0) < 0.07:
-			a *= 0.35   # rare electrical flicker
-		lt.energy = (l[3] as float) * a
+		lt.energy = (l[3] as float) * a * DECK_LEVEL * _flicker(t, ph)
 		lt.position = (l[1] as Vector2) \
 			+ Vector2(sin(t * 1.1 * rate + ph) * 3.0, cos(t * 1.7 * rate + ph * 0.7) * 2.0)
+
+
+# ------------------------------------------------------------------
+# The ambient / atmosphere pass, driven by WHERE THE CREW STANDS.
+#
+# THE BUG THIS REPLACES: the shader used to darken by distance from the SCREEN
+# CENTRE. The camera rides the crew, so that looked player-centred — but it is
+# anchored to the VIEW, not the world, so the whole grade slid across the deck
+# whenever the view moved and rooms far away lit up as you looked toward them.
+# Measured with the crew frozen and only the camera nudged 320px either way:
+# medbay 34.3 -> 47.0 luma (+37%), bridge 50.0 -> 65.9 (+32%). With the pass
+# hidden the same two frames were identical to within 0.02 luma, which is what
+# pinned it on this shader and not on the PointLight2D pools.
+#
+# Now: the lit pool is the RECT OF THE ROOM THE CREW IS IN, eased when they
+# cross a threshold and converted to screen pixels through the canvas
+# transform. The view can point anywhere; the grade does not move.
+# ------------------------------------------------------------------
+const POOL_GROW := 26.0     # px of full brightness past your room's walls
+const POOL_CORNER := 54.0   # rounded-corner radius (never reads as a box)
+const POOL_FADE := 360.0    # world px of falloff outside your room (~2 cells)
+const POOL_EASE := 4.5      # how fast the pool follows you through a doorway
+
+var _amb_dbg := false       # SW_LIGHTDBG: dump the ambient mapping once
+var _pool_rect := Rect2()   # eased WORLD rect of the currently-lit room
+var _pool_accent := Color(0.16, 0.34, 0.52)   # eased haze tint (room accent)
+
+# A whisper of room colour in the cabin haze (haze_amount is 0.09, so this is
+# a tint on a tint — never a key light, never enough to lift the falloff).
+# Function, not decoration: warm where it's hot, clinical where it heals.
+const ROOM_ACCENT := {
+	"engine": Color(0.52, 0.26, 0.12),    # reactor heat
+	"medbay": Color(0.46, 0.30, 0.34),    # clinical rose
+	"bridge": Color(0.14, 0.34, 0.56),    # cold command blue
+	"botany": Color(0.20, 0.42, 0.24),    # grow-light green
+	"quarters": Color(0.44, 0.30, 0.18),  # cosy amber berth
+	"cargo": Color(0.30, 0.32, 0.36),     # bare steel
+	"airlock": Color(0.20, 0.30, 0.44),   # cold outside air
+	"upgrade": Color(0.22, 0.38, 0.30),   # workshop green
+	"room": Color(0.20, 0.30, 0.42),      # neutral cool
+}
+
+
+func _lit_room_rect() -> Rect2:
+	## The footprint the ambient pass keeps at full brightness: the room under
+	## the crew's FEET (the same cell the room label and rename use), merged for
+	## the two-cell quarters. Standing on bare hull keeps a small pool on you so
+	## an unbuilt deck never goes pitch black.
+	var feet := crew.position + Vector2(0, 12)
+	var cell := cell_at(feet)
+	if cell < 0 or not _built(cell):
+		return Rect2(feet - Vector2(64, 54), Vector2(128, 108))
+	if _quarters_merged() and cell in QUARTERS_MEMBERS:
+		return cell_rect(QUARTERS_MEMBERS[0]).merge(cell_rect(QUARTERS_MEMBERS[1]))
+	return cell_rect(cell)
+
+
+func _lit_room_accent() -> Color:
+	var cell := cell_at(crew.position + Vector2(0, 12))
+	if cell < 0 or not _built(cell):
+		return Color(0.12, 0.20, 0.32)
+	return ROOM_ACCENT.get(GameState.rooms[cell], Color(0.16, 0.34, 0.52))
+
+
+func _update_ambient(delta: float) -> void:
+	if _amb_mat == null:
+		return
+	var want := _lit_room_rect()
+	if _pool_rect.size == Vector2.ZERO:
+		_pool_rect = want
+		_pool_accent = _lit_room_accent()
+	else:
+		# ease across a doorway so the change reads as walking into light,
+		# never as a switch being thrown
+		var k := clampf(1.0 - exp(-POOL_EASE * delta), 0.0, 1.0)
+		_pool_rect.position = _pool_rect.position.lerp(want.position, k)
+		_pool_rect.size = _pool_rect.size.lerp(want.size, k)
+		_pool_accent = _pool_accent.lerp(_lit_room_accent(), k)
+	# world -> the ColorRect's own pixel space (its UV*size), which is the canvas
+	# transform WITHOUT the window stretch — the same space CanvasLayer
+	# Controls are laid out in, so this survives any zoom, window size or DPI
+	var xf := get_viewport().get_canvas_transform()
+	var zoom: float = maxf(xf.get_scale().x, 0.001)
+	var half := _pool_rect.size * 0.5 + Vector2(POOL_GROW, POOL_GROW)
+	_amb_mat.set_shader_parameter("view_px", _amb.size)
+	_amb_mat.set_shader_parameter("pool_c", xf * _pool_rect.get_center())
+	_amb_mat.set_shader_parameter("pool_half", Vector2(
+		maxf(half.x - POOL_CORNER, 0.0), maxf(half.y - POOL_CORNER, 0.0)) * zoom)
+	_amb_mat.set_shader_parameter("pool_corner", POOL_CORNER * zoom)
+	_amb_mat.set_shader_parameter("pool_fade", POOL_FADE * zoom)
+	_amb_mat.set_shader_parameter("world_org", xf.origin)
+	_amb_mat.set_shader_parameter("world_zoom", zoom)
+	_amb_mat.set_shader_parameter("haze_color",
+		Vector3(_pool_accent.r, _pool_accent.g, _pool_accent.b))
+	if _amb_dbg and _reactor > 0.0:   # frame 2+, so the camera transform is live
+		_amb_dbg = false
+		print("AMBDBG amb.size=%s viewport=%s canvas_xf=%s global_xf=%s zoom=%.2f" % [
+			str(_amb.size), str(get_viewport_rect().size), str(xf),
+			str(get_viewport().get_global_canvas_transform()), zoom])
+		print("AMBDBG pool_world=%s pool_c_px=%s crew=%s" % [
+			str(_pool_rect), str(xf * _pool_rect.get_center()), str(crew.position)])
 
 
 func _feet_y() -> float:
@@ -2207,7 +2448,8 @@ func _draw_depth(behind: bool) -> void:
 			if (base_y <= fy) == behind:
 				_prop(f[0], pos, f[2])
 				if GLOWS.has(f[0]):
-					_glow(pos, (GLOWS[f[0]][0] as Color), GLOWS[f[0]][1])
+					_glow(pos, (GLOWS[f[0]][0] as Color), GLOWS[f[0]][1],
+						ROOM_TEMPO.get(type, 1.0))
 	# printed furniture — flats (rugs) first so they sit under everything,
 	# then solids by the same feet-line depth rule as the fixed props
 	if behind:
@@ -2697,7 +2939,8 @@ func _draw_station_visual(st: Dictionary, on: bool) -> void:
 	# ambient light halo in front of every lit station prop
 	var gk: String = STATION_PROP[st["kind"]][0]
 	if GLOWS.has(gk):
-		_glow(p, (GLOWS[gk][0] as Color), GLOWS[gk][1])
+		_glow(p, (GLOWS[gk][0] as Color), GLOWS[gk][1],
+			ROOM_TEMPO.get(GameState.rooms.get(cell_at(p), ""), 1.0))
 
 
 func _draw_overlay() -> void:

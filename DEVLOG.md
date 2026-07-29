@@ -5,6 +5,369 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 25/07/2026 — v0.210: the ship casts a real shadow on station hulls
+
+Fly over a rescue station and the hull dims under a genuine ship-shaped silhouette that slides
+and turns with the helm (`flight.gd`). Two implementations were needed — the postmortem matters:
+
+- **The 2D light-occluder attempt FAILED and was replaced.** Diagnostics proved the plumbing was
+  correct (occluder 16 pts, masks aligned, shadows enabled) but a **black caster on
+  `BLEND_MODE_SUB` can never paint anything**: Godot tints `shadow_color` by the light's own
+  colour, so a black light yields a black shadow colour and subtracting black is a no-op. Swapping
+  in a white ADD caster with a red shadow_color drew a huge wedge — proof by substitution. Also
+  structural: a Light2D shadow is a wedge projected to the light's RIM, so it arrives magnified
+  and smeared — it can never be a 1:1 ship-shaped stamp. Wrong tool for the requirement.
+- **What ships: a shader on each station hull sprite** (`SHIP_SHADOW_SHADER`,
+  `_build_ship_shadow` / `_update_ship_shadow`). Each hull fragment is transformed into
+  ship-local space, the ship texture's alpha is sampled there, and the hull is multiplied darker.
+  Because it's a material on the hull, it clips to real plating for free — it cannot smear onto
+  the starfield or through a ring station's hollow middle — and it's a true no-op at shade 0.
+- **Soft edges** per the captain: a weighted 13-tap disc in ship space (centre ×2, axis rings +
+  diagonals), off-texture taps return 0 and the box test is widened by the blur radius so the
+  penumbra fades instead of being sliced flat.
+- Tuning: `SHIP_SHADOW_DARK 0.20` · `OFF 78` · `BLUR 0.055` · `SPREAD 1.08`, proximity fade
+  from 1.0→0.66 hull widths. Verified at 1× on Helios Bloom / Gilded Wake / Iron Chamber, plus
+  no-regression shots far from stations. Station 1's silhouette lands on a dark recessed core and
+  reads softest — `SHIP_SHADOW_DARK` is the one knob if it needs more bite.
+
+
+## 25/07/2026 — v0.226: 50-agent audit + the criticals it found
+
+47-agent read-only audit (3 died on the org spend limit, incl. both synthesis passes — findings
+were synthesised by hand from `journal.jsonl`). **306 findings: 7 CRITICAL, 91 MAJOR, 124 MINOR,
+84 CLEANUP.** Fixed immediately:
+
+- **THE EXPORTED BUILD SHIPPED SILENT.** `sfx.gd` discovered sounds by listing the audio dir and
+  filtering on `.mp3` — but an export does NOT pack source mp3s; the dir lists `name.mp3.remap`.
+  Zero sounds loaded in any exported build, and `play()` fails silently. Now strips `.remap` /
+  `.import` before the extension test. This one would have shipped to Steam.
+- **Multi-lane strikes tipped the trace ONCE PER LANE.** `_strike_trace` adds the striker's FULL
+  power, and FORK/CHAIN called it per lane with no cap: KERNEL PANIC (3 power, in the STARTER deck)
+  hit 3 empty lanes for 9 against WIN_TIP 5 — a one-card win from an empty board. Only the primary
+  (opposite) lane can reach the trace now; side lanes clear bodies.
+- **Tier 3 — every run's HELIOS CORE finale — was mathematically unwinnable.** 16 power over 7
+  cards at `per_turn: 2` = ~4.6 free power fielded every turn from turn 1, against a player curve
+  starting at 1 energy. Ejected on turn 2-3 with perfect defence. Back to `per_turn: 1`.
+- **OVERCLOCK RIG's permadeath never existed** — `fragile` was written by the map and read by
+  NOTHING. Now `_kill()` removes an overclocked card from `run_deck` when it dies (and drops its
+  boosts with the last copy), with a toast.
+- **QUARANTINE GATE could never spawn** — it was in TYPES with art and an effect but missing from
+  the `util` CATEGORY pool, which also made the DATA VAULT's breach tool pointless. Added.
+- **CODE SPLICER ate your donor card on cancel** — the donor was erased before the graft target
+  was chosen. Now erased inside the second callback.
+- **A cleared station rewarded nothing** — colonists and shards lived only in a toast and died
+  with the scene. Cracking the core now banks colonists to a new persisted
+  `GameState.breach_colonists` and cashes leftover shards into `banked`, then saves.
+- **The gap in front of the astronaut**: the access-node apron skipped BOTH the block and the
+  floor, leaving a literal hole in the deck. Apron cells now get plating.
+
+Still open from the audit (worth a pass): UPLINK RELAY charges 3 shards and does nothing
+(`revealed` is write-only), a failed shard payment still consumes the node, BOUNTY streak scaling
+never reaches tier 2-3 in practice, shard income can't fund the expensive rigs, ~90 positional
+lights vs GL-Compat's caps on the breach map, and inspect-panel clicks falling through to the
+board. Unused assets: `assets/sprites/stations/` (28 files) and `stations_final/` (20 files) are
+entirely dead, 20 of 51 duel portraits unreferenced, all 12 station THEME tiles unused, art for the
+2 cut stations still shipping, and `stations_gallery.gd` reads a committed 14.4 MB `res://scratchpad/`.
+
+
+## 25/07/2026 — v0.225: node labels white-on-black, hover works everywhere, brighter blocks
+
+- **Node labels are white with a real black stroke.** The trap: `outline_size = 30` against a 40px
+  font bled INTO the glyphs and greyed the white from the inside — it read tan, not white. 14 is a
+  stroke; 30 is a smear. Also pinned `shaded = false` and bumped render priorities.
+- **Hover now triggers from the corridor too, and refreshes without mouse movement.** It only
+  detected the node disc before (±CELL*0.75), and only on mouse-motion events — so after a walk or
+  a duel the flare was stale or absent until you wiggled the mouse. Now `_hover_at` also hit-tests
+  every cell of each live corridor, and `_process` re-evaluates from the live cursor position.
+- Fills raised again: main 0.52 → 0.72, counter-fill 0.26 → 0.46, ambient 0.26 → 0.36. Distance
+  still falls to black (that's the black fog at density 0.05 doing the work, not the lights).
+
+
+## 25/07/2026 — v0.224: thinner conduit, hover flares the corridor, two-point fill
+
+- Conduit widths down a third (halo CELL*0.30 → 0.20, core 0.055 → 0.035).
+- **Hovering now actually flares the surroundings**: the hovered route's cell lights go warm and
+  jump to energy 4.6 / range 5.4 (from 2.2 / 3.6), so the cube walls either side of that corridor
+  light up as you point at it. It used to be a 2.2→2.6 nudge nobody could see.
+- **Second, dimmer fill light from the opposite side** (energy 0.26 against the main 0.52). A single
+  directional fill always leaves the faces turned away from it pure black; a counter-fill gives
+  those faces a readable edge without lifting the whole scene, which is what flattens the falloff.
+
+
+## 25/07/2026 — v0.223: the conduit is ONE mesh (the approach that finally worked)
+
+Per-segment geometry could never look unified, and patching it twice didn't help. Rewritten:
+
+- The whole corridor network is a **single `ImmediateMesh`** (`_conduit`): one quad per stretch
+  plus a square patch at every cell to fill the joints, in one surface with one additive material.
+  No per-segment objects, so nothing can double-brighten at a junction or light "in pieces".
+- **State lives in VERTEX COLOUR**, one colour per CELL (dim grey = spent/unreachable, cyan =
+  walkable, amber = the route under the cursor), so transitions along the run are continuous
+  instead of switching per object. `_rebuild_conduit()` regenerates the mesh whenever state
+  changes — ~40 quads, far cheaper than juggling per-segment materials.
+- Junction glow-dots are gone entirely: the joint patches ARE the junctions now, same colour,
+  coplanar, invisible as seams.
+
+Lesson for future me: for a connected glowing network, build one mesh with per-vertex colour.
+Chains of individually-lit sprites/planes will always read as pieces, no matter how they're tuned.
+
+
+## 25/07/2026 — v0.222: the conduit is one straight line
+
+The corridor line looked bent and broken in places. Two causes, both structural:
+
+- **It was drawn TWICE.** Sibling corridors leaving the same node share their first cells, so each
+  edge laid its own strip over the same stretch. With per-edge tinting (v0.217) the two copies took
+  DIFFERENT states — you were seeing a grey dead line offset a pixel behind the live cyan one.
+  Now edges only CLAIM stretches (`_seg_owners`, keyed by an order-independent cell pair) and each
+  stretch is built exactly once with its own materials (`_seg_mats`). A shared stretch paints with
+  the BEST state of its owners, so a walkable route is never dulled by a dead sibling over it.
+- **Halo and core disagreed on angle.** The halo used `rotation.y = atan2(...)`, the core used
+  `look_at_from_position()` — close but not identical, which kinked the line at every junction.
+  Both now take the same yaw.
+- Segments also overlap into the junction by CELL*0.5 (was 0.12) so there are no seams between
+  stretches, and neither halo nor core casts shadows any more (they were throwing faint bands).
+
+
+## 25/07/2026 — v0.221: ship interior lighting — two real bugs killed
+
+**Bug 1 (the reported one): room lighting was glued to the VIEW, not the world.**
+`assets/shaders/ambient.gdshader` computed its darkening from `UV - vec2(0.5)` — screen centre.
+The ship is ~1520×640 world px against a 1280×720 view, so most rooms are on screen at once and
+the whole grade slid across the decks as the camera panned: medbay +37%, bridge +32% luma between
+two camera offsets at the same crew position. Proven by isolation (`SW_AMB=off` → the two frames
+matched to 0.02 luma, ruling out the PointLight2Ds).
+Fixed: `_update_ambient()` feeds the shader the RECT OF THE ROOM UNDER THE CREW'S FEET (in pixels
+via the canvas transform) and the shader does a rounded-box SDF falloff, eased ~0.4s through
+doorways. The FBM haze is world-locked too. Same spot, three view directions now differ by ≤0.03 luma.
+
+**Bug 2 (latent, big): every light was permanently browned out.** `_animate_lights()` used
+`fmod(t * 0.9 + phase, 9.0) < 0.07` for a "rare flicker", but `phase = pos.x*0.7 + pos.y*1.3` and
+the interior grid sits at NEGATIVE coordinates — `fmod` keeps the dividend's sign, so the test was
+true every frame for all 23 lights. The flicker never fired; it was a constant ×0.35 on every light
+and halo. Now `fposmod`, with the 0.35 preserved as an explicit `DECK_LEVEL` (the art was tuned
+against it — removing it made the deck 1.7× brighter and read wrong).
+
+Audit findings fixed: station lights ignored `ROOM_TEMPO` (reactor pulsed at 1.0 inside a 1.25 bay),
+drawn halos ignored tempo entirely so halo and light beat against each other, and an unguarded
+`_find_cell("quarters")` could hang a window light in an unrelated deck. Quarters — the biggest
+room aboard — had exactly ONE light: added bedside lamps at existing nightstands. Per-room accent
+tint on the 0.09 haze term only (no key light, no ambient lift). Soft pool rims via smoothstep
+gradient stops. Net effect is DARKER everywhere except your own room (bridge 55→40, botany 60→49).
+Known and left: light bleeds through bulkheads (honest fix is LightOccluder2D, risks the engine
+bay's signature glow); a player-built room with no props has no light of its own.
+`FLICKER_DEPTH = 0.0` disables the restored flicker if it's unwelcome.
+
+
+## 25/07/2026 — v0.220: inspect panel rebuilt, tier 1 softened, sigil text unified
+
+- **Tier 1 back to `per_turn: 1`** (keeping the one HUNTER DAEMON). At 2 cards/turn HELIOS fielded
+  two threats while the player could afford ONE blocker on turns 1-2 — a lane was undefended by
+  construction and DAEMON+SENTRY was 4 of the 5-point trace budget on the opening strike. Now one
+  threat vs one blocker, and since overkill spills into the queued unit rather than the trace, a
+  1-energy chump fully eats the 3-power daemon. Still losable if you ignore the board.
+- **The "crumbled" inspect panel is rebuilt.** Root cause: the viewport base is 1280×720 (shots are
+  2× upscaled), so `_fs()`'s 12px floor made every glyph ~50% taller than the hand-tuned advances,
+  and the fixed height formula ignored wrapped lines. Now built from a measured block list —
+  title / stats / strike pattern / one block per sigil (white name + indented wrapped rule) / lore —
+  with `panel height = Σ(gap + lines × line-height)`, so overlap is impossible by construction.
+  Placement tries left → right → above → below the card, rejecting off-screen or card-covering spots.
+- **One sigil-text style everywhere**: `_draw_sigil_text()` (2D, 8-pass black stamp then white) and
+  `_sigil_label3d()` (Label3D, white + outline 26, render_priority bumped). Card faces also got
+  their own font floor (9 not 12) and the name/sigil pair now stacks upward off the measured digit
+  band — it used to run straight through the ATK/HP numbers.
+
+
+## 25/07/2026 — v0.219: difficulty ramp, SKIP button, right-click reads a card
+
+- **First fight is always tier 1.** The two battle rows picked RANDOMLY between FIREWALL (t1) and
+  SENTINEL (t2) — and BOUNTY DAEMON once it joined the pool — so the opening fight could be the
+  tier-2 deck. `_gen_map` now forces the lower battle row to `firewall`. Structure per station:
+  2 mid-fights + the HELIOS CORE boss (t3), so 10 bosses across the 10 remaining stations, plus
+  BOUNTY ambushes that scale off `streak`.
+- **Picker: SKIP button** bottom-right (hover-lit), so walking away doesn't require knowing ESC.
+- **Right-click now READS a card instead of closing the offer** — a content-sized rules panel
+  beside the card: name, POWER/HP/ENERGY line, each sigil (white, black-stroked) with its
+  plain-English rule wrapped, then the lore line. Right-click again (or another card) toggles.
+  `SIGIL_RULES` and `LORE` are pulled from the duel script's constant map like `CARDS` already was.
+- **Sigil text is white with a black stroke everywhere** in the picker (`_outlined()`), so it stays
+  readable over any portrait art.
+
+
+## 25/07/2026 — v0.218: two stations cut, picker text fits, OVERCLOCK explains itself
+
+- **Roster down to 10 stations**: removed `bulwark_arsenal_depot` (Iron Chamber Arsenal) and
+  `vespers_reliquary_cloister` (The Vespers Reliquary) from `Stations.LIST`. Nothing persists a
+  station index (saves store a world position), so the shift is safe; `breach.gd` still has their
+  theme entries, harmless as dead data.
+- **Card text now FITS.** New `_fit()` in the picker measures the string and shrinks until it fits
+  its box, with a floor. Sizing labels off card height alone let long names ("OVERCLOCK DAEMON")
+  run over the stat row once cards got small. Applied to name, sigil word, stats and cost disc;
+  cost badge digit also reduced.
+- **OVERCLOCK RIG is legible and self-explaining**: offers 6 cards (was the whole deck crammed
+  into two rows), retitled "weld one card permanently stronger", and the note spells out the deal
+  — +1 POWER for the run, but the card is gone forever if it dies. The note line now wraps and
+  shrinks instead of running off both screen edges.
+
+
+## 25/07/2026 — v0.217: unified conduit, defeat ejects, sigils grounded
+
+- **The path is one conduit now, and it dies behind you.** The junction glow-dots and the per-cell
+  corridor OmniLights were SHARED objects, so they stayed bright no matter the corridor's state —
+  that's what kept walked routes lit and made the run read as a chain of blobs. Both are now
+  registered per cell (`_cell_dot`, `_cell_light`) with a cell→edge map (`_edge_cells`), and
+  `_paint_edges()` drives dots + lights along with the strips: live cyan, hovered amber-yellow,
+  spent/unreachable dimmed to 0.34 energy and grey.
+- **Losing a duel ends the run.** Previously you just walked away and retried for free. Now: the
+  fail message holds for a beat, then the standard scene fade ejects you to the helm, and the run
+  is wiped (`run_deck`, `atk_boost`, `graft`, `fragile` all reset) — shards, colonists and deck
+  edits are gone. Fly back to breach the station fresh.
+- **Cube fill light: violet → cold steel** (0.62,0.70,0.80 at 0.40, ambient retinted neutral).
+  Captain rejected the purple; this reads as bounce off bare hull with no colour story.
+- **Sigils are grounded**: billboarding OFF (a bolted-down machine shouldn't swivel to face the
+  camera — that was much of why they read as stickers), real cast shadows via
+  SHADOW_CASTING_SETTING_DOUBLE_SIDED, plus a soft contact-shadow pool under each pedestal so it
+  sits IN the deck and the fog instead of on top of them.
+
+
+## 25/07/2026 — v0.216: card picks show REAL CARDS
+
+New `scripts/breach_card_picker.gd` — a self-contained CanvasLayer that draws actual card faces
+(portrait art, cost badge, attack-direction arrows, name, sigil words, power/hp) with mouse hover
+(card lifts, frame brightens, cyan ring, neighbours dim) AND number keys, ESC/right-click cancels.
+
+- API: `make(ids, title, note) -> Node`, signals `chosen(index)` / `cancelled()`; optional
+  `power_bonus` and `extra_sigils` so OVERCLOCK boosts and SPLICER grafts are visible on the face.
+  Frees itself after emitting. Index, not id, so duplicate ids in a deck list are unambiguous.
+- Reads `CARDS` / `SIGIL_SHORT` from the duel script at runtime via `get_script_constant_map()` —
+  one roster, no duplication, and it degrades to id-text plates if a constant is renamed.
+- Uses the DUEL's `ART_DIRS` (hd/ → duel/ → scifi/): every `u_*.png` portrait lives in
+  `breach/duel/`, so the map's own 2-dir fallback would have found no portraits at all.
+- All 8 map prompts converted (`_ask_cards`): vault keep-1-of-3, recycler scrap, splicer donor +
+  graft target, overclock, exchange give + take, merge fuse. The old text modal stays for
+  non-card choices.
+
+
+## 25/07/2026 — v0.215: "SCRAP MITE" ghost name + loot pool fixes
+
+- **The captain spotted a ghost name.** `scrap_mite` still exists — v0.200 renamed its DISPLAY
+  name HOLLOW SHELL → SHELLCODE STUB but three UI strings still said "SCRAP MITE". Fixed at the
+  root: `const SIDE_ID := "scrap_mite"` now feeds the opening hand, the side-pile draw and the
+  SPAWNER spawn, and the prompts read the name from `CARDS[SIDE_ID][0]`, so a future rename can
+  never leave stale text again. Adopting `run_deck` also drops unknown ids with a warning instead
+  of crashing every `CARDS[id]` lookup (it's a static that outlives a duel).
+- **Loot pool was offering ENEMY cards.** `_loot_pool()` filtered on cost <= 4, but every HELIOS
+  card costs 0 — a DATA VAULT could hand you a free 4/4 daemon and flatten the energy curve.
+  Now excludes every id in `OPP_DECKS` and requires cost >= 1.
+- **Latent SPLICER crash fixed**: donors were gated on `_sig_count()` (which counts GRAFTED
+  sigils too) and then indexed `CARDS[id][5][0]` — a card whose only sigil was grafted crashed.
+  Donors now require a BASE sigil.
+- Known, not fixed: 13 of 37 cards are unreachable from any deck (listed in the audit);
+  `tools/test_duel.gd` and `tools/autoplay_duel.gd` are stale against the rebalance + 3D duel.
+
+
+## 25/07/2026 — v0.214: breach readability pass — corridor states, props clear of fog
+
+- **Corridors now read their own state.** Each edge owns duplicated halo/core materials
+  (`_edge_mats`), painted by `_paint_edges()`: cyan = walkable from where you stand,
+  **yellow = the route under the cursor** (mouse-motion hover via the same y=0 ray pick as
+  `_click`), grey+dim = spent or unreachable, so the path behind you visibly dies. NOTE the
+  ordering trap: `_paint_edges()` must run AFTER `_build_path_glow()` creates the materials —
+  `_update_reach()` alone fires too early during map gen.
+- **Props stand clear of the fog**: FOG_Y 0.30 → 0.11 (second sheet +0.26). The sigils rise from
+  y=0, so fog at 0.30 was washing over their lower halves.
+- Sigils smaller and narrower (0.82 → 0.62 of CELL, x-scale 0.88) — the art runs wide.
+- Fill light is now **violet** (0.72,0.58,0.98) at energy 0.46: the blocks' dark faces read as
+  bouncing the station's own glow rather than as flat black.
+
+
+## 25/07/2026 — v0.213: all 17 sigils are animated
+
+Every node prop on the breach map now idles: lights blinking in sequence, holograms glitching with
+rolling scanlines, plasma cores breathing, tanks bubbling, dishes turning as signal waves pulse out.
+
+- 6 frames per sigil from PixelLab `animate-with-text-v3` (4 agents, per-sigil motion briefs,
+  `enhance_prompt` OFF — the enhancer wanders off-brief on small idles). Installed as
+  `assets/sprites/breach/hd/anim/<type>_01..06.png` (102 files).
+- **Ping-pong playback** (`_icon_anim` holds each set already bounced, 1→6→2): several sigils came
+  back as monotonic bright→dark fades, so a wrapping loop would pop. Bouncing is smooth whatever
+  the frames do — worth remembering for any future PixelLab idle.
+- `_tick_sigils()` at ICON_FPS 7 only assigns a texture when the frame index actually changes, and
+  each node carries a random `iphase` so a row of props doesn't pulse in lockstep.
+- Quality gates the agents enforced per frame: alpha bbox stability (pedestal must not move or
+  scale), transparency survival, and identity vs the source icon; 5 of 17 needed a reseed.
+- Known cosmetic drift, accepted by the captain: OVERCLOCK's flare tints its pedestal lavender,
+  EXCHANGE's two orange LEDs render green, CACHE's face glyph became a similar cyan rune.
+
+
+## 25/07/2026 — v0.212: the sigil economy — all 17 node types live
+
+Every node on the breach map now DOES something, and the deck you carry is edited between duels.
+
+- **Run state** (breach_map3d): `shards` (code shards = Act 3 Robobucks), `colonists`, `has_tool`,
+  `streak`, `revealed`. Purse drawn top-right of the map HUD.
+- **Deck lives across duels**: `DUEL.run_deck` is seeded from `PLAYER_DECK` on breach entry and
+  mutated by the rigs; `atk_boost` / `graft` / `fragile` carry per-card upgrades, consumed by the
+  duel's `_unit_atk` and `_has`.
+- **Rigs and their prices** (`NODE_COST`): SPLICER 12 · OVERCLOCK 9 · EXCHANGE 7 · MERGE 6 ·
+  UPLINK 3 · BLACK ICE free.
+  - CACHE +5-7 shards · GHOST +2 and a lore line · POD banks a colonist for Haven
+  - VAULT grants the breach tool + keep 1 of 3 offered cards
+  - RECYCLER scrap a card for 4 + 3/sigil (max 16) · MERGE fuse a duplicate pair into +1 power
+  - SPLICER two-step: destroy a donor, graft its sigil onto another card (by card id)
+  - OVERCLOCK +1 power permanently, and that card leaves the deck if it ever dies
+  - EXCHANGE trade one card for one of three offers · UPLINK reveals threat tiers ahead
+  - BLACK ICE coin flip: +8-12 shards, or 4 burned
+  - BOUNTY DAEMON duel scaling with `streak` (tier 1+streak/2), pays 10 + 4×streak
+  - QUARANTINE GATE refuses entry without the vault tool and stays open until you return
+- **Choice UI**: a compact keyboard modal (`_ask`/`_draw_choice`, keys 1-6, ESC walks away) that
+  keeps the corridor visible instead of a full-screen card picker. Nested prompts work (SPLICER).
+- Dev hook `SW_SIGIL=<type>` retypes a node and resolves it for screenshots.
+- KNOWN GAP: a grafted sigil functions in the duel but isn't drawn on the card face yet.
+- **Sigils stand on their own pedestals** — the old round token disc is hidden (kept in the tree
+  so the pulse/reach code still rides on it) and the icons are bigger, feet planted at y=0, so
+  the art's isometric base IS the node base. Fill light up to 0.34 / ambient 0.26 so the block
+  field reads as plating instead of black cutouts.
+
+
+## 25/07/2026 — v0.211: E-to-breach, 17 sigil icons, SENTRY nerf, deck-state hooks
+
+- **Flying near a station only OFFERS the breach now** — "«station» in reach — press E to breach
+  the hull", and E commits (flight.gd `_breach_ready` + `_enter_breach`). E was already the
+  board/park key and the code had reserved its open-space branch for exactly this.
+- **17 node icons** cut from the captain's green-screen sheet into `hd/icon_*.png` (old 8 backed
+  up as `.PREV.bak`). Naive chroma-key would have eaten the ghost hologram and shield interiors —
+  extraction uses a border flood-fill plus a guarded near-key pass instead.
+- **SENTRY now fires once per TURN per turret** (`sentry_spent`, cleared in `_turn_start`).
+  Per-placement made a lane unplayable; per-lifetime (first attempt) made the sigil inert.
+- **Run-level deck state added to the duel** for the upcoming sigil economy: `run_deck` (the deck
+  you carry between duels), `atk_boost`, `graft`, `fragile`. `_unit_atk` and `_has` consume them,
+  so OVERCLOCK/SPLICER/MERGE effects are now expressible. Map-side nodes still to be written.
+- Dev hook: `SW_SHIPAT=<station index>` parks the ship on a station hull for lighting shots.
+- Subtle shadowless fill light on the breach map (energy 0.16) + ambient 0.08→0.17 so the block
+  faces shade instead of reading as black cutouts; far falloff to black preserved.
+
+
+## 25/07/2026 — v0.209: breach lighting pass (real cast shadows, lit astronaut)
+
+GL Compatibility has no volumetric fog / SSAO / SDFGI, but positional-light shadows DO work —
+that's the whole trick behind the more "ray traced" read:
+
+- **Cast shadows on node lights only** (~10 lights, one per node): cubes and set-pieces now
+  throw real shadows across the walkway. The per-cell corridor lights stay shadowless fill —
+  shadowing 40+ omnis would tank the compat renderer. Node lights also distance-fade.
+- **The astronaut is lit** (`_light_marker`): he's an unshaded sprite, so nothing tinted him and
+  he read as pasted on. Now each frame sums the light actually reaching his cell — ambient floor
+  plus every node pool falling off with distance — and modulates him, so he darkens between
+  nodes and takes on a FIREWALL's orange or a cache's cyan when he steps into it.
+- **Suit lamp**: a small warm shadow-casting omni rides with the marker, so the deck plates
+  brighten under his boots — the single biggest "he's in the scene" cue.
+- **Light shafts**: additive billboards over each node (`light_shaft.png`, finally used) fake
+  the beam hanging in the haze that compat can't do volumetrically.
+- Marker `alpha_cut` restored (it got dropped during the camera fight); billboard shadow casting
+  left OFF — a camera-facing quad throws a degenerate shadow ring when a light is overhead.
+
+
 ## 24/07/2026 — v0.208: breach map camera rework + entry framing + trigger/save fixes
 
 - **Near-iso camera**: long lens (fov 20 at 34u) on the flat angle — parallel-ish lines, honest

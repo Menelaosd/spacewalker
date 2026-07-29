@@ -20,7 +20,6 @@ const GAP := 1000.0                     # spacing between stations (each is ~655
 
 const LIST := [
 	{"id": "bastion_command_citadel",     "name": "Aegis Bastion"},
-	{"id": "bulwark_arsenal_depot",       "name": "Iron Chamber Arsenal"},
 	{"id": "cryo_sleeper_vault_hexpod",   "name": "Longsleep Vault Persephone"},
 	{"id": "gilded_wake_derelict_liner",  "name": "The Gilded Wake"},
 	{"id": "glacier_still_ice_harvester", "name": "The Glacier Still"},
@@ -30,7 +29,6 @@ const LIST := [
 	{"id": "vantage_quarantine_biolab",   "name": "Vantage Quarantine"},
 	{"id": "verdant_bloom_spa_resort",    "name": "The Verdant Bloom"},
 	{"id": "verdant_halo_hydroponics_ring", "name": "Verdant Halo"},
-	{"id": "vespers_reliquary_cloister",  "name": "The Vespers Reliquary"},
 ]
 
 static var _cache := {}

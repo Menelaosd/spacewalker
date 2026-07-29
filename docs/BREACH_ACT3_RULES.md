@@ -71,19 +71,46 @@ Icon assets: `C:/Users/menel/AppData/Local/Temp/claude/C--Users-menel-OneDrive--
 
 **Our duel (`breach_duel3d.gd`) vs canon**
 
-*Matches (good):* Scale ±5 (`WIN_TIP=5`); 5 lanes (`LANES=5`); energy model (`_turn_start` L1337 — start 1, +1/turn, full refill, no carryover); Battery Bearer (`overcharge` L1064 — +1 max & +1 current before cost, capped); left→right opposite resolution with overkill spill to the queued unit (`_resolve_hit` L1166); queue-advance-then-strike order (`_advance_opp`).
+*Matches (good):* Scale ±5 (`WIN_TIP=5`); 5 lanes (`LANES=5`); energy model (`_turn_start` — start 1, +1/turn, full refill, no carryover); Battery Bearer (`overcharge`, `_place_selected` L1096 — +1 current before cost is paid); left→right opposite resolution with overkill spill to the queued unit (`_resolve_hit` L1219); queue-advance-then-strike order (`_advance_opp`); **empty target lane → Scale damage on EVERY strike pattern**, including the multi-strike sigils (`_strike_trace` L1195).
 
-*Defensible deviations:* Energy cap 5 not 6 (`MAX_ENERGY=5`), player costs top out at 4 — curve compressed by one (finisher ~turn 4). AI pays no energy (all enemy cards cost 0, L69) — throttled only by `per_turn` queue fill; biggest structural departure. Static 3-tier `OPP_DECKS` instead of Bounty scaling. Bespoke `overflow` sigil routing excess to the trace.
+*Deliberate deviations (current, post-fix — all intentional, do not "fix" these back):*
+1. **Energy cap 5, not 6** (`MAX_ENERGY=5`); player costs top out at 4, so the curve is compressed by one turn (finisher ~turn 4 instead of 6).
+2. **Card-driven ramp is capped one pip below the hard cap** (`_place_selected` L1099: `energy_max` only grows while `< MAX_ENERGY - 1`). Canon lets Battery Bearer ramp all the way to the cap; here the last pip must come from the natural turn clock, because stacking three `overcharge` cards was landing cost-4 finishers on turn 2. The immediate +1 *current* energy is unchanged and still resolves before the cost.
+3. **AI pays no energy** — every firewall card costs 0 and HELIOS is throttled purely by `per_turn` queue fill. Biggest structural departure from canon; kept because the queue row is the telegraph the whole duel reads from.
+4. **HELIOS's pool is infinite** (`_opp_fill_queue` L1463 reshuffles `OPP_DECKS[tier]["deck"]` when `opp_deck` empties). Canon decks are finite; ours must not be, because there is no turn limit — a finite pool meant the AI eventually stopped fielding units and every duel became a guaranteed stall-win.
+5. **Static 3-tier `OPP_DECKS`** instead of Bounty-Hunter dynamic scaling. Tier 1 was originally unlosable — its whole 6-card pool totalled 3 power at 1 card/turn — so one `barrier_node` became a `packet_daemon` (HUNTER DAEMON, 3/2). That daemon is the fix and it stays; the `per_turn: 2` that shipped with it was an overshoot and is **back to 1**. The arithmetic:
 
-*Balance risks (flagged):*
-1. Player top-end cards break the value-per-cost curve — they get stats AND sigils: `power_overload` 4/2 c3 + overcharge (2.0 stat/energy + ramp sigil, most undercosted); `buffer_overflow` 5/1 c4 + pierce; `sentinel_ghost` 2/5 c4 + sniper; `thermite_charge` 3/2 c3, `chain_reaper`/`hydra_swarm` 3/3 c4. All 1.5–2.0 efficiency where canon wants it to drop.
-2. Starter deck ships all six bombs; the `(11)` comment is stale — `PLAYER_DECK` (L88) actually holds 17 cards, so bomb-heavy opening hands are common.
-3. AI can't credibly reach −5: enemy cards mostly 0–3 power, placed into random lanes (`_opp_fill_queue` L1371, no targeting), no ramp/finisher, while the player has unlimited scrap-mite chump blockers (L991).
-4. Ramp-stacking (three `overcharge` cards) can push `energy_max` to 5 ahead of the clock, landing cost-4 bombs turn 3.
-5. Sniper + overflow + empty-lane trace is a one-sided snowball the AI can't punish.
-6. Minor: turn 1 skips the draw (canon draws turn 1); many header-listed sigils are labelled but unimplemented.
+   | | pool power | queued per turn | worst single turn |
+   |---|---|---|---|
+   | original (unlosable) | 3 over 6 cards | 1 card ≈ 0.5 power | 1 |
+   | `per_turn: 2` (too hard) | 6 over 6 cards | 2 cards ≈ 2.0 power | 4 (DAEMON + SENTRY ICE) |
+   | **now** | 6 over 6 cards | 1 card ≈ 1.0 power | 3 (DAEMON) |
 
-*Bottom line:* the engine is a faithful, slightly-compressed Act-3 model; the risk is entirely on the card table. Expect the duel to skew easy/one-sided until the six strong cards are pulled toward canon efficiency (drop stats, keep the sigil) or the AI gets a real trace-pressure threat. Fix the stale `(11)` comment.
+   Pool: PACKET FILTER 0/3 · SENTRY ICE 1/2 ×2 · NULL ROUTE 0/1 · TRACER 1/1 · HUNTER DAEMON 3/2 = **6 power / 6 cards, mean 1.0**.
+
+   What the player can afford opposite that (`_turn_start`: max energy 1 on turn 1, 2 on turn 2, full refill, no carry-over):
+   - **turn 1, 1 energy** → exactly ONE body: BRUTE-FORCER 1/1, DROPPER 0/1, or a free SHELLCODE STUB 0/2 off the endless side pile. (CRYPTOJACKER is the exception: its `overcharge` +1 *current* energy resolves before the cost, so siphon-then-1-cost is two bodies.)
+   - **turn 2, 2 energy** → one 2-cost (NOP SLED 1/1 + BUFFER, SPEAR-PHISH, PORT SCANNER 2/1) *or* two 1-cost bodies.
+
+   So the player fields 1–2 bodies a turn on turns 1–2. At `per_turn: 2` HELIOS fielded 2 threats a turn against that, so on the opening exchange at least one lane was undefended *by construction* — the queue telegraphed a wave that could not be answered, and DAEMON + SENTRY ICE through two open lanes is 4 of the 5-point trace budget in a single STRIKE. At `per_turn: 1` it is one threat against one affordable blocker: the telegraph is answerable, and because overkill spills into the queued unit behind rather than the trace (`_resolve_hit`), even a 1-energy chump fully eats the 3-power daemon. The daemon still punishes a lazy row for 3, and it recurs roughly every 6 draws out of the reshuffled pool — so tier 1 is still losable if you ignore the queue two turns running, but it is no longer lost on turn 1.
+6. **Bespoke `overflow` sigil** (excess from a kill carries to the trace) — not a canon sigil. **Capped at `OVERFLOW_CAP = 2`** (L26, applied L1229): uncapped, one hit on a 1-hp chump could dump ≥5 into the trace, i.e. an instant win. Canon overkill (spill to the card behind) is uncapped, as canon has it.
+7. **SENTRY (`autoturret`) fires once per turn, not once per card placed** (`sentry_spent` set in `_place_selected` L1111, cleared in `_turn_start`). Canon fires every time; per-placement made a whole lane unplayable, per-lifetime made the sigil inert.
+8. **Sniper (`targeting_laser`) only retargets when its own opposite lane is occupied** (L1354). Canon Sniper is free-target every turn; forced retargeting meant a sniper body could never tip the trace, which made `lance_drone` (1/1 c2) strictly worse than `grunt_bot` (1/1 c1).
+9. **`morphogen` (UNPACK) fires once**, at the start of the turn after the unit lands, not every turn. Tooltip in `SIGIL_RULES` is worded to match. A 1-energy 0/1 that compounded +1/+1 every turn out-scaled every firewall deck we have.
+10. **`interpose` (INTERCEPT) is symmetric** (`_interpose_guard` L1184, used by `_strike_trace` and by the AI branch at L1405): a unit beside an empty lane eats strikes that would otherwise tip the trace, both directions. No canon equivalent — it is our replacement for the walls the AI cannot afford to buy.
+11. Turn 1 skips the draw (canon draws on turn 1). Several header-listed sigils are still labelled but unimplemented.
+
+*How the rules are surfaced to the player (`breach_duel3d.gd`):*
+- **Right-click any card** (hand or board) → the inspect panel: name, stat line, strike pattern, then one block per sigil (its NAME plus the plain-English `SIGIL_RULES` sentence, word-wrapped), then the lore line. Grafted sigils from a CODE SPLICER are listed alongside the printed ones. The panel is sized from its own wrapped line count (`_iblock` / `_wrap_lines` / `_fit_fs` — every string is measured with `_font.get_string_size`, never sized off the panel height) and parks itself beside the inspected card, never over it.
+- **Sigil wording is one typographic class everywhere** — always white, always a hard black stroke, always drawn on top of art and of the unaffordable dim: `_draw_sigil_text()` for the 2D HUD (`draw_string` has no outline, so it stamps 8 offset black passes then the white one) and `_sigil_label3d()` for the Label3D on a 3D card face. Both read `SIG_TEXT` / `SIG_EDGE`. Do not re-tint a sigil word cyan/amber — that is the ATK/HP/cost palette, and on light portrait art the word disappeared.
+- Card-face text uses `_card_fs()`, **not** `_fs()`: `_fs()`'s 12 px HUD floor is ~50% larger than the design size on a 136 px card, which is what used to shove the sigil word into the ATK/HP digits.
+
+*Balance risks (still open):*
+1. Player top-end cards get stats AND sigils where canon wants efficiency to drop: `power_overload` 4/2 c3 + overcharge is still the most undercosted card in the deck; `chain_reaper` 3/3 c4 with CHAIN now hits 3 empty lanes for 3 each = 9 trace, so it wins outright against a wide-open board. Both are deliberately left alone for the captain's real card pass, but `power_overload` → 3/2 and `chain_reaper` → 2/3 are the two cuts to make first.
+2. Ramp-stacking is *reduced*, not eliminated: two `power_siphon` (c1, overcharge) on turn 2 still reach `energy_max` 4, so a cost-4 finisher can land on turn 3 (was turn 2). Fixing the rest means a once-per-turn ramp limit, which is a further deviation.
+3. The player still has unlimited scrap-mite chump blockers, and HELIOS still places into random empty lanes with no targeting.
+
+*Bottom line:* the engine is a faithful, slightly-compressed Act-3 model and the game-breakers are closed (no one-card win, no stall-win, finishers actually finish, tier 1 is losable). The remaining risk is entirely on the card table — the six top-end player cards, which are placeholders awaiting the captain's designs.
 
 ---
 
@@ -288,6 +315,7 @@ Provisional (Fandom card pages blocked): Alarm Bot, Swapbot, Explode Bot, Lonely
   - After Uberbot 1: pick Mighty Leap / Nano Armor / Sharp Quills.
   - After 2: Battery Bearer. After 3: Sentry. After 4: Trifurcated Strike.
   - After Mox attachment: → Mox Vessels. NW corner: → Conduits.
+  - **In code:** the Empty Vessel is card id `scrap_mite` (`breach_duel3d.gd`), display name **SHELLCODE STUB** — 0/2, cost 1, no sigils. The v0.200 rebalance renamed its display name (HOLLOW SHELL → SHELLCODE STUB) but kept the id, so `scrap_mite` is *not* a retired card. Reference it via the `SIDE_ID` constant, never as a bare string, and take its player-facing name from `CARDS[SIDE_ID][0]` — it feeds the opening hand, the endless side pile, and every BOTNET (`mite_spawner`) spawn.
 - **Acquisition (Robobucks):** Buy Extra Card (8, pick 1 of 3); Card Exchange (swap 1-for-1); Card Recycle (4 +3/sigil, max 16); Add Sigil (~15/10 — see §6); Overclock; Gemify.
 - **Build-a-Card (SP economy):** recycle for SP (base 1 +1/added sigil +1 if gemified, max 6), then spend (+1 free start; energy 0–6 → +1 SP each; Health 1 SP/pt range 1–9; Power 2 SP/pt range 0–9; sigils cost power-level, max 4, negatives refund: Annoying +1, Brittle +2).
 - **NO deck totem mechanic in Act 3** (Act-1 only). "Totem" here = optional factory puzzle, not deck buff.
