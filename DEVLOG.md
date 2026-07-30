@@ -31,6 +31,43 @@ and turns with the helm (`flight.gd`). Two implementations were needed — the p
   reads softest — `SHIP_SHADOW_DARK` is the one knob if it needs more bite.
 
 
+## 30/07/2026 — v0.231: the four open items closed
+
+**`SW_BREACH_AT=<row>` — half the board was unreviewable.** The camera hard-follows a marker that
+starts at row 0, so rows 4+ INCLUDING THE HELIOS CORE could never be screenshotted. The hook hops
+the marker in, resolving nodes outright, and suppresses the reward modals the hop opens so the shot
+is of the corridor. First look at the core: it reads as the finale — an amber reactor against the
+cyan corridor, unmistakably the goal.
+
+**Node names moved from `Label3D` to 2D**, drawn in `_draw_node_names()` from the HUD via
+`unproject_position`. A Label3D is depth-tested and the Environment's black fog applies to it, so
+names measured 160 → 227 → 123 → **26** peak luminance across the rows — unreadable by row 3 — and
+set-piece cubes ate leading glyphs ("EXCHANGE TERMINAL" rendered as "XCHANGE TERMINAL"). Now
+constant contrast at every depth, nothing can occlude them, white for reachable and dimmed for
+locked so reachability still reads without making text illegible. The HUD redraws per frame in MAP
+mode since the names track the camera now.
+
+**`SIGIL_SHADER` has a compile fallback.** A driver that rejects it used to render all 17 props as
+flat grey rectangles — seen for real during development. `_sigil_ok` probes the compiled uniform
+list once at startup; if it fails the props keep their plain Sprite3D material and simply lose the
+fog dissolve, which is a far better failure than losing the props.
+
+**The cost curve is no longer inverted.** Measured with the project's own formula (value = power +
+hp + sigils, budget = cost + 1), mean D by cost was **-0.20 / 0.00 / +0.36 / +0.36** — efficiency
+RISING with cost, so an expensive card was strictly better per energy, against the rule at
+BREACH_ACT3_RULES.md:69. Now **+0.00 / +0.21 / +0.00 / +0.17**, and the worst single card fell from
+**D +3.0 to +1.0**.
+- Re-budgeted down: OVERVOLT 4/2 c3 → 3/2 c4 (the 4-power body was also what let OVERCLOCK reach
+  WIN_TIP), THERMITE 3/2 → 2/2, SNIPER-SHELL 2/5 → 2/4, KERNEL PANIC 3/3 → 2/3, DDOS SWARM 3/3 → 2/3.
+- Lifted the floor instead of gutting the top, because whole runs only clear 12-18%: CRYPTOJACKER
+  and DROPPER 0/1 → 0/2, COLD BOOT 0/2 → 1/2, HONEYPOT 0/2 → 0/3. NOT scrap_mite — it is SIDE_ID,
+  the free side-deck card, and buffing an unlimited resource is a different problem.
+- **The re-budget had a cost and it was measured:** taking value off the top-end finishers is exactly
+  what a fortress boss punishes, and SOLAR WARDEN fell 37% → 16%. DAEMON GR1ZZ was pulled from deck 5
+  to compensate (it still closes for ICE-9). Final per-tier: **T1 91 / T2 63 / T3 28 / T5 29** — back
+  in line with the pre-fix baseline, ramp intact.
+
+
 ## 30/07/2026 — v0.230: every ability audited, and the run played end-to-end
 
 **Ability audit — all 18 sigils, no inerts, no double-fires.** Every sigil now has a read site;

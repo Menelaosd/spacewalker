@@ -50,7 +50,7 @@ const CARDS := {
 	# --- fodder / side deck ---
 	"scrap_mite":     ["SHELLCODE STUB", "u_scrap_mite", 0, 2, 1, []],
 	# --- PLAYER intrusion units (cyan) ---
-	"power_siphon":   ["CRYPTOJACKER", "u_power_siphon", 0, 1, 1, ["overcharge"]],
+	"power_siphon":   ["CRYPTOJACKER", "u_power_siphon", 0, 2, 1, ["overcharge"]],
 	"buckler_mite":   ["NOP SLED", "u_buckler_mite", 1, 1, 2, ["ablative_plating"]],
 	"lance_drone":    ["SPEAR-PHISH", "u_lance_drone", 1, 1, 2, ["targeting_laser"]],
 	"fork_turret":    ["FORK BOMB", "u_fork_turret", 2, 2, 4, ["split_bore"]],
@@ -64,15 +64,15 @@ const CARDS := {
 	"charge_mite":    ["OVERCLOCK DAEMON", "u_charge_mite", 1, 1, 2, ["overcharge"]],
 	"swarm_hound":    ["BOTNET", "u_swarm_hound", 2, 2, 4, ["mite_spawner"]],
 	"prism_ripper":   ["ZERO-DAY", "u_prism_ripper", 3, 1, 3, []],
-	"watcher_seed":   ["DROPPER", "u_watcher_seed", 0, 1, 1, ["morphogen"]],
+	"watcher_seed":   ["DROPPER", "u_watcher_seed", 0, 2, 1, ["morphogen"]],
 	# --- STRONG cards (top-end bombs; overflow/chain_load are new sigils) ---
 	# 3 power, NOT 5: at 5 its overflow routing was a one-card instant win (5 == WIN_TIP)
 	"buffer_overflow": ["STACK SMASH", "u_buffer_overflow", 3, 1, 4, ["overflow"]],
-	"chain_reaper":   ["KERNEL PANIC", "u_chain_reaper", 3, 3, 4, ["chain_load"]],
-	"sentinel_ghost": ["SNIPER-SHELL", "u_sentinel_ghost", 2, 5, 4, ["targeting_laser"]],
-	"thermite_charge": ["THERMITE", "u_thermite_charge", 3, 2, 3, ["meltdown"]],
-	"hydra_swarm":    ["DDOS SWARM", "u_hydra_swarm", 3, 3, 4, ["mite_spawner"]],
-	"power_overload": ["OVERVOLT", "u_power_overload", 4, 2, 3, ["overcharge"]],
+	"chain_reaper":   ["KERNEL PANIC", "u_chain_reaper", 2, 3, 4, ["chain_load"]],
+	"sentinel_ghost": ["SNIPER-SHELL", "u_sentinel_ghost", 2, 4, 4, ["targeting_laser"]],
+	"thermite_charge": ["THERMITE", "u_thermite_charge", 2, 2, 3, ["meltdown"]],
+	"hydra_swarm":    ["DDOS SWARM", "u_hydra_swarm", 2, 3, 4, ["mite_spawner"]],
+	"power_overload": ["OVERVOLT", "u_power_overload", 3, 2, 4, ["overcharge"]],
 	# --- ENEMY firewall units (red); AI pays no energy so cost = 0 ---
 	"barrier_node":   ["PACKET FILTER", "u_barrier_node", 0, 3, 0, []],
 	"sentry_ice":     ["SENTRY ICE", "u_sentry_ice", 1, 2, 0, ["autoturret"]],
@@ -99,9 +99,9 @@ const CARDS := {
 	"payload_drop": ["PAYLOAD DROP", "u_payload_drop", 0, 1, 1, ["mite_spawner"]],
 	"bit_flipper": ["BIT FLIPPER", "u_bit_flipper", 1, 1, 2, ["leech"]],
 	"dns_tunnel": ["DNS TUNNEL", "u_dns_tunnel", 1, 1, 2, ["airborne"]],
-	"cold_boot": ["COLD BOOT", "u_cold_boot", 0, 2, 2, ["overcharge"]],
+	"cold_boot": ["COLD BOOT", "u_cold_boot", 1, 2, 2, ["overcharge"]],
 	"raw_socket": ["RAW SOCKET", "u_raw_socket", 1, 2, 2, []],
-	"honey_pot": ["HONEYPOT", "u_honey_pot", 0, 2, 2, ["spike_casing"]],
+	"honey_pot": ["HONEYPOT", "u_honey_pot", 0, 3, 2, ["spike_casing"]],
 	"process_fork": ["PROCESS FORK", "u_process_fork", 1, 1, 2, ["split_bore"]],
 	"hot_patch": ["HOTPATCH", "u_hot_patch", 1, 1, 2, ["failover"]],
 	"wiper_bit": ["WIPER", "u_wiper_bit", 1, 1, 3, ["necrosis"]],
@@ -180,8 +180,12 @@ const OPP_DECKS := {
 	# 5 SOLAR WARDEN (HELIOS CORE): fattest deck. The two 0-power CORE ARBITERs buff every
 	# neighbour and must be killed TWICE; ignoring them is the trap. A quarter of the deck
 	# cannot damage you at all, which is what keeps the fortress survivable.
+	# DAEMON GR1ZZ (4/4) was pulled from this deck when the cost curve was re-budgeted: taking
+	# the value off the player's top-end finishers (OVERVOLT, SNIPER-SHELL, KERNEL PANIC, DDOS
+	# SWARM) is exactly what you need against a fortress, and measured, this fight fell from
+	# 37% to 16%. GR1ZZ still closes for ICE-9, where it belongs.
 	5: {"deck": ["core_arbiter", "core_arbiter", "firewall_slab", "raptor_proc",
-		"tunnel_broker", "revenant_proc", "audit_engine", "daemon_ursa",
+		"tunnel_broker", "revenant_proc", "audit_engine",
 		# QU177's thorns belong in the fortress, and this was the softest boss at 37%.
 		# Deck size buys VARIETY, not duration — the pool reshuffles when it empties.
 		"daemon_quill"], "per_turn": 1},

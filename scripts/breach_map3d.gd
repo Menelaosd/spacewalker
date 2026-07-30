@@ -106,6 +106,7 @@ var _path_mat: StandardMaterial3D       # recessed walkway floor
 var _cube_top_mat: StandardMaterial3D   # top of the raised block field
 var _cube_side_mat: StandardMaterial3D  # block side walls
 var _shadow_tex: Texture2D
+var _sigil_ok := false            # did SIGIL_SHADER compile? props fall back if not
 var _sigil_shader: Shader          # SIGIL_SHADER, one instance shared by every prop
 var _font: Font = ThemeDB.fallback_font
 var _flows: Array = []      # {spr, pts:PackedVector3Array, cum, len, phase, speed}
@@ -184,6 +185,46 @@ func _ready() -> void:
 				_pending = i
 				_start_duel(int(TYPES[nodes[i]["type"]][2]))
 				break
+	# debug: SW_BREACH_AT=<row> teleports the marker that many rows in, clearing everything
+	# behind it. Without this, rows 4+ — INCLUDING THE HELIOS CORE — could not be
+	# screenshotted at all, because the camera hard-follows a marker that starts at row 0.
+	# Half the board was unreviewable. Set SW_BREACH_AT=9 to stand at the core.
+	if OS.get_environment("SW_BREACH_AT") != "":
+		var want_row: int = clampi(int(OS.get_environment("SW_BREACH_AT")), 0, ROW_PLAN.size() - 1)
+		var hop := 0
+		while hop < 40 and int(nodes[cur]["row"]) < want_row:
+			var links: Array = nodes[cur]["links"]
+			if links.is_empty():
+				break
+			# prefer a link that actually advances a row, so this cannot loop sideways
+			var step: int = int(links[0])
+			for l in links:
+				if int(nodes[int(l)]["row"]) > int(nodes[cur]["row"]):
+					step = int(l)
+					break
+			shards = 60                  # fund anything on the way so nothing gates the hop
+			has_tool = true
+			_pending = step
+			if nodes[cur].has("icon"):
+				nodes[cur]["icon"].visible = true
+			_finish_node(step)           # resolve it outright: no walk, no duel
+			hop += 1
+		# the nodes resolved on the way opened their reward modals; drop them so the shot is
+		# of the CORRIDOR, which is the whole point of the hook
+		_choice = {}
+		for c in get_children():
+			if c.has_signal("chosen"):
+				c.queue_free()
+		_marker.position = _cell_world(int(nodes[cur]["gx"]), int(nodes[cur]["gz"]))
+		_marker_last_pos = _marker.position
+		if nodes[cur].has("icon"):
+			nodes[cur]["icon"].visible = false
+		# put the camera on him straight away rather than letting it fly in from row 0
+		_cam.position = _marker.position + Vector3(0.0, 8.0, 8.3).normalized() * 14.0
+		_look_at = _marker.position + Vector3(0, 0.3, -0.2)
+		_cam_init = true
+		_cam.look_at(_look_at)
+		_paint_edges()
 	# debug: SW_SIGIL=<type> retypes the first reachable node and resolves it, so a rig's
 	# modal can be screenshotted (e.g. SW_SIGIL=vault, =recycler, =splicer)
 	if OS.get_environment("SW_SIGIL") != "":
@@ -243,6 +284,18 @@ func _build_shadow_tex() -> void:
 	_shadow_tex = gt
 	_sigil_shader = Shader.new()
 	_sigil_shader.code = SIGIL_SHADER
+	# Verify the shader compiled before any prop is built on it. Godot reports a failed
+	# spatial shader by leaving it with no uniforms, so probing for one we know we declared
+	# is a reliable check that needs no error hook. If it fails the props keep their plain
+	# Sprite3D material: no fog dissolve and no per-node tint, but they still READ.
+	var probe := ShaderMaterial.new()
+	probe.shader = _sigil_shader
+	var names: Array = []
+	for u in _sigil_shader.get_shader_uniform_list():
+		names.append(str(u["name"]))
+	_sigil_ok = names.has("fog_top") and names.has("tint")
+	if not _sigil_ok:
+		push_warning("BREACH: SIGIL_SHADER failed to compile — props fall back to plain sprites")
 
 
 # ==================================================================
@@ -950,14 +1003,17 @@ func _build_token(i: int) -> void:
 	icon.alpha_cut = SpriteBase3D.ALPHA_CUT_DISCARD
 	# it throws a real shadow from the node light above it and the astronaut's suit lamp
 	icon.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
-	# per-node material: it owns this prop's light tint, so each one is lit independently
-	if icon.texture != null:
+	# per-node material: it owns this prop's light tint, so each one is lit independently.
+	# Only applied if the shader actually COMPILED — `_sigil_ok` is checked once at startup.
+	# Without this guard, a driver that rejects the shader renders all 17 props as flat grey
+	# rectangles with no fallback (seen for real during development), which is a far worse
+	# failure than simply losing the fog dissolve.
+	if icon.texture != null and _sigil_ok:
 		var imat := ShaderMaterial.new()
 		imat.shader = _sigil_shader
 		imat.set_shader_parameter("tex", icon.texture)
 		imat.set_shader_parameter("fog_color", FOG_TINT)
 		imat.set_shader_parameter("tint", Color(1, 1, 1, 1))
-		# a big node stands taller, so its base clears the haze sooner
 		imat.set_shader_parameter("fog_top", 0.26)
 		icon.material_override = imat
 		nd["imat"] = imat
@@ -1012,25 +1068,12 @@ func _build_token(i: int) -> void:
 		shaft.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		root.add_child(shaft)
 		nd["shaft"] = shaft
-	# floating name label
-	var lab := Label3D.new()
-	lab.text = str(TYPES[nd["type"]][0])
-	lab.font_size = 40
-	lab.pixel_size = 0.004
-	lab.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	# WHITE with a heavy BLACK stroke — the sigil's name has to read over lit deck plating,
-	# a glowing pedestal or pure black void, so no tint and a fat outline
-	lab.modulate = Color(1, 1, 1)
-	lab.outline_modulate = Color(0, 0, 0, 1)
-	# 14 against a 40px font: a real stroke. At 30 the outline bled into the glyphs and
-	# greyed the white out from the inside.
-	lab.outline_size = 14
-	lab.shaded = false
-	lab.render_priority = 4
-	lab.outline_render_priority = 3
-	lab.position.y = 0.08
-	lab.position.z = CELL * 0.55
-	root.add_child(lab)
+	# The name is drawn in 2D from _on_hud_draw (see _draw_node_names), NOT as a Label3D.
+	# A Label3D is depth-tested and the Environment's black fog applies to it, so names lost
+	# ~45% of peak luminance by row 2 and were unreadable by row 3 (measured peak 160 -> 227
+	# -> 123 -> 26 across the rows), and set-piece cubes ate leading glyphs — "EXCHANGE
+	# TERMINAL" rendered as "XCHANGE TERMINAL". Only the anchor lives in 3D.
+	nd["label_anchor"] = Vector3(0.0, CELL * (1.12 if big else 0.86), CELL * 0.22)
 
 
 func _build_atmosphere() -> void:
@@ -1086,6 +1129,7 @@ func _build_atmosphere() -> void:
 const LIGHT_FLOOR := Color(0.43, 0.49, 0.59)   # ambient + corridor fill, shared
 const LIGHT_CEIL := Color(1.07, 1.07, 1.09)    # soft blowout guard, shared
 const LIGHT_SAMPLE_Y := 0.55                   # mid-body: figure and machine lit alike
+const NAME_PX := 13            # node-name size, drawn in 2D from _on_hud_draw
 const FOG_TINT := Color(0.30, 0.62, 0.85)   # MUST match FLOOR_FOG_SHADER's fog_color
 const FOG_Y := 0.11            # low: the sigil props must stand clear of it
 const FOG_PAD_CELLS := 1       # extra cells of mask bleed around the path
@@ -1668,6 +1712,8 @@ func _process(delta: float) -> void:
 			_cam.look_at(_look_at)
 		_light_marker(delta)
 		_light_sigils(delta)
+		if _hud != null:
+			_hud.queue_redraw()   # node names are screen-space now; they track the camera
 		# re-evaluate hover from the live cursor position, not only on mouse-motion events:
 		# after a walk or a duel the mouse often hasn't moved, so the flare used to stay
 		# stale (or never appear at all) until you wiggled it
@@ -2295,7 +2341,47 @@ func _exit_to_flight(note: String) -> void:
 # ==================================================================
 # HUD text
 # ==================================================================
+func _draw_node_names() -> void:
+	## Node names, in SCREEN space. Constant contrast at every depth, no cube can occlude a
+	## glyph, and the Environment's black fog cannot dim them — the three things that made
+	## the old Label3D approach unreadable past the second row.
+	if _cam == null or nodes.is_empty():
+		return
+	var vp := _hud.get_viewport_rect().size
+	for i in nodes.size():
+		var nd = nodes[i]
+		if not nd.has("label_anchor") or not nd.has("node"):
+			continue
+		var root = nd["node"]
+		if root == null or not is_instance_valid(root):
+			continue
+		var wpos: Vector3 = (root as Node3D).global_position + (nd["label_anchor"] as Vector3)
+		if _cam.is_position_behind(wpos):
+			continue
+		var sp := _cam.unproject_position(wpos)
+		if sp.x < -160.0 or sp.x > vp.x + 160.0 or sp.y < 54.0 or sp.y > vp.y - 40.0:
+			continue                     # off screen, or under the HUD banner / status bar
+		var txt := str(TYPES[nd["type"]][0])
+		var st := str(nd.get("state", "locked"))
+		# a name you can walk to is white; one you cannot is dimmed but still legible —
+		# reachability reads in the type, not by making text unreadable
+		var col := Color(1, 1, 1, 1.0) if (i == cur or st != "locked") \
+			else Color(0.72, 0.79, 0.88, 0.62)
+		var w := _font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, NAME_PX).x
+		var at := Vector2(sp.x - w * 0.5, sp.y)
+		# fat black stroke, drawn as 8 offset copies: the name has to read over lit plating,
+		# a glowing pedestal or pure black void
+		for ox in [-2, 0, 2]:
+			for oy in [-2, 0, 2]:
+				if ox == 0 and oy == 0:
+					continue
+				_hud.draw_string(_font, at + Vector2(ox, oy), txt, HORIZONTAL_ALIGNMENT_LEFT,
+					-1, NAME_PX, Color(0, 0, 0, col.a))
+		_hud.draw_string(_font, at, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, NAME_PX, col)
+
+
 func _on_hud_draw() -> void:
+	_draw_node_names()
 	var vp := _hud.get_viewport_rect().size
 	_hud.draw_rect(Rect2(0, 0, vp.x, 58), Color(0.02, 0.03, 0.05, 0.82))
 	var nm := station_name if station_name != "" else "UNKNOWN STATION"
