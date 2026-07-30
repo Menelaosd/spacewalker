@@ -115,22 +115,36 @@ func _draw() -> void:
 		draw_texture(_astro, -asz * 0.5, Color(1, 1, 1, fade))
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
-	# title
+	# title — stated once, small and cold. It should land, not shout.
 	var ta := clampf((_t - 1.0) / 1.2, 0.0, 1.0)
 	var ac: Color = UITheme.ACCENT
-	draw_string(_font, Vector2(0, vp.y * 0.15), "OXYGEN DEPLETED",
-		HORIZONTAL_ALIGNMENT_CENTER, vp.x, 40, Color(ac.r, ac.g, ac.b, ta))
-	draw_string(_font, Vector2(0, vp.y * 0.15 + 30.0), "— THE REACH CLAIMS ANOTHER —",
-		HORIZONTAL_ALIGNMENT_CENTER, vp.x, 15, Color(0.56, 0.65, 0.74, ta))
+	var ty := vp.y * 0.15
+	# a hairline rule above the title, fading out at both ends — the only flourish
+	var rw := vp.x * 0.11
+	var ry := ty - 30.0
+	var lit := Color(ac.r, ac.g, ac.b, 0.22 * ta)
+	var dead := Color(ac.r, ac.g, ac.b, 0.0)
+	draw_polygon(PackedVector2Array([Vector2(vp.x * 0.5 - rw, ry),
+		Vector2(vp.x * 0.5, ry), Vector2(vp.x * 0.5, ry + 1.0),
+		Vector2(vp.x * 0.5 - rw, ry + 1.0)]),
+		PackedColorArray([dead, lit, lit, dead]))
+	draw_polygon(PackedVector2Array([Vector2(vp.x * 0.5, ry),
+		Vector2(vp.x * 0.5 + rw, ry), Vector2(vp.x * 0.5 + rw, ry + 1.0),
+		Vector2(vp.x * 0.5, ry + 1.0)]),
+		PackedColorArray([lit, dead, dead, lit]))
+	draw_string(_font, Vector2(0, ty), "OXYGEN DEPLETED",
+		HORIZONTAL_ALIGNMENT_CENTER, vp.x, 24, Color(ac.r, ac.g, ac.b, 0.72 * ta))
+	draw_string(_font, Vector2(0, ty + 26.0), "— THE REACH CLAIMS ANOTHER —",
+		HORIZONTAL_ALIGNMENT_CENTER, vp.x, 11, Color(0.48, 0.56, 0.65, 0.85 * ta))
 	# quote
 	var qa := clampf((_t - 2.0) / 1.4, 0.0, 1.0)
 	draw_string(_font, Vector2(vp.x * 0.12, vp.y * 0.84), "“" + _quote + "”",
-		HORIZONTAL_ALIGNMENT_CENTER, vp.x * 0.76, 15, Color(0.78, 0.84, 0.90, qa))
+		HORIZONTAL_ALIGNMENT_CENTER, vp.x * 0.76, 13, Color(0.72, 0.78, 0.85, qa))
 	# continue hint (pulses once available)
 	if _t >= HOLD_BEFORE_INPUT:
-		var pa := 0.3 + 0.4 * (0.5 + 0.5 * sin(_t * 3.0))
+		var pa := 0.25 + 0.30 * (0.5 + 0.5 * sin(_t * 3.0))
 		draw_string(_font, Vector2(0, vp.y * 0.93), "SPACE — CONTINUE",
-			HORIZONTAL_ALIGNMENT_CENTER, vp.x, 13, Color(0.5, 0.6, 0.7, pa))
+			HORIZONTAL_ALIGNMENT_CENTER, vp.x, 11, Color(0.5, 0.6, 0.7, pa))
 
 
 func _draw_tether(center: Vector2, sz: Vector2, fade: float) -> void:

@@ -118,6 +118,7 @@ var _edge_mats := {}        # Vector2i(from,to) -> [halo mat, core mat] for that
 var _edge_cells := {}       # Vector2i(from,to) -> Array[Vector2i] cells that corridor covers
 var _cell_light := {}       # cell -> its corridor OmniLight3D
 var _cell_dot := {}         # cell -> its junction dot material
+var _cell_degree := {}     # cell -> how many distinct corridor stretches touch it
 var _seg_owners := {}       # Vector4i(cellA,cellB) -> Array of edge keys using that stretch
 var _conduit: MeshInstance3D          # the whole corridor network, one mesh
 var _conduit_mat: StandardMaterial3D
@@ -472,9 +473,17 @@ func _gen_map() -> void:
 			if nodes[j]["row"] == r + 1:
 				nxt.append(j)
 		nxt.sort_custom(func(a, b): return abs(nodes[a]["gx"] - nd["gx"]) < abs(nodes[b]["gx"] - nd["gx"]))
+		# ALWAYS offer the two nearest, not one plus a 40% roll. Measured over 40 maps, the
+		# old rule left 59% of nodes with a single way forward — most of the time the map
+		# was not asking you to choose, it was telling you where to go. It also made a
+		# column feel like a trap: from the far left you usually could not reach the middle
+		# at all, while the shared corridor lane drew a continuous highway that said you
+		# could. A third link stays a rare bonus so maps still vary.
 		nd["links"].append(nxt[0])
-		if nxt.size() > 1 and randf() < 0.4:
+		if nxt.size() > 1:
 			nd["links"].append(nxt[1])
+		if nxt.size() > 2 and randf() < 0.25:
+			nd["links"].append(nxt[2])
 	# guarantee every next-row node has an inbound link
 	for r in range(1, ROW_PLAN.size()):
 		for j in nodes.size():
@@ -609,7 +618,14 @@ func _rebuild_conduit(cell_col: Dictionary) -> void:
 			var cb: Color = cell_col.get(Vector2i(k.z, k.w), EDGE_DEAD) * mul
 			_quad(im, _cell_world(k.x, k.y) + Vector3(0, y, 0),
 				_cell_world(k.z, k.w) + Vector3(0, y, 0), w, ca, cb)
+		# JOINTS ONLY. This used to stamp a square at EVERY cell, so a corridor's end cell —
+		# which has just one stretch running into it — got a full-width block hanging off the
+		# end. At a T or a corner that block reads as a lateral exit, which is why a route
+		# could look like it continued sideways when nothing was there. A cell with fewer
+		# than two stretches needs no filler: the quad already covers it.
 		for c in cell_col:
+			if int(_cell_degree.get(c, 0)) < 2:
+				continue
 			_patch(im, _cell_world((c as Vector2i).x, (c as Vector2i).y) + Vector3(0, y, 0),
 				w, (cell_col[c] as Color) * mul)
 	im.surface_end()
@@ -846,6 +862,10 @@ func _build_path_glow() -> void:
 					key = Vector4i(cb.x, cb.y, ca.x, ca.y)
 				if not _seg_owners.has(key):
 					_seg_owners[key] = []
+					# how many DISTINCT stretches touch each cell — a cell with one is the
+					# end of a corridor and must not get a joint block (see _rebuild_conduit)
+					_cell_degree[ca] = int(_cell_degree.get(ca, 0)) + 1
+					_cell_degree[cb] = int(_cell_degree.get(cb, 0)) + 1
 				(_seg_owners[key] as Array).append(Vector2i(i, j))
 			# junction glow dot at each cell, on THIS edge's material — sharing one dot
 			# material was what kept crossed corridors lit and made the run read as a
@@ -1073,7 +1093,7 @@ func _build_token(i: int) -> void:
 	# ~45% of peak luminance by row 2 and were unreadable by row 3 (measured peak 160 -> 227
 	# -> 123 -> 26 across the rows), and set-piece cubes ate leading glyphs — "EXCHANGE
 	# TERMINAL" rendered as "XCHANGE TERMINAL". Only the anchor lives in 3D.
-	nd["label_anchor"] = Vector3(0.0, CELL * (1.12 if big else 0.86), CELL * 0.22)
+	nd["label_anchor"] = Vector3(0.0, CELL * (0.86 if big else 0.66), CELL * 0.22)
 
 
 func _build_atmosphere() -> void:
@@ -1129,7 +1149,7 @@ func _build_atmosphere() -> void:
 const LIGHT_FLOOR := Color(0.43, 0.49, 0.59)   # ambient + corridor fill, shared
 const LIGHT_CEIL := Color(1.07, 1.07, 1.09)    # soft blowout guard, shared
 const LIGHT_SAMPLE_Y := 0.55                   # mid-body: figure and machine lit alike
-const NAME_PX := 13            # node-name size, drawn in 2D from _on_hud_draw
+const NAME_PX := 11            # node-name size, drawn in 2D from _on_hud_draw
 const FOG_TINT := Color(0.30, 0.62, 0.85)   # MUST match FLOOR_FOG_SHADER's fog_color
 const FOG_Y := 0.11            # low: the sigil props must stand clear of it
 const FOG_PAD_CELLS := 1       # extra cells of mask bleed around the path
@@ -1794,7 +1814,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not _choice.is_empty() and event is InputEventKey and event.pressed and not event.echo:
 		if event.physical_keycode == KEY_ESCAPE:
 			_choice = {}
-			_msg = "Walked away from the rig."
+			_msg = "Walked away from the node."
 			_hud.queue_redraw()
 		elif event.physical_keycode >= KEY_1 and event.physical_keycode <= KEY_6:
 			_choose(int(event.physical_keycode) - int(KEY_1))
@@ -1939,7 +1959,7 @@ func _arrive(i: int) -> void:
 		var only_way: bool = nodes[cur]["links"].size() <= 1
 		if not only_way:
 			_pending = -1
-			_msg = "QUARANTINE GATE is sealed. Find a DATA VAULT's breach tool and return."
+			_msg = "QUARANTINE GATE sealed — a DATA VAULT's breach tool opens it for +8 shards. Forced without one, ICE-9 comes through."
 			return
 		_msg = "No tool and no way back — you tear the QUARANTINE GATE open. ICE-9 is awake."
 		_start_duel(7)          # boss 7 ICE-9 QUARANTINE: the price of forcing it
@@ -1957,8 +1977,8 @@ func _arrive(i: int) -> void:
 		var ice_name: String = "WARRANT SUITE" if deep else "COUNTERINTRUSION"
 		_ice_fought = false
 		_ask("BLACK ICE — %s is awake behind it" % ice_name,
-			["Cut into it  ·  hardest fight on the station, and it pays like it",
-			"Leave it sealed  ·  walk on, nothing gained, nothing lost"],
+			["Cut into it  ·  costs nothing, hardest fight, best loot",
+			"Leave it sealed  ·  nothing gained, nothing lost"],
 			func(k: int):
 				if k == 0:
 					_ice_fought = true
@@ -2033,7 +2053,7 @@ func _on_duel_finished(won: bool) -> void:
 		DUEL.graft = {}
 		DUEL.fragile = []
 		mode = Mode.CHALLENGE   # locks map input while the fade runs
-		_msg = "FIREWALL HOLDS — ejected from the station."
+		_msg = "HELIOS HOLDS — ejected from the station."
 		if _hud != null:
 			_hud.queue_redraw()
 		await get_tree().create_timer(1.1).timeout
@@ -2102,7 +2122,7 @@ func _ask_cards(title: String, ids: Array, note: String, cb: Callable) -> void:
 		cb.call(i)
 		_hud.queue_redraw())
 	p.cancelled.connect(func():
-		_msg = "Walked away from the rig."
+		_msg = "Walked away from the node."
 		_hud.queue_redraw())
 	add_child(p)
 
@@ -2146,19 +2166,20 @@ func _finish_node(i: int) -> void:
 	match t:
 		"pod":
 			colonists += 1
-			_msg = "SURVIVOR POD — a cryo-berth wakes. %d aboard when the core falls." % colonists
+			_msg = "SURVIVOR POD — cryo-berth thawed. %d aboard, and they only reach Haven if you crack the core." % colonists
 		"ghost":
 			shards += 2
 			_msg = "GHOST SIGNAL %s  (+2 shards)" % LORE[randi() % LORE.size()]
 		"cache":
 			var g := 5 + randi() % 3
 			shards += g
-			_msg = "DATA CACHE — %d code shards siphoned." % g
+			_msg = "DATA CACHE — %d shards siphoned." % g
 		"vault":
 			has_tool = true
 			var offer := _loot_pool(3)
 			_msg = "DATA VAULT — breach tool secured. Pick a card to carry."
-			_ask_cards("DATA VAULT — keep one", offer, "free",
+			_ask_cards("DATA VAULT — keep one", offer,
+				"free   ·   the breach tool it came with opens a QUARANTINE GATE",
 				func(k: int):
 					_deck().append(offer[k])
 					_msg = "%s joins the deck." % str(DUEL.CARDS[offer[k]][0]))
@@ -2166,7 +2187,8 @@ func _finish_node(i: int) -> void:
 			var d := _deck().duplicate()
 			d.shuffle()
 			var opts := d.slice(0, 5)
-			_ask_cards("RECYCLER — scrap one for shards", opts, "pays 4 + 3 per sigil",
+			_ask_cards("RECYCLER — scrap one for shards", opts,
+				"destroys ONE copy   ·   pays 4 shards + 3 for every sigil it carries, grafted ones included, capped at 16",
 				func(k: int):
 					var id: String = opts[k]
 					var pay: int = mini(16, 4 + 3 * _sig_count(id))
@@ -2182,7 +2204,9 @@ func _finish_node(i: int) -> void:
 				# grafted ones, then indexing CARDS[id][5][0] below would run off the end
 				if not (DUEL.CARDS[id][5] as Array).is_empty() and not donors.has(id):
 					donors.append(id)
-			_ask_cards("CODE SPLICER — donor card (destroyed)", donors, "its sigil moves on",
+			_ask_cards("CODE SPLICER — donor card (one copy destroyed)", donors,
+				"burns ONE copy of the donor and lifts its FIRST sigil off it — you pick where that sigil lands next   ·   costs %d shards"
+					% int(NODE_COST["splicer"]),
 				func(k: int):
 					var dn: String = donors[k]
 					var sig = (DUEL.CARDS[dn][5] as Array)[0]
@@ -2194,7 +2218,8 @@ func _finish_node(i: int) -> void:
 							uniq.append(id)
 					# the donor is destroyed only once the graft actually happens — erasing it
 					# here meant cancelling the second prompt ate the card for nothing
-					_ask_cards("Graft %s onto…" % str(sig).to_upper(), uniq, "keeps its own sigils",
+					_ask_cards("Graft %s onto…" % str(sig).to_upper(), uniq,
+						"the sigil lands on EVERY copy of the card you pick, on top of the sigils it already carries",
 						func(j: int):
 							var tg: String = uniq[j]
 							_deck().erase(dn)
@@ -2202,7 +2227,7 @@ func _finish_node(i: int) -> void:
 							cur_g = cur_g.duplicate()
 							cur_g.append(sig)
 							DUEL.graft[tg] = cur_g
-							_msg = "%s now carries %s." % [str(DUEL.CARDS[tg][0]), str(sig).to_upper()]))
+							_msg = "Every %s now carries %s." % [str(DUEL.CARDS[tg][0]), str(sig).to_upper()]))
 		"overclock":
 			if not _spend(int(NODE_COST["overclock"])):
 				return
@@ -2212,25 +2237,29 @@ func _finish_node(i: int) -> void:
 			for id in d2:
 				if not uniq2.has(id) and uniq2.size() < 6:
 					uniq2.append(id)
-			_ask_cards("OVERCLOCK RIG — weld one card permanently stronger", uniq2,
-				"the card you pick gets +1 POWER for the rest of the run — but if it ever dies in a duel it is gone from your deck forever   ·   costs 9 shards",
+			_ask_cards("OVERCLOCK RIG — weld a card stronger, and brittle", uniq2,
+				"EVERY copy of that card gets +1 POWER for the rest of the run — and every copy turns brittle: any one that dies in a duel is deleted from the deck for good   ·   costs %d shards"
+					% int(NODE_COST["overclock"]),
 				func(k: int):
 					var id: String = uniq2[k]
 					DUEL.atk_boost[id] = int(DUEL.atk_boost.get(id, 0)) + 1
 					if not DUEL.fragile.has(id):
 						DUEL.fragile.append(id)
-					_msg = "%s overclocked — it will not survive a death." % str(DUEL.CARDS[id][0]))
+					_msg = "%s overclocked — every copy +1 POWER, and any copy that dies is deleted." % str(DUEL.CARDS[id][0]))
 		"exchange":
 			if not _spend(int(NODE_COST["exchange"])):
 				return
 			var d3 := _deck().duplicate()
 			d3.shuffle()
 			var give := d3.slice(0, 4)
-			_ask_cards("EXCHANGE — trade away", give, "one for one",
+			_ask_cards("EXCHANGE TERMINAL — trade one away", give,
+				"one copy leaves the deck and one of three rolled cards takes its place   ·   costs %d shards"
+					% int(NODE_COST["exchange"]),
 				func(k: int):
 					var out_id: String = give[k]
 					var offer2 := _loot_pool(3)
-					_ask_cards("…for one of these", offer2, "",
+					_ask_cards("…for one of these", offer2,
+						"the trade only lands when you pick — walk away here and the fee is spent for nothing",
 						func(j: int):
 							_deck().erase(out_id)
 							_deck().append(offer2[j])
@@ -2245,12 +2274,20 @@ func _finish_node(i: int) -> void:
 				shards += 4
 				_msg = "MERGE LAB — no matching pair to fuse. Stripped for 4 shards."
 			elif _spend(int(NODE_COST["merge"])):
-				_ask_cards("MERGE LAB — fuse a pair", dupes, "two become one, +1 power",
+				# The note used to read "two become one, +1 power", which is only true when you
+				# hold EXACTLY two: `erase` drops a single copy and `atk_boost` is keyed by card
+				# ID, so the buff lands on every copy you keep. With four you lost one and
+				# upgraded three for the same price. Say what it actually does.
+				_ask_cards("MERGE LAB — fuse a duplicate", dupes,
+					"melts ONE copy down and welds the gain into the rest: every remaining copy of that card gets +1 POWER for the run   ·   costs %d shards"
+						% int(NODE_COST["merge"]),
 					func(k: int):
 						var id: String = dupes[k]
-						_deck().erase(id)   # two become one, and the one is stronger
+						_deck().erase(id)               # one copy is consumed as the material
 						DUEL.atk_boost[id] = int(DUEL.atk_boost.get(id, 0)) + 1
-						_msg = "%s fused — +1 power on every copy." % str(DUEL.CARDS[id][0]))
+						var left: int = _deck().count(id)
+						_msg = "%s fused — one copy melted down, the other %d now hit for +1." \
+							% [str(DUEL.CARDS[id][0]), left])
 		"uplink":
 			if not _spend(int(NODE_COST["uplink"])):
 				return
@@ -2281,7 +2318,7 @@ func _finish_node(i: int) -> void:
 					# the hardest fight in the run. Measured, taking the ice drops whole-run
 					# clears from 16% to 3%, so a single extra card was nowhere near worth it.
 					_ask_cards("BLACK ICE — salvage from the wreck", offer,
-						"top-end only, and it comes out WELDED: +1 POWER for the rest of the run, with none of the OVERCLOCK RIG's burn-out risk",
+						"top-end only, and it comes out WELDED: +1 POWER for the rest of the run on every copy you hold, with none of the OVERCLOCK RIG's burn-out risk",
 						func(k: int):
 							var got: String = offer[k]
 							_deck().append(got)
@@ -2295,10 +2332,10 @@ func _finish_node(i: int) -> void:
 			shards += pay2
 			_msg = "BOUNTY DAEMON put down — %d shards claimed." % pay2
 		"firewall", "sentinel":
-			_msg = "Node cleared. The corridor ahead unlocks."
+			_msg = "%s down — the corridor ahead unlocks." % str(TYPES[t][0])
 		"quarantine":
 			shards += 8
-			_msg = "QUARANTINE GATE forced with the breach tool — +8 shards."
+			_msg = "QUARANTINE GATE opened with the breach tool — +8 shards, nothing roused."
 		"core":
 			_msg = "HELIOS CORE CRACKED — the station is FREE. Click to return."
 			# BANK the run's takings — until now colonists and shards existed only as a
@@ -2307,30 +2344,75 @@ func _finish_node(i: int) -> void:
 				_msg += "  %d survivors bound for Haven." % colonists
 				GameState.breach_colonists += colonists
 			if shards > 0:
-				GameState.banked += shards * 2   # leftover code shards cash out as ore-value
-				_msg += "  %d shards cashed out." % shards
+				GameState.banked += shards * 2   # leftover shards cash out as ore-value
+				_msg += "  %d shards cashed out — %d ore banked." % [shards, shards * 2]
 			GameState.save_game()
 			mode = Mode.WON
 
 
 func _draw_choice(vp: Vector2) -> void:
+	## Keyboard rig modal. Every box here is MEASURED, never assumed: options wrap to the
+	## panel's inner width and the panel grows to pay for it, so a long line like BLACK ICE's
+	## "hardest fight on the station, and it pays like it" cannot spill past the border.
 	var opts: Array = _choice["opts"]
-	var w := 560.0
-	var h := 66.0 + opts.size() * 34.0
-	var r := Rect2((vp.x - w) * 0.5, (vp.y - h) * 0.5, w, h)
-	_hud.draw_rect(r, Color(0.03, 0.05, 0.08, 0.94))
-	_hud.draw_rect(r, Color(CYAN.r, CYAN.g, CYAN.b, 0.5), false, 2.0)
-	_hud.draw_string(_font, r.position + Vector2(22, 34), str(_choice["title"]).to_upper(),
-		HORIZONTAL_ALIGNMENT_LEFT, w - 44, 18, CYAN)
+	var title := str(_choice["title"]).to_upper()
+	var w := 470.0
+	var pad := 18.0
+	var kpx := 9                          # keycap label
+	var kw := UITheme.key_width("1", _font, kpx)
+	var kh := kpx + UITheme.KEY_H_PAD
+	var tx := pad + kw + 10.0             # option text x, inside the panel
+	var tw := w - tx - pad                # wrap width — nothing is drawn wider than this
+	var opx := 11                         # option text
+	var gap := 9.0
+	var hs: Array = []
+	var tot := 0.0
+	for o in opts:
+		var hh: float = maxf(_font.get_multiline_string_size(
+			str(o), HORIZONTAL_ALIGNMENT_LEFT, tw, opx).y, kh)
+		hs.append(hh)
+		tot += hh + gap
+	var h := 40.0 + tot - gap + 28.0      # header + rows + hint footer
+	var r := Rect2(round((vp.x - w) * 0.5), round((vp.y - h) * 0.5), w, h)
+	# the game's notched panel silhouette, filled with a vertical gradient: a breath of hull
+	# navy at the top falling to near-black at the bottom. Per-vertex colours, so it costs one
+	# draw call and no part of the fill ever comes up brighter than #0c111a.
+	var pts := UITheme.panel_points(r, 12.0, 6.0)
+	var cols := PackedColorArray()
+	for pt in pts:
+		cols.append(Color(0.047, 0.067, 0.102, 0.97).lerp(
+			Color(0.012, 0.020, 0.031, 0.97), (pt.y - r.position.y) / r.size.y))
+	_hud.draw_polygon(pts, cols)
+	var edge := pts.duplicate()
+	edge.append(pts[0])
+	_hud.draw_polyline(edge, Color(CYAN.r, CYAN.g, CYAN.b, 0.55), 1.0)
+	# accent wedge in the corner slant — the one bit of flourish, straight off draw_sci_panel
+	_hud.draw_colored_polygon(PackedVector2Array([
+		Vector2(r.position.x + 2.0, r.position.y + 12.0),
+		Vector2(r.position.x + 12.0, r.position.y + 2.0),
+		Vector2(r.position.x + 12.0, r.position.y + 12.0)]),
+		Color(CYAN.r, CYAN.g, CYAN.b, 0.8))
+	# the title shrinks to fit instead of clipping — rig and ICE names vary a lot in length
+	var tpx := 13
+	while tpx > 9 and _font.get_string_size(
+			title, HORIZONTAL_ALIGNMENT_LEFT, -1, tpx).x > w - pad * 2.0:
+		tpx -= 1
+	_hud.draw_string(_font, r.position + Vector2(pad, 21.0), title,
+		HORIZONTAL_ALIGNMENT_LEFT, w - pad * 2.0, tpx, CYAN)
+	_hud.draw_rect(Rect2(r.position.x + pad, r.position.y + 29.0, w - pad * 2.0, 1.0),
+		Color(CYAN.r, CYAN.g, CYAN.b, 0.22))
+	var asc := _font.get_ascent(opx)
+	var y := r.position.y + 40.0
 	for i in opts.size():
-		var y := r.position.y + 62.0 + i * 34.0
-		_hud.draw_string(_font, Vector2(r.position.x + 26, y), "%d" % (i + 1),
-			HORIZONTAL_ALIGNMENT_LEFT, 30, 17, Color(0.95, 0.8, 0.4))
-		_hud.draw_string(_font, Vector2(r.position.x + 56, y), str(opts[i]),
-			HORIZONTAL_ALIGNMENT_LEFT, w - 80, 17, Color(0.86, 0.93, 1.0))
-	_hud.draw_string(_font, Vector2(r.position.x + 22, r.end.y - 12),
-		"press 1-%d   ·   ESC walks away" % opts.size(), HORIZONTAL_ALIGNMENT_LEFT, w - 44, 12,
-		Color(CYAN.r, CYAN.g, CYAN.b, 0.6))
+		UITheme.draw_key(_hud, Vector2(r.position.x + pad, y), "%d" % (i + 1), _font, kpx,
+			Color(1.0, 0.82, 0.36))
+		_hud.draw_multiline_string(_font, Vector2(r.position.x + tx, y + asc), str(opts[i]),
+			HORIZONTAL_ALIGNMENT_LEFT, tw, opx, -1, Color(0.804, 0.851, 0.906))
+		y += float(hs[i]) + gap
+	# the way out reads quieter than the ways in: smaller than the options, and half the alpha
+	_hud.draw_string(_font, Vector2(r.position.x + pad, r.end.y - 11.0),
+		"1-%d select   ·   ESC walks away" % opts.size(), HORIZONTAL_ALIGNMENT_LEFT,
+		w - pad * 2.0, 9, Color(CYAN.r, CYAN.g, CYAN.b, 0.45))
 
 
 func _exit_to_flight(note: String) -> void:
@@ -2359,7 +2441,12 @@ func _draw_node_names() -> void:
 		if _cam.is_position_behind(wpos):
 			continue
 		var sp := _cam.unproject_position(wpos)
-		if sp.x < -160.0 or sp.x > vp.x + 160.0 or sp.y < 54.0 or sp.y > vp.y - 40.0:
+		# sp.y is a BASELINE, so a flat 48/32 test still let a name put its glyphs inside
+		# the banner or the footer. Clear the real ascent above and descent below, measured
+		# off the bars' own constants so a bar resize can never desync from this test.
+		if sp.x < -160.0 or sp.x > vp.x + 160.0 \
+				or sp.y - _font.get_ascent(NAME_PX) < MAP_HUD_BAR_H \
+				or sp.y + _font.get_descent(NAME_PX) > vp.y - MAP_HUD_FOOT_H:
 			continue                     # off screen, or under the HUD banner / status bar
 		var txt := str(TYPES[nd["type"]][0])
 		var st := str(nd.get("state", "locked"))
@@ -2368,11 +2455,15 @@ func _draw_node_names() -> void:
 		var col := Color(1, 1, 1, 1.0) if (i == cur or st != "locked") \
 			else Color(0.72, 0.79, 0.88, 0.62)
 		var w := _font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, NAME_PX).x
-		var at := Vector2(sp.x - w * 0.5, sp.y)
-		# fat black stroke, drawn as 8 offset copies: the name has to read over lit plating,
-		# a glowing pedestal or pure black void
-		for ox in [-2, 0, 2]:
-			for oy in [-2, 0, 2]:
+		# keep the WHOLE name on screen. The label is centred on the token, so a node in
+		# grid column 0 or 6 had half its name amputated by the viewport edge — which no box
+		# check catches, because the box here is the screen.
+		var at := Vector2(clampf(sp.x - w * 0.5, 4.0, maxf(4.0, vp.x - w - 4.0)), sp.y)
+		# black stroke, drawn as 8 offset copies: the name has to read over lit plating,
+		# a glowing pedestal or pure black void. 1.5 px at NAME_PX 11 — a 2 px ring at this
+		# size closed the counters and the word read as a smudge.
+		for ox in [-1.5, 0.0, 1.5]:
+			for oy in [-1.5, 0.0, 1.5]:
 				if ox == 0 and oy == 0:
 					continue
 				_hud.draw_string(_font, at + Vector2(ox, oy), txt, HORIZONTAL_ALIGNMENT_LEFT,
@@ -2380,31 +2471,115 @@ func _draw_node_names() -> void:
 		_hud.draw_string(_font, at, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, NAME_PX, col)
 
 
+# ------------------------------------------------------------------
+# HUD chrome. A flat black rect reads as a bar pasted over the game; a
+# vertical gradient closed by a hairline rule reads as the edge of the
+# visor. The blacks stay deep — each bar is near-opaque hull navy at
+# its outer edge and fades inward, it never lifts the scene.
+# Type follows the shared scale: TITLE 16 / BODY 11 / LABEL 9.
+# ------------------------------------------------------------------
+const MAP_HUD_BAR_H := 44.0     # top banner height
+const MAP_HUD_FOOT_H := 30.0    # bottom message bar height
+const MAP_HUD_PAD := 22.0       # left / right margin, shared by both bars
+
+
+func _map_hud_grad(r: Rect2, top: Color, bot: Color) -> void:
+	## draw_rect cannot interpolate a colour; a 4-vertex polygon with per-vertex colours can.
+	_hud.draw_polygon(
+		PackedVector2Array([r.position, Vector2(r.end.x, r.position.y), r.end,
+			Vector2(r.position.x, r.end.y)]),
+		PackedColorArray([top, top, bot, bot]))
+
+
+func _map_fit_px(txt: String, avail: float, want: int, min_px: int) -> int:
+	## Shrink-to-fit. A long station name gives up a point at a time instead of being clipped.
+	var px := want
+	while px > min_px and _font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x > avail:
+		px -= 1
+	return px
+
+
+func _draw_purse_chips(vp: Vector2) -> float:
+	## The run purse as separate chips, laid out right to left. Four stats in one string read
+	## as a sentence; four boxed stats read as a readout. Returns the left edge of the run so
+	## the title knows how much width it actually has.
+	var chips: Array = [["%d" % shards, "SHARDS", Color(0.42, 0.80, 1.0)]]
+	if colonists > 0:
+		chips.append(["%d" % colonists, "SURVIVORS", Color(0.50, 0.92, 0.72)])
+	if has_tool:
+		chips.append(["", "BREACH TOOL", Color(1.0, 0.72, 0.36)])
+	if streak > 1:
+		chips.append(["%d" % streak, "STREAK", Color(1.0, 0.48, 0.40)])
+	var h := 20.0
+	var y := (MAP_HUD_BAR_H - h) * 0.5
+	var x := vp.x - MAP_HUD_PAD
+	for i in range(chips.size() - 1, -1, -1):
+		var c: Array = chips[i]
+		var val := str(c[0])
+		var lab := str(c[1])
+		var col: Color = c[2]
+		var vw: float = 0.0 if val == "" \
+			else _font.get_string_size(val, HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x
+		var lw: float = _font.get_string_size(lab, HORIZONTAL_ALIGNMENT_LEFT, -1, 9).x
+		var gap: float = 0.0 if val == "" else 5.0
+		var w := 11.0 + vw + gap + lw + 9.0
+		var r := Rect2(x - w, y, w, h)
+		_map_hud_grad(r, Color(col.r, col.g, col.b, 0.15), Color(col.r, col.g, col.b, 0.035))
+		_hud.draw_rect(r, Color(col.r, col.g, col.b, 0.32), false, 1.0)
+		_hud.draw_rect(Rect2(r.position.x, r.position.y, 2.0, h), col)   # accent pip
+		var tx := r.position.x + 11.0
+		var base := r.position.y + 14.0
+		if val != "":
+			_hud.draw_string(_font, Vector2(tx, base), val, HORIZONTAL_ALIGNMENT_LEFT, -1, 11,
+				Color(1, 1, 1, 0.95))
+			tx += vw + gap
+		_hud.draw_string(_font, Vector2(tx, base), lab, HORIZONTAL_ALIGNMENT_LEFT, -1, 9,
+			Color(col.r, col.g, col.b, 0.92))
+		x -= w + 6.0
+	return x
+
+
+func _draw_hud_banner(vp: Vector2) -> void:
+	var h := MAP_HUD_BAR_H
+	_map_hud_grad(Rect2(0.0, 0.0, vp.x, h), Color(0.010, 0.018, 0.030, 0.95),
+		Color(0.020, 0.033, 0.051, 0.58))
+	_map_hud_grad(Rect2(0.0, h, vp.x, 7.0), Color(0.020, 0.033, 0.051, 0.40),
+		Color(0.0, 0.0, 0.0, 0.0))            # feathered lip: no hard cut into the corridor
+	_hud.draw_rect(Rect2(0.0, h - 1.0, vp.x, 1.0), Color(CYAN.r, CYAN.g, CYAN.b, 0.22))
+	_hud.draw_rect(Rect2(0.0, h - 1.0, 150.0, 1.0), Color(CYAN.r, CYAN.g, CYAN.b, 0.60))
+	var left := _draw_purse_chips(vp)
+	var nm := station_name if station_name != "" else "UNKNOWN STATION"
+	var title := "THE BREACH — %s" % nm.to_upper()
+	var avail := maxf(160.0, left - MAP_HUD_PAD - 16.0)
+	_hud.draw_string(_font, Vector2(MAP_HUD_PAD, 21.0), title, HORIZONTAL_ALIGNMENT_LEFT, avail,
+		_map_fit_px(title, avail, 16, 10), CYAN)
+	var hint := "click a lit node to walk   ·   O switches camera   ·   ESC aborts the breach"
+	_hud.draw_string(_font, Vector2(MAP_HUD_PAD, 36.0), hint, HORIZONTAL_ALIGNMENT_LEFT, avail,
+		_map_fit_px(hint, avail, 9, 8), Color(CYAN.r, CYAN.g, CYAN.b, 0.55))
+
+
+func _draw_hud_footer(vp: Vector2) -> void:
+	var top := vp.y - MAP_HUD_FOOT_H
+	_map_hud_grad(Rect2(0.0, top - 7.0, vp.x, 7.0), Color(0.0, 0.0, 0.0, 0.0),
+		Color(0.020, 0.033, 0.051, 0.40))
+	_map_hud_grad(Rect2(0.0, top, vp.x, MAP_HUD_FOOT_H), Color(0.020, 0.033, 0.051, 0.62),
+		Color(0.010, 0.018, 0.030, 0.95))
+	_hud.draw_rect(Rect2(0.0, top, vp.x, 1.0), Color(CYAN.r, CYAN.g, CYAN.b, 0.20))
+	var avail := vp.x - MAP_HUD_PAD * 2.0
+	_hud.draw_string(_font, Vector2(MAP_HUD_PAD, top + 20.0), _msg, HORIZONTAL_ALIGNMENT_LEFT,
+		avail, _map_fit_px(_msg, avail, 11, 9), Color(0.80, 0.88, 0.97))
+
+
 func _on_hud_draw() -> void:
 	_draw_node_names()
 	var vp := _hud.get_viewport_rect().size
-	_hud.draw_rect(Rect2(0, 0, vp.x, 58), Color(0.02, 0.03, 0.05, 0.82))
-	var nm := station_name if station_name != "" else "UNKNOWN STATION"
-	_hud.draw_string(_font, Vector2(24, 30), "THE BREACH — %s" % nm.to_upper(),
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 20, CYAN)
-	_hud.draw_string(_font, Vector2(24, 50),
-		"walk the corridors to the HELIOS core   ·   ESC leaves the breach",
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(CYAN.r, CYAN.g, CYAN.b, 0.6))
-	# run purse: shards fund the rigs, colonists ride home when the core cracks
-	var purse := "◈ %d SHARDS" % shards
-	if colonists > 0:
-		purse += "    ☻ %d SURVIVORS" % colonists
-	if has_tool:
-		purse += "    ⚿ BREACH TOOL"
-	if streak > 1:
-		purse += "    ✦ STREAK %d" % streak
-	_hud.draw_string(_font, Vector2(vp.x - 470, 30), purse, HORIZONTAL_ALIGNMENT_RIGHT, 446, 17,
-		Color(0.72, 0.9, 1.0))
-	_hud.draw_rect(Rect2(0, vp.y - 40, vp.x, 40), Color(0.02, 0.03, 0.05, 0.82))
-	_hud.draw_string(_font, Vector2(24, vp.y - 14), _msg, HORIZONTAL_ALIGNMENT_LEFT, -1, 15,
-		Color(0.85, 0.92, 1.0))
+	_draw_hud_banner(vp)
+	_draw_hud_footer(vp)
 	if not _choice.is_empty():
 		_draw_choice(vp)
 	if mode == Mode.WON:
-		_hud.draw_string(_font, Vector2(0, vp.y * 0.5), "STATION FREED",
-			HORIZONTAL_ALIGNMENT_CENTER, vp.x, 40, CYAN)
+		var wy := vp.y * 0.5
+		_hud.draw_string(_font, Vector2(0, wy), "STATION FREED",
+			HORIZONTAL_ALIGNMENT_CENTER, vp.x, 26, CYAN)
+		_hud.draw_string(_font, Vector2(0, wy + 18.0), "click anywhere to return to the helm",
+			HORIZONTAL_ALIGNMENT_CENTER, vp.x, 9, Color(CYAN.r, CYAN.g, CYAN.b, 0.55))

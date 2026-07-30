@@ -798,6 +798,8 @@ func _build_hud() -> void:
 
 	_msg_label = Label.new()
 	_msg_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	# toasts were the one piece of flight HUD text still at full theme size
+	_msg_label.add_theme_font_size_override("font_size", 10)
 	_msg_label.modulate.a = 0.0
 	root.add_child(_msg_label)
 	# same toast band as the other HUDs — clear of prompts and gear cards
@@ -1064,7 +1066,7 @@ func _draw_stations(center: Vector2, half: Vector2) -> void:
 			continue
 		var gcol: Color = STATION_GLOW[i % STATION_GLOW.size()]
 		draw_string(ThemeDB.fallback_font, p + Vector2(-140.0, dpx * 0.55 + 34.0),
-			str(Stations.LIST[i]["name"]), HORIZONTAL_ALIGNMENT_CENTER, 280.0, 22,
+			str(Stations.LIST[i]["name"]), HORIZONTAL_ALIGNMENT_CENTER, 280.0, 17,
 			Color(gcol.r, gcol.g, gcol.b, 0.92))
 
 

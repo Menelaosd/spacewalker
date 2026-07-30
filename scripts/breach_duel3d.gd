@@ -201,36 +201,43 @@ const OPP_DECKS := {
 }
 
 const SIGIL_SHORT := {
-	"overcharge": "OVERCLOCK", "ablative_plating": "BUFFER", "targeting_laser": "TARGET",
-	"split_bore": "FORK", "spike_casing": "TRIPWIRE", "provoke": "NOISE",
+	"overcharge": "SURGE", "ablative_plating": "ARMOR", "targeting_laser": "SNIPER",
+	"split_bore": "FORK", "spike_casing": "SPIKES", "provoke": "NOISE",
 	"meltdown": "DETONATE", "autoturret": "SENTRY", "interpose": "INTERCEPT",
-	"mite_spawner": "BOTNET", "morphogen": "UNPACK",
+	"mite_spawner": "SPAWN", "morphogen": "UNPACK",
 	"overflow": "OVERFLOW", "chain_load": "CHAIN",
 	# --- expansion sigils ---
-	"necrosis": "WIPE", "airborne": "TUNNEL", "broadcast": "BROADCAST",
+	"necrosis": "LETHAL", "airborne": "BYPASS", "broadcast": "BROADCAST",
 	"side_channel": "DRIFT", "failover": "FAILOVER", "leech": "SIPHON",
 }
 # plain-English rules text for the right-click inspect panel
 const SIGIL_RULES := {
-	"necrosis": "Any damage it deals kills outright — armour still stops the first hit.",
-	"airborne": "Its strike reaches the trace even through a blocked lane. INTERCEPT still catches it.",
+	"necrosis": "Any damage it deals kills outright — armour still blocks it.",
+	"airborne": "Strikes past a blocker straight to the trace, 2 max. INTERCEPT still catches it.",
 	"broadcast": "Friendly units in the lanes either side get +1 power while this lives.",
-	"side_channel": "Slides one lane sideways at the start of your turn.",
-	"failover": "The first time it dies it returns to its lane with 1 hp.",
-	"leech": "Repairs itself 1 hp whenever it damages a unit.",
-	"overcharge": "When played: +1 max energy, +1 energy now.",
-	"ablative_plating": "Ignores the first hit it takes.",
+	"side_channel": "Slides one lane sideways each turn; bounces off walls and neighbours.",
+	"failover": "First death: back to its lane at 1 hp. DETONATE waits for the second.",
+	"leech": "Repairs itself 1 hp per landed hit, never past its printed hp.",
+	"overcharge": "When played: +1 energy now, and +1 max energy up to 4.",
+	"ablative_plating": "Ignores the first hit it takes, even a lethal one.",
 	"spike_casing": "Whatever strikes this takes 1 damage back.",
-	"provoke": "Attacks against this unit deal 1 less.",
-	"split_bore": "Strikes the two diagonal lanes, not straight.",
-	"targeting_laser": "Strikes the weakest enemy anywhere.",
-	"meltdown": "On death: 2 damage to the unit opposite and both beside it.",
-	"mite_spawner": "When played: spawns a free 0/2 stub in an adjacent lane.",
-	"autoturret": "Zaps any unit played opposite it for 1.",
-	"interpose": "Guards an adjacent empty lane: takes hits meant for the trace.",
-	"morphogen": "Start of your next turn: gains +1/+1 (once).",
-	"overflow": "Excess strike damage carries to the enemy trace (max 2).",
-	"chain_load": "Strikes the opposite lane and both sides (3 lanes).",
+	"provoke": "Strikes against this unit deal 1 less.",
+	"split_bore": "Strikes both diagonal lanes instead of straight; never tips the trace.",
+	"targeting_laser": "Strikes the weakest enemy instead when its own lane is blocked.",
+	"meltdown": "On death: 2 damage to the enemy opposite and both beside it.",
+	"mite_spawner": "When played: a free 0/2 STUB fills the nearest empty lane.",
+	"autoturret": "Zaps the first unit played opposite it each turn for 1.",
+	"interpose": "Guards an adjacent empty lane — strikes through it hit this, even BYPASS.",
+	"morphogen": "Start of your next turn: +1/+1, once — not every turn.",
+	"overflow": "Overkill from a kill spills to the trace, 2 max per strike — FORK and CHAIN share it.",
+	"chain_load": "Strikes the opposite lane and both sides; only the opposite one tips the trace.",
+}
+# Firewall layer per tier — 1-4 are node fights, 5+ are boss decks (see OPP_DECKS).
+# The duel header used to read "TIER 5", which told the player nothing about the deck
+# it was about to eat: tier 5 is the SOLAR WARDEN fortress, 7 is the ICE-9 vault.
+const TIER_NAME := {
+	1: "PERIMETER", 2: "ACTIVE DEFENSE", 3: "HARD KERNEL", 4: "COUNTERINTRUSION",
+	5: "SOLAR WARDEN", 6: "WARRANT SUITE", 7: "ICE-9 QUARANTINE",
 }
 # in-fiction flavor line per card (keyed by display name)
 const LORE := {
@@ -240,11 +247,11 @@ const LORE := {
 	"SPEAR-PHISH": "One trusted handshake, and the gate forgets its master.",
 	"FORK BOMB": "It copies until the copying is all there is.",
 	"BRUTE-FORCER": "Every key, one by one, until the lock gives up.",
-	"HYDRA": "Sever one thread and two more take the wound.",
+	"HYDRA": "Many heads, one appetite — and it only ever bites straight ahead.",
 	"ROOTKIT": "By the time it's seen, it already owns the seeing.",
-	"LATERAL WORM": "It doesn't break in — it moves in, room to room.",
+	"LATERAL WORM": "It never broke in. It was already inside, and it is patient.",
 	"PORT SCANNER": "Every closed door answers if you knock right.",
-	"TRIPWIRE": "HELIOS reaches, and closes on your teeth.",
+	"TRIPWIRE": "HELIOS reaches in, and the wire closes on the hand.",
 	"LOGIC BOMB": "Sleeping in the code, counting down to your command.",
 	"OVERCLOCK DAEMON": "Push the substrate past red; let it scream faster.",
 	"BOTNET": "A thousand borrowed hands, all reaching at once.",
@@ -254,7 +261,7 @@ const LORE := {
 	"KERNEL PANIC": "Everything stops at once, and does not restart.",
 	"DDOS SWARM": "Ten thousand knocks; no door holds them all.",
 	"THERMITE": "It burns through the floor it dies on.",
-	"SNIPER-SHELL": "Patient, dug in, and it never misses twice.",
+	"SNIPER-SHELL": "Dug in, patient, and it always takes the weakest thing on the board.",
 	"OVERVOLT": "Feed it everything; it gives back more.",
 	"PACKET FILTER": "Every packet judged; the unclean are turned away.",
 	"SENTRY ICE": "Amber eyes that do not blink and do not tire.",
@@ -269,8 +276,53 @@ const LORE := {
 	"REGISTRY WARDEN": "It guards the names that make things real.",
 	"KERNEL GHOST": "It lives beneath the floor you're standing on.",
 	"DAEMON GR1ZZ": "Old, slow, and it has never lost.",
-	"DAEMON S0N1A": "She smiles in amber and closes the exits.",
+	"DAEMON S0N1A": "She smiles in amber and closes the exits.",   # no card in CARDS yet
 	"DAEMON QU177": "The last voice; it asks you to stop.",
+	# --- v0.227 expansion: player pool ---
+	"NULL SHUNT": "It routes the packet nowhere, then steps out of the lane.",
+	"PORT DRIFTER": "Never the same port twice, never where you last swept.",
+	"C2 BEACON": "It gives the orders. It never carries one out itself.",
+	"WATCHDOG": "It restarts before you finish noticing it stopped.",
+	"SHIM LAYER": "A thin layer between the call and the answer, and it takes the hit.",
+	"PAYLOAD DROP": "The container is worthless. What it leaves behind is not.",
+	"BIT FLIPPER": "One bit off the target, one bit back for itself.",
+	"DNS TUNNEL": "The traffic looks like a name lookup. It is not a name lookup.",
+	"COLD BOOT": "It powers back clean, and comes up with more to spend.",
+	"RAW SOCKET": "No protocol, no handshake. Bytes on the wire and nothing else.",
+	"HONEYPOT": "It wants to be found. That is the whole of the trap.",
+	"PROCESS FORK": "One process becomes two, and both of them reach sideways.",
+	"HOTPATCH": "Repaired in place, mid-fault, without ever going down.",
+	"WIPER": "It does not disable anything. It erases it.",
+	"BEACON RELAY": "It amplifies the order, and takes the first shot meant for it.",
+	"BASTION HOST": "The only way in, and it is standing in the doorway.",
+	"POWER RAIL": "A direct tap off the station bus. Draw what you need.",
+	"SINKHOLE": "Traffic goes in. Nothing routes back out, and it feeds.",
+	"OUT-OF-BAND": "It never touched the channel you were watching.",
+	"USE-AFTER-FREE": "It writes into memory the system already gave up on.",
+	"CRON BOMB": "Scheduled, patient, and it fires whether you are ready or not.",
+	"BOTMASTER": "It never touches the target. It only tells the swarm where.",
+	# --- v0.227 expansion: HELIOS pool + boss signatures ---
+	"PORT SENTRY": "It watches one door and shoots whatever knocks on it.",
+	"RATE LIMITER": "Everything you send arrives late, and arrives smaller.",
+	"TRACE BEACON": "It marks you, and the rest of the wire hits harder for it.",
+	"SYN FLOOD": "Half-open connections, everywhere, none of them finishing.",
+	"HONEYPOT ICE": "HELIOS left it unlocked. Nothing behind it is.",
+	"INTRUSION SENSOR": "It logs you first. Then it fires.",
+	"QUARANTINE BIN": "What it holds is still live, and it opens when it breaks.",
+	"LOG SCRAPER": "It reads your own traffic back and repairs itself on it.",
+	"REVERSE SHELL": "You opened the connection. It kept the other end.",
+	"CIPHER LOCK": "It cannot strike you. It only makes everything beside it worse.",
+	"KERNEL GUARD": "Ring zero has one door, and this is standing in it.",
+	"DRIFT HUNTER": "It sweeps lane to lane until it finds the one you left open.",
+	"REVENANT PROCESS": "Killed, reaped, and scheduled again regardless.",
+	"AUDIT ENGINE": "Every action logged, weighed, and answered in kind.",
+	"GHOST ROUTE": "A path in no routing table that still carries traffic.",
+	"TUNNEL BROKER": "It negotiates a way through the wall you just built.",
+	"BLACK ICE SHARD": "A fragment of the lethal grade. A fragment is enough.",
+	"SINKHOLE DRAIN": "It swallows the route and grows on what it swallowed.",
+	"CORE ARBITER": "It decides who gets cycles. It never spends its own.",
+	"WARRANT DAEMON": "It carries the order to remove you, and it filed a copy.",
+	"ICE-9": "Everything it touches stops being data.",
 }
 
 # --- table geometry (world units; table plane is y = 0) ---
@@ -310,7 +362,7 @@ var energy_max := 1
 var tip := 0
 var _won := false
 
-var _msg := "Play units, or ring the STRIKE bell."
+var _msg := "PLAY UNITS — ring STRIKE to end your turn"
 var _t := 0.0
 var _sel := -1
 var _strike_lane := -1
@@ -580,7 +632,7 @@ func _build_stage() -> void:
 	_bell_node.add_child(bs)
 	_bell_spr = bs
 	# draw piles (flat card backs + floating counts)
-	for pp in [[DECK_POS, "DECK"], [MITE_POS, "SHELLS"]]:
+	for pp in [[DECK_POS, "DECK"], [MITE_POS, "STUBS"]]:
 		var pn := Node3D.new()
 		pn.position = pp[0]
 		add_child(pn)
@@ -775,47 +827,77 @@ func _make_card_node(u: Dictionary, ghost: bool) -> Node3D:
 	frame.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	frame.shaded = false
 	root.add_child(frame)
-	var name_l := _label(str(c[0]), 15, Color(0.78, 0.88, 1.0, dim.a))
-	name_l.outline_size = 6
-	name_l.position = Vector3(0, -CARD_H * 0.24, 0.02)
+	# The NAME is what a player identifies the card by, so it leads the face. Sized by
+	# MEASUREMENT, not by a fixed number: it grows toward the cap only while it still
+	# fits the card, so "USE-AFTER-FREE" shrinks and "ICE-9" is not needlessly small.
+	var fs_nm := _fit3d(str(c[0]), 24, CARD_W * 0.78, 11)
+	var name_l := _label(str(c[0]), fs_nm, Color(0.87, 0.93, 1.0, dim.a))
+	name_l.outline_size = 11
+	name_l.position = Vector3(0, -CARD_H * 0.305, 0.02)
 	root.add_child(name_l)
 	if not (c[5] as Array).is_empty():
-		var sig_l := _sigil_label3d(_sig_label(c[5]), 30, dim.a)
-		sig_l.position = Vector3(0, -CARD_H * 0.335, 0.024)
+		var sg := _sig_label(c[5])
+		# unchanged rule: white fill, black stroke, drawn last and highest. Only the SIZE
+		# drops - a 30 pt sigil over a 15 pt name had the reading order backwards.
+		var sig_l := _sigil_label3d(sg, _fit3d(sg, 18, CARD_W * 0.42, 9), dim.a)
+		sig_l.position = Vector3(0, -CARD_H * 0.421, 0.024)
 		root.add_child(sig_l)
-	var atk := _label(str(c[2]), 72, Color(AMBER.r, AMBER.g, AMBER.b, dim.a))
-	atk.position = Vector3(-CARD_W * 0.36, -CARD_H * 0.42, 0.02)
+	# POWER / HP. 72 pt hung the digits past the card's bottom edge. 56 sits them on the
+	# frame's corner plates, and each numeral is stamped twice - a deep shade of its own
+	# hue a hair low, the lit face over it - so the digit reads as a top-lit bevel.
+	var atk_sh := _label(str(c[2]), 56, Color(AMBER.r * 0.24, AMBER.g * 0.16, AMBER.b * 0.06, dim.a))
+	atk_sh.outline_size = 15
+	atk_sh.position = Vector3(-CARD_W * 0.365, -CARD_H * 0.417, 0.018)
+	root.add_child(atk_sh)
+	var atk := _label(str(c[2]), 56, Color(AMBER.r, AMBER.g, AMBER.b, dim.a))
+	atk.position = Vector3(-CARD_W * 0.365, -CARD_H * 0.405, 0.02)
 	root.add_child(atk)
 	atk.name = "Atk"
-	var hp := _label(str(u["hp"]), 72, Color(CYAN.r, CYAN.g, CYAN.b, dim.a))
-	hp.position = Vector3(CARD_W * 0.36, -CARD_H * 0.42, 0.02)
+	var hp_sh := _label(str(u["hp"]), 56, Color(CYAN.r * 0.14, CYAN.g * 0.22, CYAN.b * 0.26, dim.a))
+	hp_sh.outline_size = 15
+	hp_sh.position = Vector3(CARD_W * 0.365, -CARD_H * 0.417, 0.018)
+	hp_sh.name = "HpSh"
+	root.add_child(hp_sh)
+	var hp := _label(str(u["hp"]), 56, Color(CYAN.r, CYAN.g, CYAN.b, dim.a))
+	hp.position = Vector3(CARD_W * 0.365, -CARD_H * 0.405, 0.02)
 	hp.name = "Hp"
 	root.add_child(hp)
 	# energy COST — one discreet badge, top-left
 	var cost := int(c[4])
 	if cost > 0:
 		var cf: Texture2D = _tex.get("cell_full")
+		# a darker, slightly larger twin sits behind and below the lit cell: the pip gains
+		# depth instead of reading as one flat chip, and the numeral lands on dark ground
+		var shade := Sprite3D.new()
+		shade.texture = cf
+		if cf != null:
+			shade.pixel_size = (CARD_W * 0.235) / cf.get_width()
+		shade.position = Vector3(-CARD_W * 0.329, CARD_H * 0.380, 0.014)
+		shade.modulate = Color(0.04, 0.08, 0.14) * dim
+		shade.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+		shade.shaded = false
+		root.add_child(shade)
 		var badge := Sprite3D.new()
 		badge.texture = cf
 		if cf != null:
-			badge.pixel_size = (CARD_W * 0.18) / cf.get_width()
-		badge.position = Vector3(-CARD_W * 0.37, CARD_H * 0.40, 0.016)
+			badge.pixel_size = (CARD_W * 0.20) / cf.get_width()
+		badge.position = Vector3(-CARD_W * 0.335, CARD_H * 0.388, 0.016)
 		badge.modulate = Color(0.55, 0.82, 1.0) * dim
 		badge.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 		badge.shaded = false
 		root.add_child(badge)
-		var cost_l := _label(str(cost), 26, Color(1, 1, 1, dim.a))
-		cost_l.outline_size = 9
-		cost_l.position = Vector3(-CARD_W * 0.37, CARD_H * 0.40, 0.024)
+		var cost_l := _label(str(cost), 22, Color(1, 1, 1, dim.a))
+		cost_l.outline_size = 13
+		cost_l.position = Vector3(-CARD_W * 0.335, CARD_H * 0.388, 0.024)
 		root.add_child(cost_l)
 	# ATTACK-DIRECTION arrow (baked white + black border), top-right — only striking cards
 	if int(c[2]) > 0:
 		var atex := _arrow_tex(_arrow_kind(c[5]))
 		var asp := Sprite3D.new()
 		asp.texture = atex
-		asp.pixel_size = (CARD_W * 0.24) / atex.get_width()
-		asp.position = Vector3(CARD_W * 0.33, CARD_H * 0.40, 0.02)
-		asp.modulate = dim
+		asp.pixel_size = (CARD_W * 0.19) / atex.get_width()
+		asp.position = Vector3(CARD_W * 0.337, CARD_H * 0.388, 0.02)
+		asp.modulate = Color(0.86, 0.92, 1.0) * dim
 		asp.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 		asp.shaded = false
 		root.add_child(asp)
@@ -839,6 +921,16 @@ func _label(txt: String, fsz: int, col: Color) -> Label3D:
 	l.outline_size = 14
 	l.outline_modulate = Color(0, 0, 0, 0.85)
 	return l
+
+
+func _fit3d(txt: String, want: int, maxw: float, floor_fs: int) -> int:
+	## Label3D has no shrink-to-fit, so measure with the same fallback font it renders
+	## with and convert to world units via the 0.005 pixel_size set in _label(). Returns
+	## the largest size <= want at which txt still fits maxw world units of card width.
+	var f := want
+	while f > floor_fs and _font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, f).x * 0.005 > maxw:
+		f -= 1
+	return f
 
 
 func _sigil_label3d(txt: String, fsz: int, alpha := 1.0) -> Label3D:
@@ -919,6 +1011,11 @@ func _sync_board() -> void:
 				tw.tween_property(nd, "position", target, 0.28)
 				_card_tw[uid] = tw
 			# refresh the HP digit
+			var hp_sh: Label3D = _unit_nodes[uid].get_node_or_null("HpSh")
+			if hp_sh != null:
+				hp_sh.text = str(u["hp"])
+				if int(u["hp"]) < int(CARDS[u["id"]][3]):
+					hp_sh.modulate = Color(RED.r * 0.26, RED.g * 0.10, RED.b * 0.08, hp_sh.modulate.a)
 			var hp_l: Label3D = _unit_nodes[uid].get_node_or_null("Hp")
 			if hp_l != null:
 				hp_l.text = str(u["hp"])
@@ -1018,7 +1115,11 @@ func _s() -> float:
 
 
 func _fs(px: int) -> int:
-	return maxi(int(px * _s()), 12)
+	## Routed through the shared scale (00_SCALE.md). The project stretches a fixed
+	## 1280x720 canvas, so _s() is 1.0 on any 16:9 window and the old floor of 12 was not
+	## a scaler at all — it silently promoted every caption asking for 8-11 px up to
+	## body-text size, which is most of why this mode read a rung larger than the game.
+	return UITheme.fs(px, _s())
 
 
 func _card_fs(px: float) -> int:
@@ -1181,7 +1282,7 @@ func _unhandled_input(e: InputEvent) -> void:
 			finished.emit(false)        # concede — the map ejects you like any run loss
 		else:
 			_esc_at = _t
-			_show_toast("ESC AGAIN TO ABORT THE BREACH", RED)
+			_show_toast("ESC AGAIN TO CONCEDE — counts as a loss: the run ends and everything banked is lost", RED)
 			get_viewport().set_input_as_handled()
 		return
 	if phase == Phase.DRAW and k.keycode in [KEY_SPACE, KEY_ENTER, KEY_KP_ENTER]:
@@ -1213,7 +1314,7 @@ func _click(m: Vector2) -> void:
 				mites_left -= 1
 				_draw_card(SIDE_ID)
 			else:
-				_deny("Draw first — your DECK or a %s." % str(CARDS[SIDE_ID][0]))
+				_deny("Draw first — click DECK or SHELLS, or press SPACE.")
 		Phase.MAIN:
 			_click_main(m)
 		_:
@@ -1224,7 +1325,7 @@ func _draw_card(id: String) -> void:
 	hand.append(id)
 	phase = Phase.MAIN
 	Sfx.play("clack", -10.0)
-	_msg = "Play units, or ring the STRIKE bell."
+	_msg = "PLAY UNITS — ring STRIKE to end your turn"
 
 
 func _click_main(m: Vector2) -> void:
@@ -1234,7 +1335,7 @@ func _click_main(m: Vector2) -> void:
 		_strike_lane = -1
 		_strike_t = 0.35
 		Sfx.play("clack", -4.0)
-		_msg = "STRIKE."
+		_msg = "STRIKE — your lanes resolve left to right"
 		_slam_bell()
 		return
 	for i in range(hand.size() - 1, -1, -1):
@@ -1244,10 +1345,10 @@ func _click_main(m: Vector2) -> void:
 				return
 			var c: Array = CARDS[hand[i]]
 			if not _can_afford(hand[i]):
-				_deny("%s needs %d energy — you have %d." % [c[0], c[4], energy])
+				_deny("%s costs %d energy — you have %d." % [c[0], c[4], energy])
 				return
 			_sel = i
-			_show_toast("Choose a lane for %s." % c[0], CYAN)
+			_show_toast("%s — pick an EMPTY lane in your row." % c[0], CYAN)
 			Sfx.play("clack", -12.0)
 			return
 	if _sel >= 0:
@@ -1256,7 +1357,7 @@ func _click_main(m: Vector2) -> void:
 			if you[lane] == null:
 				_place_selected(lane)
 			else:
-				_deny("Lane occupied.")
+				_deny("Lane occupied — pick an empty one.")
 			return
 		_deselect()
 		return
@@ -1294,10 +1395,16 @@ func _place_selected(lane: int) -> void:
 	# only ever comes from the natural turn clock — stacking OVERCLOCK cards can no
 	# longer land a cost-4 finisher on turn 2. The +1 current energy always lands.
 	if _has(id, "overcharge"):
-		if energy_max < MAX_ENERGY - 1:
+		# The toast said "OVERCHARGE" — the internal sigil id. The card face prints the
+		# SIGIL_SHORT label (OVERCLOCK), so the feedback named something the player has never
+		# seen. It also hid the +1 MAX half of the effect, and hid the RAMP CAP entirely:
+		# above MAX_ENERGY - 1 the max does not grow and the player was never told why.
+		var ramped: bool = energy_max < MAX_ENERGY - 1
+		if ramped:
 			energy_max += 1
 		energy = mini(energy + 1, MAX_ENERGY)
-		_show_toast("OVERCHARGE — +1 energy", CYAN)
+		var oc := str(SIGIL_SHORT["overcharge"])
+		_show_toast(oc + (" — +1 ENERGY, +1 MAX" if ramped else " — +1 ENERGY (max is capped)"), CYAN)
 	energy -= int(CARDS[id][4])
 	you[lane] = {"id": id, "hp": int(CARDS[id][3]), "armor": _has(id, "ablative_plating")}
 	# SENTRY: an enemy autoturret opposite zaps the freshly-played unit for 1.
@@ -1316,11 +1423,11 @@ func _place_selected(lane: int) -> void:
 			var sl: int = lane + dl
 			if sl >= 0 and sl < LANES and you[sl] == null:
 				you[sl] = {"id": SIDE_ID, "hp": int(CARDS[SIDE_ID][3]), "armor": false}
-				_float_txt("SPAWN", _slot_pos(2, sl), CYAN)
+				_float_txt(str(SIGIL_SHORT["mite_spawner"]), _slot_pos(2, sl), CYAN)
 				break
 	hand.remove_at(_sel)
 	_sel = -1
-	_msg = "Play units, or ring the STRIKE bell."
+	_msg = "PLAY UNITS — ring STRIKE to end your turn"
 	Sfx.play("clack", -8.0)
 	_sync_board()
 
@@ -1330,7 +1437,7 @@ func _hit_unit(u: Dictionary, dmg: int, row: int, lane: int) -> bool:
 	if bool(u.get("armor", false)):
 		u["armor"] = false
 		_flash_unit(u)
-		_float_txt("ARMOR", _slot_pos(row, lane), AMBER)
+		_float_txt(str(SIGIL_SHORT["ablative_plating"]), _slot_pos(row, lane), AMBER)
 		return false
 	u["hp"] = int(u["hp"]) - dmg
 	_flash_unit(u)
@@ -1404,7 +1511,7 @@ func _kill(side: String, lane: int) -> void:
 			if not run_deck.has(uid):        # last copy: drop its upgrades too
 				fragile.erase(uid)
 				atk_boost.erase(uid)
-			_show_toast("%s BURNED OUT — gone from the deck" % str(CARDS[uid][0]), RED)
+			_show_toast("%s BURNED OUT — one copy leaves the run deck" % str(CARDS[uid][0]), RED)
 	if _has(str(u["id"]), "meltdown"):
 		_detonate(side, lane)
 
@@ -1488,14 +1595,14 @@ func _resolve_hit(u: Dictionary, atk: int, from_lane: int, lane: int) -> void:
 	# NECROSIS: any damage at all is lethal — armour still eats the first instance
 	if dmg > 0 and _has(str(u["id"]), "necrosis") and not bool(tgt.get("armor", false)):
 		dmg = maxi(dmg, int(tgt["hp"]))
-		_float_txt("NECROSIS", _slot_pos(1, lane), RED)
+		_float_txt(str(SIGIL_SHORT["necrosis"]), _slot_pos(1, lane), RED)
 	var died := _hit_unit(tgt, dmg, 1, lane)
 	# LEECH: repairs itself 1 for landing a hit (never past its printed hp)
 	if dmg > 0 and _has(str(u["id"]), "leech"):
 		var cap: int = int(CARDS[str(u["id"])][3])
 		if int(u["hp"]) < cap:
 			u["hp"] = int(u["hp"]) + 1
-			_float_txt("LEECH +1", _slot_pos(2, from_lane), CYAN)
+			_float_txt(str(SIGIL_SHORT["leech"]) + " +1", _slot_pos(2, from_lane), CYAN)
 	if _has(str(tgt["id"]), "spike_casing"):
 		if _hit_unit(u, 1, 2, from_lane):
 			_kill("you", from_lane)
@@ -1588,7 +1695,7 @@ func _advance_strike() -> void:
 		phase = Phase.OPP_TURN
 		_opp_step = 0
 		_strike_lane = -1
-		_msg = "HELIOS responds…"
+		_msg = "HELIOS RESPONDS — queue advances, then its front row strikes"
 		return
 	var u = you[_strike_lane]
 	if u == null:
@@ -1649,7 +1756,7 @@ func _advance_strike() -> void:
 	# lane. INTERCEPT still catches it (handled inside _strike_trace), which is the
 	# designed counter-play; without that it would be an unanswerable clock.
 	if _has(str(u["id"]), "airborne"):
-		_float_txt("AIRBORNE", _slot_pos(2, _strike_lane), CYAN)
+		_float_txt(str(SIGIL_SHORT["airborne"]), _slot_pos(2, _strike_lane), CYAN)
 		if _strike_trace(u, atk, _strike_lane, t_lane):
 			_sync_board()
 			return
@@ -1697,7 +1804,7 @@ func _advance_opp() -> void:
 		# counter-play the player gets. Without this, WARRANT SUITE (half the deck airborne)
 		# was a deck of plain bodies any wall stopped cold.
 		if tgt != null and _has(str(u["id"]), "airborne"):
-			_float_txt("AIRBORNE", _slot_pos(1, lane), RED)
+			_float_txt(str(SIGIL_SHORT["airborne"]), _slot_pos(1, lane), RED)
 			tgt = null
 		if tgt != null:
 			var dmg := atk
@@ -1705,14 +1812,14 @@ func _advance_opp() -> void:
 			# ICE-9 QUARANTINE is built entirely on this; inert, boss 7 had no teeth at all.
 			if _has(str(u["id"]), "necrosis") and not bool(tgt.get("armor", false)):
 				dmg = maxi(dmg, int(tgt["hp"]))
-				_float_txt("NECROSIS", _slot_pos(2, lane), RED)
+				_float_txt(str(SIGIL_SHORT["necrosis"]), _slot_pos(2, lane), RED)
 			var died := _hit_unit(tgt, dmg, 2, lane)
 			# LEECH, mirrored: repairs itself 1 per landed hit, never past its printed hp
 			if _has(str(u["id"]), "leech"):
 				var lcap: int = int(CARDS[str(u["id"])][3])
 				if int(u["hp"]) < lcap:
 					u["hp"] = int(u["hp"]) + 1
-					_float_txt("LEECH +1", _slot_pos(1, lane), RED)
+					_float_txt(str(SIGIL_SHORT["leech"]) + " +1", _slot_pos(1, lane), RED)
 			if _has(str(tgt["id"]), "spike_casing"):
 				if _hit_unit(u, 1, 1, lane):
 					_kill("opp", lane)
@@ -1784,11 +1891,18 @@ func _turn_start() -> void:
 	_sync_board()
 	if deck.size() == 0 and mites_left == 0:
 		phase = Phase.MAIN
-		_msg = "Reserves empty. Play units, or ring the STRIKE bell."
+		_msg = "NO RESERVES — play units, ring STRIKE to end your turn"
 	else:
 		phase = Phase.DRAW
-		var side_nm: String = str(CARDS[SIDE_ID][0])
-		_msg = ("Draw: your DECK or a %s." % side_nm) if deck.size() > 0 else ("Draw a %s." % side_nm)
+		# The draw is MANDATORY, and its keyboard route (SPACE, SHIFT+SPACE for a shell) existed
+		# only inside _unhandled_input — nothing on screen ever mentioned it, so a player whose
+		# DECK pile sat off the frustum had no discoverable way to start the turn. Name both
+		# routes, and name the piles by their ON-SCREEN labels (DECK / SHELLS) rather than by the
+		# side card's display name, which is printed nowhere near the pile.
+		if deck.size() > 0:
+			_msg = "DRAW — click DECK or SHELLS, or press SPACE  ·  SHIFT takes a shell"
+		else:
+			_msg = "DRAW — deck is empty; click SHELLS or press SPACE"
 
 
 func _opp_fill_queue() -> void:
@@ -1819,13 +1933,13 @@ func _check_over() -> bool:
 		phase = Phase.OVER
 		_won = true
 		_over_at = _t
-		_msg = "TRACE TIPPED — the node cracks open."
+		_msg = "TRACE LOCKED — the node cracks open"
 		return true
 	if tip <= -WIN_TIP:
 		phase = Phase.OVER
 		_won = false
 		_over_at = _t
-		_msg = "HELIOS traced you — EJECTED."
+		_msg = "TRACED — HELIOS ejects you. The run ends here."
 		return true
 	return false
 
@@ -1948,6 +2062,15 @@ func _rect_for_card_id(id: String) -> Rect2:
 	return Rect2()
 
 
+func _inspect_fs(px: int) -> int:
+	## Type scale for the inspect panel. Deliberately NOT _fs(): that helper multiplies by
+	## the full _s() (1.5 at 1080p) and floors at 12, which both inflates the panel and
+	## flattens 13/11/9/8 into one size on a small window — the panel then reads as a wall.
+	## Here resolution is DAMPED (0.6) and the floor is the project minimum of 8, so the
+	## four tiers stay four tiers at every window size.
+	return maxi(int(round(px * (1.0 + (_s() - 1.0) * 0.6))), 8)
+
+
 func _hud_inspect(vp: Vector2, s: float) -> void:
 	## Right-click card readout: name, stat line, attack pattern, one block per sigil
 	## (NAME + its plain-English rule, wrapped), lore at the bottom.
@@ -1969,36 +2092,38 @@ func _hud_inspect(vp: Vector2, s: float) -> void:
 		pat = "Strikes three lanes (opposite + both sides)."
 	elif "targeting_laser" in sigs:
 		pat = "Strikes the weakest enemy anywhere."
-	var pad := 14.0 * s
+	var pad := 16.0 * s
 	var w := minf(330.0 * s, vp.x - 40.0 * s)
 	var inner := w - pad * 2.0
-	var ind := 11.0 * s                     # sigil rules are indented under their NAME
+	var ind := 12.0 * s                     # sigil label + its rule share this left gutter
 
 	# ---- build the blocks, measuring as we go -------------------------------
+	# Four type tiers, and only four: NAME > stat line > sigil label > prose. The space
+	# freed by the smaller sizes goes into the gaps, not into more words.
 	var blocks: Array = []
-	blocks.append(_iblock([nm], _fit_fs(nm, _fs(15), inner, 10), CYAN, 0.0, 0.0))
-	var stat := "ATK %d    HP %d    COST %d" % [int(c[2]), int(c[3]), int(c[4])]
-	blocks.append(_iblock([stat], _fit_fs(stat, _fs(12), inner, 9),
-		Color(0.86, 0.9, 0.96), 0.0, 9.0 * s, false, true))
-	var fs_pat := _fs(10)
+	blocks.append(_iblock([nm], _fit_fs(nm, _inspect_fs(13), inner, 9), CYAN, 0.0, 0.0))
+	var stat := "POWER %d     HP %d     ENERGY %d" % [int(c[2]), int(c[3]), int(c[4])]
+	blocks.append(_iblock([stat], _fit_fs(stat, _inspect_fs(9), inner, 8),
+		Color(0.86, 0.9, 0.96), 0.0, 11.0 * s, false, true))
+	var fs_pat := _inspect_fs(9)
 	blocks.append(_iblock(_wrap_lines(pat, fs_pat, inner), fs_pat,
-		Color(0.6, 0.82, 1.0), 0.0, 5.0 * s))
+		Color(0.55, 0.76, 0.95), 0.0, 7.0 * s))
 	for sg in sigs:
 		var lbl := str(SIGIL_SHORT.get(sg, sg)).to_upper()
-		blocks.append(_iblock([lbl], _fit_fs(lbl, _fs(12), inner, 9), SIG_TEXT,
-			0.0, 13.0 * s, true))
+		blocks.append(_iblock([lbl], _fit_fs(lbl, _inspect_fs(11), inner - ind, 9), SIG_TEXT,
+			ind, 18.0 * s, true))
 		var rule := str(SIGIL_RULES.get(sg, ""))
 		if rule != "":
-			var fs_r := _fs(10)
+			var fs_r := _inspect_fs(9)
 			blocks.append(_iblock(_wrap_lines(rule, fs_r, inner - ind), fs_r,
-				Color(0.76, 0.83, 0.9), ind, 4.0 * s))
+				Color(0.72, 0.81, 0.89), ind, 6.0 * s))
 	if LORE.has(nm):
-		var fs_l := _fs(10)
+		var fs_l := _inspect_fs(8)
 		blocks.append(_iblock(_wrap_lines("“" + str(LORE[nm]) + "”", fs_l, inner),
-			fs_l, Color(0.55, 0.66, 0.78), 0.0, 15.0 * s, false, true))
+			fs_l, Color(0.5, 0.62, 0.75), 0.0, 18.0 * s, false, true))
 	var hint := "right-click elsewhere to close"
-	blocks.append(_iblock([hint], _fit_fs(hint, _fs(9), inner, 8),
-		Color(0.46, 0.56, 0.68, 0.85), 0.0, 14.0 * s))
+	blocks.append(_iblock([hint], _fit_fs(hint, _inspect_fs(8), inner, 8),
+		Color(0.44, 0.54, 0.66, 0.85), 0.0, 16.0 * s))
 
 	# ---- height from the content, then find a spot that misses the card -----
 	var h := pad * 2.0
@@ -2023,20 +2148,39 @@ func _hud_inspect(vp: Vector2, s: float) -> void:
 	var r := Rect2(pos, Vector2(w, h))
 
 	# ---- draw ---------------------------------------------------------------
-	_hud.draw_rect(r.grow(2.0 * s), Color(0.02, 0.045, 0.06, 0.9))
-	_hud.draw_rect(r, Color(0.03, 0.06, 0.085, 0.94))
-	_hud.draw_rect(r, Color(CYAN.r, CYAN.g, CYAN.b, 0.55), false, maxf(1.5, 1.5 * s))
+	# shadow, then a vertical gradient body (hull navy at the head, near-black at the
+	# foot — the blacks stay black), then a hairline border and a lit top edge.
+	_hud.draw_rect(r.grow(3.0 * s), Color(0.0, 0.0, 0.0, 0.42))
+	var bands := 20
+	var top_col := Color(0.055, 0.088, 0.125, 0.96)
+	var bot_col := Color(0.014, 0.028, 0.042, 0.985)
+	for bi in bands:
+		var by := r.position.y + r.size.y * (float(bi) / float(bands))
+		_hud.draw_rect(Rect2(Vector2(r.position.x, by),
+			Vector2(r.size.x, r.size.y / float(bands) + 1.0)),
+			top_col.lerp(bot_col, float(bi) / float(bands - 1)))
+	_hud.draw_rect(r, Color(CYAN.r, CYAN.g, CYAN.b, 0.3), false, maxf(1.0, s))
+	_hud.draw_line(Vector2(r.position.x, r.position.y + 1.0),
+		Vector2(r.end.x, r.position.y + 1.0),
+		Color(CYAN.r, CYAN.g, CYAN.b, 0.5), maxf(1.0, s))
 	var cur := r.position.y + pad
 	for b in blocks:
 		cur += float(b["gap"])
 		if bool(b["rule"]):
 			var ly := roundf(cur - float(b["gap"]) * 0.5)
 			_hud.draw_line(Vector2(r.position.x + pad, ly), Vector2(r.end.x - pad, ly),
-				Color(CYAN.r, CYAN.g, CYAN.b, 0.22), maxf(1.0, s))
+				Color(CYAN.r, CYAN.g, CYAN.b, 0.16), maxf(1.0, s))
+		if bool(b["sig"]):
+			# each sigil opens its own block: a tick in the gutter, its rule indented to
+			# the same left edge — a list of named rules, not one slab of prose.
+			var ty := roundf(cur + float(b["lh"]) * 0.46)
+			_hud.draw_line(Vector2(r.position.x + pad, ty),
+				Vector2(r.position.x + pad + ind * 0.55, ty),
+				Color(CYAN.r, CYAN.g, CYAN.b, 0.6), maxf(1.5, 1.5 * s))
 		var fs: int = int(b["fs"])
 		var base := r.position.x + pad + float(b["ind"])
 		for ln in (b["lines"] as Array):
-			var at := Vector2(base, cur + _font.get_ascent(fs))
+			var at := Vector2(base, roundf(cur + _font.get_ascent(fs)))
 			if bool(b["sig"]):
 				_draw_sigil_text(at, str(ln), fs)
 			else:
@@ -2071,24 +2215,25 @@ func _hud_card(i: int) -> void:
 	if not afford:
 		_hud.draw_rect(r, Color(0, 0, 0, 0.42))   # dim the ART, never the wording
 	# Name plate and sigil word are stacked UPWARD from the big ATK/HP digits, on
-	# measured font metrics: the digit band's own ascent sets the floor, then the sigil,
-	# then the name. Both strings used to be pinned to fractions of the card height and
-	# collided with each other AND with the digits (a long "OVERCLOCK" ran clean through
-	# the 4 and the 2). Card-face text also uses _card_fs, not _fs — see below.
+	# measured font metrics: the digit band's own ascent sets the floor and the NAME sits
+	# straight on it; the sigil drops lower, into the frame's own dark nameplate, which the
+	# art has always drawn empty. Both strings used to be pinned to card-height fractions and
+	# collided with the digits. Card-face text uses _card_fs, not _fs. The NAME now
+	# outranks the sigil in size, but by shrink-to-fit, never by a fixed larger number.
 	var fs_st := _card_fs(r.size.y * 0.12)
 	var band_bot := r.position.y + r.size.y * 0.94 - _font.get_ascent(fs_st) - 2.0 * _s()
 	var sig := _sig_label(c[5])
 	var fs_sg := 0
-	var sg_h := 0.0
+
 	if sig != "":
-		fs_sg = _fit_fs(sig, _card_fs(r.size.y * 0.064), r.size.x - 10.0 * _s(), 7)
-		sg_h = _font.get_height(fs_sg)
-	var fs_nm := _fit_fs(str(c[0]), _card_fs(r.size.y * 0.054), r.size.x - 6.0 * _s(), 7)
-	var nm_top := band_bot - sg_h - _font.get_height(fs_nm)
+		fs_sg = _fit_fs(sig, _card_fs(r.size.y * 0.058), r.size.x * 0.40, 7)
+
+	var fs_nm := _fit_fs(str(c[0]), _card_fs(r.size.y * 0.082), r.size.x - 18.0 * _s(), 8)
+	var nm_top := band_bot - _font.get_height(fs_nm)
 	_hud.draw_string(_font, Vector2(r.position.x, nm_top + _font.get_ascent(fs_nm)), str(c[0]),
-		HORIZONTAL_ALIGNMENT_CENTER, r.size.x, fs_nm, Color(0.78, 0.88, 1.0))
+		HORIZONTAL_ALIGNMENT_CENTER, r.size.x, fs_nm, Color(0.87, 0.93, 1.0))
 	if sig != "":
-		_draw_sigil_text(Vector2(r.position.x, nm_top + _font.get_height(fs_nm) + _font.get_ascent(fs_sg)),
+		_draw_sigil_text(Vector2(r.position.x, r.position.y + r.size.y * 0.9205 + _font.get_ascent(fs_sg) - _font.get_height(fs_sg) * 0.5),
 			sig, fs_sg, HORIZONTAL_ALIGNMENT_CENTER, r.size.x)
 	_hud_stat(r.position + Vector2(r.size.x * 0.08, r.size.y * 0.94), str(c[2]), AMBER, fs_st)
 	_hud_stat(r.position + Vector2(r.size.x * 0.76, r.size.y * 0.94), str(c[3]), CYAN, fs_st)
@@ -2099,10 +2244,17 @@ func _hud_card(i: int) -> void:
 		var cc := r.position + Vector2(r.size.x * 0.15, r.size.y * 0.10)
 		var rad := r.size.y * 0.058
 		var acc: Color = RED if lack else Color(0.5, 0.82, 1.0)
-		_hud.draw_circle(cc, rad, Color(0.02, 0.05, 0.09, 0.9))
-		_hud.draw_arc(cc, rad, 0.0, TAU, 20, acc, 1.5)
-		_hud.draw_string(_font, cc + Vector2(-rad * 0.55, rad * 0.5), str(cost),
-			HORIZONTAL_ALIGNMENT_LEFT, -1, _fs(int(rad * 1.5 / _s())), acc)
+		# top-lit disc: a dark skirt, the body, then a faint tinted core pulled upward -
+		# enough gradient to give the pip a body without lifting the breach's blacks
+		_hud.draw_circle(cc, rad * 1.08, Color(0.004, 0.014, 0.028, 0.8))
+		_hud.draw_circle(cc, rad, Color(0.02, 0.05, 0.09, 0.95))
+		_hud.draw_circle(cc - Vector2(0, rad * 0.24), rad * 0.70, Color(acc.r * 0.10, acc.g * 0.14, acc.b * 0.18, 0.55))
+		_hud.draw_arc(cc, rad, 0.0, TAU, 28, acc, maxf(1.5, 1.4 * _s()))
+		var fs_c := _fit_fs(str(cost), _card_fs(rad * 1.35), rad * 1.45, 7)
+		_hud.draw_string(_font, cc + Vector2(-_font.get_string_size(str(cost),
+				HORIZONTAL_ALIGNMENT_LEFT, -1, fs_c).x * 0.5,
+				_font.get_ascent(fs_c) * 0.5 - _font.get_descent(fs_c) * 0.3), str(cost),
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fs_c, RED if lack else Color(0.93, 0.97, 1.0))
 	# ATTACK-DIRECTION glyph, top-right (only for cards that strike)
 	if int(c[2]) > 0:
 		_draw_dir_glyph(r.position + Vector2(r.size.x * 0.85, r.size.y * 0.10),
@@ -2114,6 +2266,16 @@ func _hud_card(i: int) -> void:
 
 
 func _hud_stat(pos: Vector2, txt: String, col: Color, fs: int) -> void:
+	## The numerals sit over frame metal, portrait art or bare board, so each gets a soft
+	## dark pad - four stacked discs, a cheap radial gradient - then is stamped three
+	## times: deep hue, hard black, lit face. That stack reads as a bevel at any size.
+	var tw := _font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
+	var cen := pos + Vector2(tw.x * 0.5, -_font.get_ascent(fs) * 0.34)
+	var pad := maxf(tw.x, float(fs)) * 0.82
+	for i in 4:
+		_hud.draw_circle(cen, pad * (1.0 - float(i) * 0.19), Color(0.01, 0.025, 0.045, 0.15))
+	_hud.draw_string(_font, pos + Vector2(0, 1.8 * _s()), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs,
+		Color(col.r * 0.26, col.g * 0.22, col.b * 0.18, 0.95))
 	_hud.draw_string(_font, pos + Vector2(1, 1), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(0, 0, 0, 0.7))
 	_hud.draw_string(_font, pos, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, col)
 
@@ -2204,98 +2366,148 @@ func _draw_dir_glyph(ctr: Vector2, sz: float, sigs: Array) -> void:
 func _hud_energy(s: float) -> void:
 	## discreet segmented charge strip — cyan family, no textures, no backing box
 	var vp := _hud.get_viewport_rect().size
-	var p := Vector2(28.0 * s, vp.y - 96.0 * s)
+	var p := Vector2(28.0 * s, vp.y - 92.0 * s)
 	var sel_cost := 0
 	if _sel >= 0 and _sel < hand.size():
 		sel_cost = int(CARDS[hand[_sel]][4])
-	var seg_w := 22.0 * s
-	var seg_h := 10.0 * s
-	var pitch := seg_w + 4.0 * s
+	var seg_w := 19.0 * s
+	var seg_h := 11.0 * s
+	var pitch := seg_w + 7.0 * s          # the gap does the counting — pips must not read as one bar
 	var pulse := 0.5 + 0.5 * sin(_t * 3.0)
-	_hud.draw_string(_font, p + Vector2(0.0, -6.0 * s), "ENERGY",
-		HORIZONTAL_ALIGNMENT_LEFT, -1, _fs(9), Color(CYAN.r, CYAN.g, CYAN.b, 0.55))
+	_hud.draw_string(_font, p + Vector2(1.0 * s, -7.0 * s), "ENERGY",
+		HORIZONTAL_ALIGNMENT_LEFT, -1, _fs(UITheme.FS_MICRO),
+		Color(CYAN.r, CYAN.g, CYAN.b, 0.38))
 	for i in MAX_ENERGY:
 		var r := Rect2(p + Vector2(i * pitch, 0.0), Vector2(seg_w, seg_h))
 		if i >= energy_max:
-			_hud.draw_rect(r, Color(CYAN.r, CYAN.g, CYAN.b, 0.07), false, 1.0)
+			# past this turn's cap: a stub, not a slot you can fill
+			_hud.draw_rect(Rect2(r.position + Vector2(0.0, seg_h * 0.4),
+				Vector2(seg_w, maxf(1.0, seg_h * 0.2))), Color(CYAN.r, CYAN.g, CYAN.b, 0.12))
 			continue
 		var spending := sel_cost > 0 and i >= energy - sel_cost and i < energy
 		if i < energy:
 			var base := AMBER if spending else CYAN
-			var a := 0.85
+			var a := 0.9
 			if i == energy - 1 and not spending:
-				a = 0.55 + 0.35 * pulse
-			_hud.draw_rect(r, Color(base.r, base.g, base.b, a))
+				a = 0.6 + 0.3 * pulse
+			# top-lit gradient inside each pip so the strip reads as charge, not a ruler
+			_hud.draw_rect(r, Color(base.r * 0.4, base.g * 0.45, base.b * 0.5, a * 0.85))
+			_hud.draw_rect(Rect2(r.position, Vector2(seg_w, seg_h * 0.5)),
+				Color(base.r, base.g, base.b, a))
 			_hud.draw_line(r.position, r.position + Vector2(seg_w, 0.0),
-				Color(base.r, base.g, base.b, 0.9), 1.0)
+				Color(1.0, 1.0, 1.0, a * 0.45), 1.0)
 		else:
-			_hud.draw_rect(r, Color(CYAN.r, CYAN.g, CYAN.b, 0.28), false, 1.0)
-	var by := p.y + seg_h + 3.0 * s
-	_hud.draw_line(Vector2(p.x, by), Vector2(p.x + (MAX_ENERGY - 1) * pitch + seg_w, by),
-		Color(CYAN.r, CYAN.g, CYAN.b, 0.18), 1.0)
-	var nx := p.x + (MAX_ENERGY - 1) * pitch + seg_w + 8.0 * s
+			_hud.draw_rect(r, Color(CYAN.r, CYAN.g, CYAN.b, 0.07))
+			_hud.draw_rect(r, Color(CYAN.r, CYAN.g, CYAN.b, 0.24), false, 1.0)
+	var nx := p.x + (MAX_ENERGY - 1) * pitch + seg_w + 10.0 * s
 	var ncol := AMBER if sel_cost > 0 else CYAN
 	_hud.draw_string(_font, Vector2(nx, p.y + seg_h), "%d/%d" % [energy, energy_max],
-		HORIZONTAL_ALIGNMENT_LEFT, -1, _fs(13), Color(ncol.r, ncol.g, ncol.b, 0.9))
+		HORIZONTAL_ALIGNMENT_LEFT, -1, _fs(UITheme.FS_BODY),
+		Color(ncol.r, ncol.g, ncol.b, 0.85))
 
 
 func _hud_scale(vp: Vector2, s: float) -> void:
 	## TRACE LOCK — a decryption dial; the needle swings toward whoever is winning and
 	## ticks lock in one per trace point, with an outer ring flaring near a lock (±5).
-	var C := Vector2(vp.x * 0.5, 116.0 * s)
-	var R := 60.0 * s
+	var C := Vector2(vp.x * 0.5, 100.0 * s)
+	var R := 52.0 * s
 	var up := -PI / 2.0
 	var span := deg_to_rad(78.0)
 	var norm := clampf(_tip_anim / float(WIN_TIP), -1.0, 1.0)
 	var a := up + norm * span
-	var ncol := CYAN if _tip_anim > 0.0 else (RED if _tip_anim < 0.0 else Color(0.7, 0.8, 0.9))
-	# base track + faction halves
-	_hud.draw_arc(C, R, up - span, up + span, 64, Color(0.12, 0.18, 0.22, 0.9), 6.0 * s)
-	_hud.draw_arc(C, R, up - span, up, 32, Color(RED.r, RED.g, RED.b, 0.18), 6.0 * s)
-	_hud.draw_arc(C, R, up, up + span, 32, Color(CYAN.r, CYAN.g, CYAN.b, 0.18), 6.0 * s)
-	# filled sweep from top to the needle
-	if norm >= 0.0:
-		_hud.draw_arc(C, R, up, a, 48, ncol, 6.0 * s)
-	else:
-		_hud.draw_arc(C, R, a, up, 48, ncol, 6.0 * s)
+	var ncol := CYAN if _tip_anim > 0.0 else (RED if _tip_anim < 0.0 else Color(0.62, 0.74, 0.88))
+	var w := 6.0 * s
+	# dead track, then each half graded from neutral at the centre to its faction at the lock
+	_hud.draw_arc(C, R, up - span, up + span, 64, Color(0.09, 0.13, 0.18, 0.92), w)
+	for sgn in [-1, 1]:
+		var fc: Color = CYAN if sgn > 0 else RED
+		for i in 16:
+			var f0: float = float(i) / 16.0
+			var f1: float = float(i + 1) / 16.0
+			_hud.draw_arc(C, R, up + sgn * f0 * span, up + sgn * f1 * span, 4,
+				Color(fc.r, fc.g, fc.b, lerpf(0.06, 0.34, f1)), w)
+	# live fill: centre -> needle, brightening toward the lock so the lead is unmistakable
+	var nseg: int = maxi(1, int(absf(norm) * 22.0))
+	for i in nseg:
+		var g0: float = float(i) / float(nseg)
+		var g1: float = float(i + 1) / float(nseg)
+		var ga: float = lerpf(0.4, 1.0, g1)
+		_hud.draw_arc(C, R, up + (a - up) * g0, up + (a - up) * g1, 4,
+			Color(ncol.r, ncol.g, ncol.b, ga * 0.16), w * 2.1)
+		_hud.draw_arc(C, R, up + (a - up) * g0, up + (a - up) * g1, 4,
+			Color(ncol.r, ncol.g, ncol.b, ga), w)
 	# 5 ticks per side, lit as the trace advances
 	for k in range(1, 6):
-		for sgn in [-1, 1]:
-			var sf: float = float(sgn)
+		for sgn2 in [-1, 1]:
+			var sf: float = float(sgn2)
 			var ta: float = up + sf * (float(k) / 5.0) * span
-			var tcol: Color = CYAN if sgn > 0 else RED
-			var lit: bool = (sgn > 0 and tip >= k) or (sgn < 0 and tip <= -k)
+			var tcol: Color = CYAN if sgn2 > 0 else RED
+			var lit: bool = (sgn2 > 0 and tip >= k) or (sgn2 < 0 and tip <= -k)
 			var dir := Vector2(cos(ta), sin(ta))
-			_hud.draw_line(C + dir * (R - 9.0 * s), C + dir * (R + 9.0 * s),
-				Color(tcol.r, tcol.g, tcol.b, 1.0 if lit else 0.25), 3.0 * s if lit else 2.0 * s)
+			var t0: float = R - (8.0 if lit else 6.0) * s
+			var t1: float = R + (8.0 if k == 5 else 6.0) * s
+			_hud.draw_line(C + dir * t0, C + dir * t1,
+				Color(tcol.r, tcol.g, tcol.b, 1.0 if lit else 0.22), 3.0 * s if lit else 1.5 * s)
 	# needle + hub
-	var tipp := C + Vector2(cos(a), sin(a)) * (R - 4.0 * s)
-	var perp := Vector2(cos(a + PI / 2.0), sin(a + PI / 2.0)) * (5.0 * s)
-	_hud.draw_colored_polygon(PackedVector2Array([C + perp, tipp, C - perp]), ncol)
-	_hud.draw_circle(C, 9.0 * s, Color(0.05, 0.08, 0.1))
-	_hud.draw_arc(C, 9.0 * s, 0.0, TAU, 24, ncol, 1.5 * s)
-	# numeric core + caption
-	_hud.draw_string(_font, C + Vector2(-50.0 * s, 34.0 * s), "%+d" % tip,
-		HORIZONTAL_ALIGNMENT_CENTER, 100.0 * s, _fs(30), ncol)
-	_hud.draw_string(_font, C + Vector2(-70.0 * s, 50.0 * s), "TRACE LOCK  5",
-		HORIZONTAL_ALIGNMENT_CENTER, 140.0 * s, _fs(9), Color(0.6, 0.75, 0.9, 0.7))
-	# side labels + imminent-lock flare
-	_hud.draw_string(_font, C + Vector2(-R - 54.0 * s, -R * 0.3), "HELIOS",
-		HORIZONTAL_ALIGNMENT_LEFT, -1, _fs(11), RED)
+	var tipp := C + Vector2(cos(a), sin(a)) * (R - 3.0 * s)
+	var perp := Vector2(cos(a + PI / 2.0), sin(a + PI / 2.0)) * (4.0 * s)
+	_hud.draw_colored_polygon(PackedVector2Array([C + perp, tipp, C - perp]),
+		Color(0.02, 0.03, 0.05, 0.85))
+	_hud.draw_line(C, tipp, ncol, 2.5 * s)
+	_hud.draw_circle(C, 7.0 * s, Color(0.04, 0.06, 0.09))
+	_hud.draw_arc(C, 7.0 * s, 0.0, TAU, 24, ncol, 1.5 * s)
+	# numeric core on a dark pill, then the lock threshold under it
+	_hud.draw_rect(Rect2(C + Vector2(-30.0 * s, 11.0 * s), Vector2(60.0 * s, 27.0 * s)),
+		Color(0.015, 0.025, 0.04, 0.75))
+	_hud.draw_line(C + Vector2(-30.0 * s, 38.0 * s), C + Vector2(30.0 * s, 38.0 * s),
+		Color(ncol.r, ncol.g, ncol.b, 0.45), 1.0)
+	_hud.draw_string(_font, C + Vector2(-40.0 * s, 32.0 * s), "%+d" % tip,
+		HORIZONTAL_ALIGNMENT_CENTER, 80.0 * s, _fs(UITheme.FS_DISPLAY), ncol)
+	_hud.draw_string(_font, C + Vector2(-70.0 * s, 50.0 * s), "TRACE LOCK AT 5",
+		HORIZONTAL_ALIGNMENT_CENTER, 140.0 * s, _fs(UITheme.FS_MICRO),
+		Color(0.58, 0.72, 0.88, 0.55))
+	# side labels — the leading side stays lit, the trailing one recedes
+	var la: float = 1.0 if _tip_anim < 0.0 else 0.3
+	var lb: float = 1.0 if _tip_anim > 0.0 else 0.3
+	_hud.draw_string(_font, C + Vector2(-R - 76.0 * s, -R * 0.3), "HELIOS",
+		HORIZONTAL_ALIGNMENT_RIGHT, 66.0 * s, _fs(UITheme.FS_LABEL),
+		Color(RED.r, RED.g, RED.b, la))
 	_hud.draw_string(_font, C + Vector2(R + 10.0 * s, -R * 0.3), "YOU",
-		HORIZONTAL_ALIGNMENT_LEFT, -1, _fs(11), CYAN)
+		HORIZONTAL_ALIGNMENT_LEFT, 66.0 * s, _fs(UITheme.FS_LABEL),
+		Color(CYAN.r, CYAN.g, CYAN.b, lb))
 	if absf(_tip_anim) >= 4.0:
-		var fl := 0.35 + 0.4 * sin(_t * 10.0)
+		var fl := 0.3 + 0.35 * sin(_t * 10.0)
 		_hud.draw_arc(C, R + 7.0 * s, up - span, up + span, 64,
 			Color(ncol.r, ncol.g, ncol.b, fl), 2.0 * s)
 
 
 func _hud_text(vp: Vector2, s: float) -> void:
-	_hud.draw_rect(Rect2(0, 0, vp.x, 46.0 * s), Color(0.02, 0.03, 0.05, 0.85))
-	_hud.draw_string(_font, Vector2(20.0 * s, 30.0 * s), "NODE DUEL — TIER %d" % tier,
-		HORIZONTAL_ALIGNMENT_LEFT, -1, _fs(17), CYAN)
-	_hud.draw_string(_font, Vector2(0, 30.0 * s), _msg, HORIZONTAL_ALIGNMENT_CENTER, vp.x, _fs(15),
-		Color(0.85, 0.92, 1.0))
+	# top chrome: a graded strip that fades into the room instead of a flat black slab,
+	# closed by a hairline rule that brightens toward the centre and dies at the edges
+	var bh := 34.0 * s
+	for i in 14:
+		var f0: float = float(i) / 14.0
+		var f1: float = float(i + 1) / 14.0
+		_hud.draw_rect(Rect2(0.0, bh * f0, vp.x, bh * (f1 - f0) + 1.0),
+			Color(0.048, 0.066, 0.098, lerpf(0.96, 0.0, f1 * f1)))
+	for i in 16:
+		var g0: float = float(i) / 16.0
+		var g1: float = float(i + 1) / 16.0
+		var ga: float = sin(lerpf(g0, g1, 0.5) * PI)
+		_hud.draw_line(Vector2(vp.x * g0, bh), Vector2(vp.x * g1 + 1.0, bh),
+			Color(CYAN.r, CYAN.g, CYAN.b, 0.05 + 0.22 * ga * ga), 1.0)
+	var ttl := "FIREWALL — %s" % str(TIER_NAME.get(tier, "TIER %d" % tier))
+	_hud.draw_string(_font, Vector2(18.0 * s, 23.0 * s), ttl,
+		HORIZONTAL_ALIGNMENT_LEFT, -1,
+		_fit_fs(ttl, _fs(UITheme.FS_TITLE), 300.0 * s, UITheme.FS_MICRO), CYAN)
+	# The centred prompt used to span the FULL viewport width, so a long line drew straight
+	# through the title on the left and the phase chip on the right. Keep it in the gap
+	# between them and shrink-to-fit inside that gap instead of clipping.
+	var mid := maxf(vp.x - 700.0 * s, 260.0 * s)
+	_hud.draw_string(_font, Vector2((vp.x - mid) * 0.5, 23.0 * s), _msg,
+		HORIZONTAL_ALIGNMENT_CENTER, mid,
+		_fit_fs(_msg, _fs(UITheme.FS_HEAD), mid, UITheme.FS_MICRO),
+		Color(0.8, 0.88, 0.98))
 	var chip := ""
 	var ccol := CYAN
 	match phase:
@@ -2305,17 +2517,18 @@ func _hud_text(vp: Vector2, s: float) -> void:
 		Phase.MAIN:
 			chip = "YOUR TURN — PLAY"
 		Phase.STRIKING:
-			chip = "STRIKE!"
+			chip = "STRIKING"
 		Phase.OPP_TURN:
 			chip = "HELIOS ACTS"
 			ccol = RED
 	if chip != "":
 		var pulse := 0.75 + 0.25 * sin(_t * 4.0)
-		_hud.draw_string(_font, Vector2(vp.x - 320.0 * s, 30.0 * s), chip,
-			HORIZONTAL_ALIGNMENT_RIGHT, 300.0 * s, _fs(15), Color(ccol.r, ccol.g, ccol.b, pulse))
+		_hud.draw_string(_font, Vector2(vp.x - 320.0 * s, 23.0 * s), chip,
+			HORIZONTAL_ALIGNMENT_RIGHT, 300.0 * s, _fs(UITheme.FS_HEAD),
+			Color(ccol.r, ccol.g, ccol.b, pulse))
 	# pile flash on dead draw-clicks — projected over the 3D piles
 	if _pile_flash > 0.0 or phase == Phase.DRAW:
-		for pv in [[DECK_POS, deck.size(), "DECK %d"], [MITE_POS, mites_left, "SHELLS %d"]]:
+		for pv in [[DECK_POS, deck.size(), "DECK %d"], [MITE_POS, mites_left, "STUBS %d"]]:
 			if not _cam.is_position_in_frustum(pv[0]):
 				continue
 			var sp := _cam.unproject_position(pv[0])
@@ -2326,16 +2539,19 @@ func _hud_text(vp: Vector2, s: float) -> void:
 				var pr2 := Rect2(sp - Vector2(56.0, 44.0) * s, Vector2(112.0, 88.0) * s)
 				_hud.draw_rect(pr2, Color(AMBER.r, AMBER.g, AMBER.b, _pile_flash), false, 3.0)
 			_hud.draw_string(_font, sp + Vector2(-52.0 * s, 58.0 * s), str(pv[2]) % int(pv[1]),
-				HORIZONTAL_ALIGNMENT_CENTER, 104.0 * s, _fs(12), Color(0.7, 0.85, 1.0, 0.85))
+				HORIZONTAL_ALIGNMENT_CENTER, 104.0 * s, _fs(UITheme.FS_BODY),
+				Color(0.7, 0.85, 1.0, 0.8))
 	if phase == Phase.DRAW:
 		var dp := _cam.unproject_position(DECK_POS + Vector3(0.65, 0, 0))
 		_hud.draw_string(_font, dp + Vector2(-60.0 * s, -54.0 * s + sin(_t * 4.0) * 4.0 * s),
-			"DRAW", HORIZONTAL_ALIGNMENT_CENTER, 120.0 * s, _fs(16), AMBER)
+			"DRAW  ·  SPACE", HORIZONTAL_ALIGNMENT_CENTER, 120.0 * s,
+			_fs(UITheme.FS_HEAD), AMBER)
 	if phase == Phase.MAIN:
 		var bp := _bell_screen_rect()
 		if bp.size.x > 0.0:
 			_hud.draw_string(_font, Vector2(bp.position.x, bp.end.y + 14.0 * s), "STRIKE",
-				HORIZONTAL_ALIGNMENT_CENTER, bp.size.x, _fs(13), Color(0.9, 0.6, 0.55))
+				HORIZONTAL_ALIGNMENT_CENTER, bp.size.x, _fs(UITheme.FS_BODY),
+				Color(0.9, 0.6, 0.55))
 	# floating combat numbers over the 3D board
 	for f in _floaters:
 		var ft := float(f["t"])
@@ -2349,13 +2565,33 @@ func _hud_text(vp: Vector2, s: float) -> void:
 	if not _toast.is_empty():
 		var tt := float(_toast["t"])
 		var col2: Color = _toast["col"]
-		_hud.draw_string(_font, Vector2(0, vp.y - _card_size2d().y - 40.0 * s), str(_toast["txt"]),
-			HORIZONTAL_ALIGNMENT_CENTER, vp.x, _fs(16), Color(col2.r, col2.g, col2.b, 1.0 - tt * tt))
+		# a plate under the toast: denials land over the hand and lost their edges there
+		var tfs := _fs(UITheme.FS_HEAD)
+		var ttxt := str(_toast["txt"])
+		var tw: float = _font.get_string_size(ttxt, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x
+		var ty := vp.y - _card_size2d().y - 40.0 * s
+		var fade: float = clampf(1.0 - tt * tt, 0.0, 1.0)
+		var tr := Rect2(vp.x * 0.5 - tw * 0.5 - 13.0 * s, ty - float(tfs),
+			tw + 26.0 * s, float(tfs) * 1.55)
+		_hud.draw_rect(tr, Color(0.02, 0.03, 0.05, 0.7 * fade))
+		_hud.draw_line(tr.position + Vector2(0.0, tr.size.y), tr.end,
+			Color(col2.r, col2.g, col2.b, 0.55 * fade), 1.0)
+		_hud.draw_string(_font, Vector2(0, ty), ttxt,
+			HORIZONTAL_ALIGNMENT_CENTER, vp.x, tfs, Color(col2.r, col2.g, col2.b, fade))
 	if phase == Phase.OVER:
-		_hud.draw_rect(Rect2(0, vp.y * 0.5 - 56.0 * s, vp.x, 112.0 * s), Color(0.02, 0.03, 0.05, 0.9))
-		_hud.draw_string(_font, Vector2(0, vp.y * 0.5 + 4.0 * s),
-			"NODE CRACKED" if _won else "EJECTED",
-			HORIZONTAL_ALIGNMENT_CENTER, vp.x, _fs(40), CYAN if _won else RED)
+		# LOSING ENDS THE RUN. breach_map3d._on_duel_finished(false) clears run_deck, atk_boost,
+		# graft and fragile, and shards/colonists are only ever banked at the core — so a loss
+		# here costs the entire station. One word ("EJECTED") could not carry that, so the
+		# screen states it outright.
+		_hud.draw_rect(Rect2(0, vp.y * 0.5 - 62.0 * s, vp.x, 132.0 * s), Color(0.02, 0.03, 0.05, 0.9))
+		_hud.draw_string(_font, Vector2(0, vp.y * 0.5 - 6.0 * s),
+			"NODE CRACKED" if _won else "TRACED — EJECTED",
+			HORIZONTAL_ALIGNMENT_CENTER, vp.x, _fs(34), CYAN if _won else RED)
+		var sub := "the node opens — the breach continues" if _won \
+			else "the run ends here — shards, pods and every deck upgrade are lost"
+		_hud.draw_string(_font, Vector2(0, vp.y * 0.5 + 24.0 * s), sub,
+			HORIZONTAL_ALIGNMENT_CENTER, vp.x, _fit_fs(sub, _fs(13), vp.x - 80.0 * s, 10),
+			Color(0.72, 0.84, 0.95, 0.85) if _won else Color(1.0, 0.62, 0.55, 0.95))
 		if _t - _over_at > 0.5:
-			_hud.draw_string(_font, Vector2(0, vp.y * 0.5 + 40.0 * s), "click to continue",
-				HORIZONTAL_ALIGNMENT_CENTER, vp.x, _fs(14), Color(0.8, 0.9, 1.0, 0.7))
+			_hud.draw_string(_font, Vector2(0, vp.y * 0.5 + 54.0 * s), "click to continue",
+				HORIZONTAL_ALIGNMENT_CENTER, vp.x, _fs(12), Color(0.8, 0.9, 1.0, 0.7))

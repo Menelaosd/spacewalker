@@ -21,6 +21,7 @@ var _font: Font = ThemeDB.fallback_font
 var _derelict_tex: Texture2D = null    # small faint ship marker for derelicts
 var _face_cache := {}                  # crew name -> small roster face texture
 var _glass_tex: GradientTexture2D = null   # radial gradient for the glass-dome body
+var _plate_tex: GradientTexture2D = null   # vertical gradient for the instrument plate
 
 
 func _get_minimum_size() -> Vector2:
@@ -43,6 +44,17 @@ func _ready() -> void:
 	_glass_tex.fill_to = Vector2(1.0, 0.5)
 	_glass_tex.width = 128
 	_glass_tex.height = 128
+	# instrument plate: hull navy at the top edge sinking to near-black at the
+	# base, so the scope reads as a mounted panel, not text floating on stars
+	var pg := Gradient.new()
+	pg.set_color(0, Color(0.047, 0.067, 0.102, 0.72))
+	pg.set_color(1, Color(0.024, 0.035, 0.059, 0.34))
+	_plate_tex = GradientTexture2D.new()
+	_plate_tex.gradient = pg
+	_plate_tex.fill_from = Vector2(0.0, 0.0)
+	_plate_tex.fill_to = Vector2(0.0, 1.0)
+	_plate_tex.width = 4
+	_plate_tex.height = 128
 
 
 func _crew_face(nm: String) -> Texture2D:
@@ -94,6 +106,19 @@ func _draw() -> void:
 	var flick := 0.88 + 0.09 * sin(_t * 19.0) + 0.03 * sin(_t * 3.1)
 	if fmod(_t, 4.7) < 0.07:
 		flick *= 0.72
+
+	# instrument plate behind the scope: notched hull-navy gradient + hairline
+	# rim, in the same angular language as the other HUD panels
+	if _plate_tex != null:
+		var pr := Rect2(0.5, 1.0, PANEL.x - 1.0, PANEL.y - 1.5)
+		var pts := UITheme.panel_points(pr, 11.0, 6.0)
+		var uvs := PackedVector2Array()
+		for pt in pts:
+			uvs.append((pt - pr.position) / pr.size)
+		draw_colored_polygon(pts, Color(1, 1, 1, 1), uvs, _plate_tex)
+		var rim := pts.duplicate()
+		rim.append(pts[0])
+		draw_polyline(rim, Color(acc.r, acc.g, acc.b, 0.22 * flick), 1.0)
 
 	# projected disc — dark base, then a glass-dome gradient body
 	draw_circle(c, R + 5.0, Color(acc.r, acc.g, acc.b, 0.06 * flick))
@@ -152,13 +177,13 @@ func _draw() -> void:
 	if where.length() > 15:
 		where = where.substr(0, 14) + "…"
 	draw_string(_font, Vector2(0, 11), "◈ SCAN · %s" % where,
-		HORIZONTAL_ALIGNMENT_CENTER, PANEL.x, 9,
-		Color(acc.r, acc.g, acc.b, 0.75 * flick))
+		HORIZONTAL_ALIGNMENT_CENTER, PANEL.x, 8,
+		Color(acc.r, acc.g, acc.b, 0.8 * flick))
 	var rng_label := "RNG %dkm" % int(world_range / 100.0) if mode == "flight" \
 		else "RNG %dm" % int(world_range)
-	draw_string(_font, Vector2(0, PANEL.y - 2), rng_label,
-		HORIZONTAL_ALIGNMENT_CENTER, PANEL.x, 8,
-		Color(acc.r, acc.g, acc.b, 0.4 * flick))
+	draw_string(_font, Vector2(0, PANEL.y - 5), rng_label,
+		HORIZONTAL_ALIGNMENT_CENTER, PANEL.x, 7,
+		Color(acc.r, acc.g, acc.b, 0.52 * flick))
 
 
 # ------------------------------------------------------------------

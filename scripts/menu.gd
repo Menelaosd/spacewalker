@@ -31,7 +31,7 @@ func toggle() -> void:
 	# star chart (or another overlay) still needs
 	if visible:
 		GameState.push_pause("menu")
-		_save_btn.text = "Save game"
+		_save_btn.text = "SAVE GAME"
 	else:
 		GameState.pop_pause("menu")
 
@@ -48,20 +48,20 @@ func _build() -> void:
 	add_child(center)
 
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(280, 0)
+	panel.custom_minimum_size = Vector2(238, 0)
 	center.add_child(panel)
 	var margin := MarginContainer.new()
 	for side in ["left", "right", "top", "bottom"]:
-		margin.add_theme_constant_override("margin_" + side, 24)
+		margin.add_theme_constant_override("margin_" + side, 18)
 	panel.add_child(margin)
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 10)
+	box.add_theme_constant_override("separation", 8)
 	margin.add_child(box)
 
 	var title := Label.new()
 	title.text = "◈  SYSTEMS PAUSED"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 15)
+	title.add_theme_font_size_override("font_size", 12)
 	title.modulate = UITheme.ACCENT
 	box.add_child(title)
 	var sep := HSeparator.new()
@@ -69,27 +69,27 @@ func _build() -> void:
 	box.add_child(sep)
 
 	var resume := Button.new()
-	resume.text = "Resume"
+	resume.text = "RESUME"
 	resume.pressed.connect(toggle)
 	box.add_child(resume)
 
 	_save_btn = Button.new()
-	_save_btn.text = "Save game"
+	_save_btn.text = "SAVE GAME"
 	_save_btn.pressed.connect(_on_save)
 	box.add_child(_save_btn)
 
 	var quit := Button.new()
-	quit.text = "Save & quit to title"
+	quit.text = "SAVE & QUIT"
 	quit.pressed.connect(_on_quit)
 	box.add_child(quit)
 
 
 func _on_save() -> void:
 	GameState.save_game()
-	_save_btn.text = "Saved ✓"
+	_save_btn.text = "SAVED ✓"
 	await get_tree().create_timer(1.2).timeout
 	if visible:
-		_save_btn.text = "Save game"
+		_save_btn.text = "SAVE GAME"
 
 
 func _on_quit() -> void:

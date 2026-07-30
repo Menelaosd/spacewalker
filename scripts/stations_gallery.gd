@@ -48,6 +48,24 @@ func _cols() -> int:
 	return maxi(1, int((get_viewport_rect().size.x - MARGIN * 2.0) / CELL))
 
 
+func _grad_rect(r: Rect2, top: Color, bottom: Color) -> void:
+	## Vertical gradient fill — the gallery's tile and header material.
+	draw_polygon(
+		PackedVector2Array([r.position, Vector2(r.end.x, r.position.y), r.end,
+			Vector2(r.position.x, r.end.y)]),
+		PackedColorArray([top, top, bottom, bottom]))
+
+
+func _fit(s: String, w: float, base: int, floor_size := 7) -> int:
+	## Largest size at or below `base` whose string still fits `w` — station names
+	## run long, and a name must never spill past its tile.
+	var sz := base
+	while sz > floor_size and _font.get_string_size(
+			s, HORIZONTAL_ALIGNMENT_LEFT, -1, sz).x > w:
+		sz -= 1
+	return sz
+
+
 func _process(_delta: float) -> void:
 	queue_redraw()
 
@@ -72,7 +90,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _draw() -> void:
 	var vp := get_viewport_rect().size
-	draw_rect(Rect2(Vector2.ZERO, vp), Color(0.06, 0.07, 0.10))
+	_grad_rect(Rect2(Vector2.ZERO, vp), Color(0.047, 0.062, 0.094), Color(0.024, 0.033, 0.052))
 	var cols := _cols()
 	var ox := MARGIN + ((vp.x - MARGIN * 2.0) - cols * CELL) * 0.5
 	var top := 64.0
@@ -83,8 +101,10 @@ func _draw() -> void:
 		var cy := top + row * CELL - _scroll
 		if cy > vp.y or cy + CELL < 40.0:
 			continue
-		# panel
-		draw_rect(Rect2(cx - CELL * 0.5 + 5, cy + 5, CELL - 10, CELL - 12), Color(0.10, 0.12, 0.16))
+		# panel — gradient backing + hairline border
+		var cell_r := Rect2(cx - CELL * 0.5 + 5, cy + 5, CELL - 10, CELL - 12)
+		_grad_rect(cell_r, Color(0.075, 0.095, 0.135), Color(0.035, 0.048, 0.072))
+		draw_rect(cell_r, Color(0.35, 0.62, 0.78, 0.28), false, 1.0)
 		var it: Dictionary = _items[i]
 		var tex: Texture2D = it["tex"]
 		var sz := tex.get_size()
@@ -92,17 +112,26 @@ func _draw() -> void:
 		var dw := sz.x * sc
 		var dh := sz.y * sc
 		draw_texture_rect(tex, Rect2(cx - dw * 0.5, cy + 18 + (IMG - dh) * 0.5, dw, dh), false)
-		# big number badge (top-left)
-		var badge := Vector2(cx - CELL * 0.5 + 14, cy + 14)
-		draw_rect(Rect2(badge.x - 4, badge.y - 2, 46, 30), Color(0.03, 0.05, 0.08, 0.9))
-		draw_string(_font, badge + Vector2(0, 24), str(i + 1), HORIZONTAL_ALIGNMENT_LEFT, -1, 26, Color(0.55, 0.9, 1.0))
-		# name
-		draw_string(_font, Vector2(cx - CELL * 0.5 + 10, cy + CELL - 18), it["name"],
-			HORIZONTAL_ALIGNMENT_CENTER, CELL - 20, 13, Color(1, 1, 1, 0.9))
+		# number badge (top-left)
+		var badge := Vector2(cx - CELL * 0.5 + 13, cy + 13)
+		var bw := 32.0
+		_grad_rect(Rect2(badge.x - 4, badge.y - 2, bw, 22),
+			Color(0.05, 0.09, 0.13, 0.95), Color(0.02, 0.04, 0.06, 0.95))
+		draw_rect(Rect2(badge.x - 4, badge.y - 2, bw, 22),
+			Color(0.35, 0.62, 0.78, 0.35), false, 1.0)
+		draw_string(_font, Vector2(badge.x - 4, badge.y + 14), str(i + 1),
+			HORIZONTAL_ALIGNMENT_CENTER, bw, 16, Color(0.55, 0.9, 1.0))
+		# name — shrink-to-fit so long ids never spill the tile
+		var nm: String = str(it["name"])
+		draw_string(_font, Vector2(cx - CELL * 0.5 + 10, cy + CELL - 20), nm,
+			HORIZONTAL_ALIGNMENT_CENTER, CELL - 20, _fit(nm, CELL - 22, 10),
+			Color(1, 1, 1, 0.88))
 	_content_h = ceil(_items.size() / float(cols)) * CELL + 40.0
-	# fixed header
-	draw_rect(Rect2(0, 0, vp.x, 52), Color(0.03, 0.05, 0.08, 0.96))
-	draw_string(_font, Vector2(24, 24), "STATION GALLERY — %d options (pick by number)" % _items.size(),
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(0.6, 0.9, 1.0))
-	draw_string(_font, Vector2(24, 42), "wheel / arrows / PgUp-PgDn scroll  ·  Home/End  ·  Esc",
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.55, 0.7, 0.85, 0.9))
+	# fixed header — gradient bar with a hairline rule under it
+	_grad_rect(Rect2(0, 0, vp.x, 42), Color(0.05, 0.075, 0.115, 0.98),
+		Color(0.018, 0.03, 0.048, 0.98))
+	draw_line(Vector2(0, 42), Vector2(vp.x, 42), Color(0.35, 0.62, 0.78, 0.35), 1.0)
+	draw_string(_font, Vector2(24, 20), "STATION GALLERY — %d options (pick by number)" % _items.size(),
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.6, 0.9, 1.0))
+	draw_string(_font, Vector2(24, 35), "wheel / arrows / PgUp-PgDn scroll  ·  Home/End  ·  Esc",
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.55, 0.7, 0.85, 0.9))

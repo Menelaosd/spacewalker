@@ -174,7 +174,10 @@ func _s() -> float:
 
 
 func _fs(px: int) -> int:
-	return maxi(int(px * _s()), 11)
+	## Routed through the game-wide type scale. The old body floored at 11, which quietly
+	## made every "small" label in the breach a whole rung bigger than the rest of the game
+	## (_s() is always 1.0 under canvas_items stretch, so the floor was the only thing it did).
+	return UITheme.fs(px, _s())
 
 
 func _fit(txt: String, max_w: float, want_px: int, floor_px: int = 8) -> int:
@@ -187,6 +190,25 @@ func _fit(txt: String, max_w: float, want_px: int, floor_px: int = 8) -> int:
 	return px
 
 
+func _wrap(txt: String, max_w: float, px: int) -> Array:
+	## Word-wrap measured with the real font metrics, returning the LINES. A plain
+	## width/box ratio UNDER-counts real wrapping, and every caller below fed that estimate
+	## to draw_multiline_string as its max_lines — where an under-count silently truncates
+	## the tail instead of drawing it.
+	var out: Array = []
+	var line := ""
+	for word in txt.split(" ", false):
+		var cand: String = word if line == "" else line + " " + word
+		if line == "" or _font.get_string_size(cand, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x <= max_w:
+			line = cand
+		else:
+			out.append(line)
+			line = word
+	if line != "":
+		out.append(line)
+	return out
+
+
 func _grid() -> Dictionary:
 	var vp := _vp()
 	var s := _s()
@@ -195,9 +217,14 @@ func _grid() -> Dictionary:
 	var rows: int = int(ceil(float(n) / float(cols)))
 	var gx := 20.0 * s
 	var gy := 18.0 * s if rows == 1 else 44.0 * s           # extra room for row-2 index keys
-	var sig_h := 62.0 * s                                   # room for 2 sigil words per card
-	var top := 118.0 * s                                    # title band + the [n] key row
-	var bot := (86.0 if cost_note != "" else 60.0) * s      # note + hint band
+	var sig_h := 52.0 * s                                   # room for 2 sigil words per card
+	var top := 100.0 * s                                    # title band + the [n] key row
+	var bot := 52.0 * s                                     # hint band
+	if cost_note != "":
+		# reserve the note's REAL wrapped height (same 0.66 box as _on_draw) so a long
+		# rig explanation pushes the cards up instead of landing on top of them
+		bot += _font.get_multiline_string_size(cost_note, HORIZONTAL_ALIGNMENT_CENTER,
+			vp.x * 0.66, _fs(11)).y + 16.0 * s
 	var avail_w := vp.x * 0.92
 	var avail_h := maxf(vp.y - top - bot, 120.0 * s)
 	var cw := (avail_w - gx * (cols - 1)) / float(cols)
@@ -206,7 +233,7 @@ func _grid() -> Dictionary:
 	if ch + sig_h > row_h:
 		ch = maxf(row_h - sig_h, 72.0 * s)
 	# never let a 2-3 card row balloon to fill the screen
-	ch = minf(ch, vp.y * (0.52 if rows == 1 else 0.34))
+	ch = minf(ch, vp.y * (0.46 if rows == 1 else 0.31))
 	cw = ch * ASPECT
 	var pitch := ch + sig_h + gy
 	var y0 := top + maxf((avail_h - (pitch * rows - gy)) * 0.5, 0.0)
@@ -249,13 +276,34 @@ func _on_draw() -> void:
 	var g := _grid()
 	var vp: Vector2 = g["vp"]
 	var s: float = g["s"]
-	_panel.draw_rect(Rect2(Vector2.ZERO, vp), Color(0.01, 0.02, 0.035, 0.8))
-	# title band
-	_panel.draw_string(_font, Vector2(0, 46.0 * s), title.to_upper(),
-		HORIZONTAL_ALIGNMENT_CENTER, vp.x, _fs(22), CYAN)
-	var ly := 60.0 * s
-	_panel.draw_line(Vector2(vp.x * 0.5 - 160.0 * s, ly), Vector2(vp.x * 0.5 + 160.0 * s, ly),
-		Color(CYAN.r, CYAN.g, CYAN.b, 0.35), 1.0)
+	# backdrop: a vertical gradient rather than a flat wash — a touch of hull navy up top,
+	# near-black at the floor, so the card row reads as lit from above. Blacks stay black.
+	var top_c := Color(0.016, 0.030, 0.052, 0.84)
+	var bot_c := Color(0.003, 0.007, 0.016, 0.93)
+	_panel.draw_polygon(PackedVector2Array([Vector2.ZERO, Vector2(vp.x, 0.0), Vector2(vp.x, vp.y),
+		Vector2(0.0, vp.y)]), PackedColorArray([top_c, top_c, bot_c, bot_c]))
+	# hairline frame + corner ticks: an edge for the modal without a bright panel
+	var ins := Rect2(Vector2(11.0 * s, 11.0 * s), vp - Vector2(22.0 * s, 22.0 * s))
+	_panel.draw_rect(ins, Color(CYAN.r, CYAN.g, CYAN.b, 0.09), false, 1.0)
+	var tick := 28.0 * s
+	var tcol := Color(CYAN.r, CYAN.g, CYAN.b, 0.30)
+	for cn in [[ins.position, 1.0, 1.0], [Vector2(ins.end.x, ins.position.y), -1.0, 1.0],
+		[Vector2(ins.position.x, ins.end.y), 1.0, -1.0], [ins.end, -1.0, -1.0]]:
+		var cp: Vector2 = cn[0]
+		_panel.draw_line(cp, cp + Vector2(tick * float(cn[1]), 0.0), tcol, 1.0)
+		_panel.draw_line(cp, cp + Vector2(0.0, tick * float(cn[2])), tcol, 1.0)
+	# title band — shrink-to-fit, because a rig title is a whole clause
+	var ttl := title.to_upper()
+	_panel.draw_string(_font, Vector2(0, 40.0 * s), ttl,
+		HORIZONTAL_ALIGNMENT_CENTER, vp.x, _fit(ttl, vp.x * 0.86, _fs(16)), CYAN)
+	# the rule under the title fades out at both ends instead of stopping dead
+	var ly := 54.0 * s
+	var hw := 230.0 * s
+	var mid := Color(CYAN.r, CYAN.g, CYAN.b, 0.42)
+	var off := Color(CYAN.r, CYAN.g, CYAN.b, 0.0)
+	_panel.draw_polygon(PackedVector2Array([Vector2(vp.x * 0.5 - hw, ly),
+		Vector2(vp.x * 0.5, ly - 1.0), Vector2(vp.x * 0.5 + hw, ly), Vector2(vp.x * 0.5, ly + 1.0)]),
+		PackedColorArray([off, mid, off, mid]))
 	# cards: unhovered first so the lifted one overlaps its neighbours
 	for i in card_ids.size():
 		if i != _hover:
@@ -263,32 +311,42 @@ func _on_draw() -> void:
 	if _hover >= 0 and _hover < card_ids.size():
 		_draw_card(_hover, g)
 	# note + hint
-	var fy := vp.y - 22.0 * s
+	var fy := vp.y - 20.0 * s
+	var hps := _fs(9)
 	if cost_note != "":
-		# an explanation can be a whole sentence, so it wraps and shrinks to fit rather
-		# than running off both edges of the screen
-		var nw := vp.x * 0.72
-		var nps := _fs(14)
-		var lines := ceili(_font.get_string_size(cost_note, HORIZONTAL_ALIGNMENT_LEFT, -1,
-			nps).x / nw)
-		_panel.draw_multiline_string(_font, Vector2((vp.x - nw) * 0.5, vp.y - 48.0 * s - float(maxi(lines - 1, 0)) * nps * 1.25),
-			cost_note, HORIZONTAL_ALIGNMENT_CENTER, nw, nps, 3, AMBER)
+		# a rig's note is a whole sentence. Measure the WRAPPED block (never a line-count
+		# guess), shrink it until it fits two lines, then sit it on the hint row. max_lines
+		# is unlimited so an unexpected third line still draws instead of clipping.
+		var nw := vp.x * 0.66
+		var nps := _fs(11)
+		var nsz := _font.get_multiline_string_size(cost_note, HORIZONTAL_ALIGNMENT_CENTER, nw, nps)
+		while nps > 8 and nsz.y > float(nps) * 2.7:
+			nps -= 1
+			nsz = _font.get_multiline_string_size(cost_note, HORIZONTAL_ALIGNMENT_CENTER, nw, nps)
+		var nb := fy - float(hps) - 14.0 * s          # bottom edge of the note block
+		_panel.draw_multiline_string(_font, Vector2((vp.x - nw) * 0.5, nb - nsz.y + float(nps)),
+			cost_note, HORIZONTAL_ALIGNMENT_CENTER, nw, nps, -1, AMBER)
 	if allow_cancel:
-		# explicit SKIP button — walking away shouldn't require guessing that ESC works
+		# explicit SKIP button — walking away shouldn't require guessing that ESC works.
+		# Deliberately quiet: it must never compete with the cards for the eye.
 		var sr := _skip_rect()
 		var s_hot: bool = sr.has_point(_panel.get_local_mouse_position())
-		_panel.draw_rect(sr, Color(0.05, 0.07, 0.10, 0.92))
-		_panel.draw_rect(sr, AMBER if s_hot else Color(CYAN.r, CYAN.g, CYAN.b, 0.55), false, 2.0)
-		_panel.draw_string(_font, sr.position + Vector2(0, sr.size.y * 0.68), "SKIP",
-			HORIZONTAL_ALIGNMENT_CENTER, sr.size.x, _fs(15),
-			AMBER if s_hot else Color(0.80, 0.88, 0.98))
+		_panel.draw_polygon(PackedVector2Array([sr.position, Vector2(sr.end.x, sr.position.y),
+			sr.end, Vector2(sr.position.x, sr.end.y)]),
+			PackedColorArray([Color(0.05, 0.08, 0.12, 0.90), Color(0.05, 0.08, 0.12, 0.90),
+			Color(0.02, 0.03, 0.05, 0.90), Color(0.02, 0.03, 0.05, 0.90)]))
+		_panel.draw_rect(sr, Color(AMBER.r, AMBER.g, AMBER.b, 0.85) if s_hot
+			else Color(CYAN.r, CYAN.g, CYAN.b, 0.26), false, 1.0)
+		_panel.draw_string(_font, sr.position + Vector2(0, sr.size.y * 0.66), "SKIP",
+			HORIZONTAL_ALIGNMENT_CENTER, sr.size.x, _fs(11),
+			AMBER if s_hot else Color(0.56, 0.65, 0.76))
 	if _info >= 0 and _info < card_ids.size():
 		_draw_info(_info)
 	var hint := "click a card   ·   1-%d picks   ·   right-click reads a card" % mini(card_ids.size(), 9)
 	if allow_cancel:
 		hint += "   ·   ESC or SKIP walks away"
-	_panel.draw_string(_font, Vector2(0, fy), hint, HORIZONTAL_ALIGNMENT_CENTER, vp.x, _fs(12),
-		Color(CYAN.r, CYAN.g, CYAN.b, 0.65))
+	_panel.draw_string(_font, Vector2(0, fy), hint, HORIZONTAL_ALIGNMENT_CENTER, vp.x, hps,
+		Color(CYAN.r, CYAN.g, CYAN.b, 0.40))
 
 
 func _draw_card(i: int, g: Dictionary) -> void:
@@ -323,16 +381,23 @@ func _draw_card(i: int, g: Dictionary) -> void:
 		_panel.draw_rect(r, CYAN if hot else Color(CYAN.r, CYAN.g, CYAN.b, 0.45), false, 2.0)
 	# name / in-frame sigil / stats — same placement as _hud_card(); the sigil word is a
 	# touch smaller than the duel's 0.07 because these cards are drawn much larger.
+	# Card-face type does NOT go through _fs() — same reason breach_duel3d keeps a separate
+	# _card_fs(). _fs() floors at the game-wide legibility minimum, and that floor is TALLER
+	# than the 0.087·h step from the name down to the sigil word once a 12-14 card offer
+	# (CODE SPLICER hands the picker every sigil-bearing card in the deck, unsliced) drops
+	# the cards to ~85 px. Name, sigil word and the stat digits then all landed in the same
+	# band. Size off the CARD, floor at 5, then shrink to fit the width as before; at the
+	# 3-6 card sizes this returns exactly what _fs() returned, so nothing approved moves.
 	var nm := _name_of(id)
 	var inner := r.size.x * 0.74            # frame art eats the outer margins
-	_panel.draw_string(_font, r.position + Vector2(0, r.size.y * 0.76), nm,
-		HORIZONTAL_ALIGNMENT_CENTER, r.size.x, _fit(nm, inner, _fs(int(r.size.y * 0.052 / s))),
-		Color(0.86, 0.93, 1.0) if hot else Color(0.78, 0.88, 1.0))
+	_panel.draw_string(_font, r.position + Vector2(0, r.size.y * 0.755), nm,
+		HORIZONTAL_ALIGNMENT_CENTER, r.size.x, _fit(nm, inner, maxi(int(r.size.y * 0.045), 5), 5),
+		Color(0.88, 0.94, 1.0) if hot else Color(0.72, 0.82, 0.94))
 	if not sigs.is_empty():
 		var sl := _sig_label(sigs)
-		_outlined(r.position + Vector2(0, r.size.y * 0.845), sl, r.size.x,
-			_fit(sl, inner, _fs(int(r.size.y * 0.042 / s))), Color(1, 1, 1), HORIZONTAL_ALIGNMENT_CENTER)
-	var fs := _fit("00", r.size.x * 0.15, _fs(int(r.size.y * 0.10 / s)))
+		_outlined(r.position + Vector2(0, r.size.y * 0.842), sl, r.size.x,
+			_fit(sl, inner, maxi(int(r.size.y * 0.037), 5), 5), Color(1, 1, 1), HORIZONTAL_ALIGNMENT_CENTER)
+	var fs := _fit("00", r.size.x * 0.15, _fs(int(r.size.y * 0.085 / s)))
 	var atk := _atk_of(id)
 	_stat(r.position + Vector2(r.size.x * 0.08, r.size.y * 0.94), str(atk),
 		AMBER if int(power_bonus.get(id, 0)) == 0 else Color(1.0, 0.9, 0.45), fs)
@@ -352,28 +417,49 @@ func _draw_card(i: int, g: Dictionary) -> void:
 	if atk > 0:
 		_dir_glyph(r.position + Vector2(r.size.x * 0.85, r.size.y * 0.10), r.size.y * 0.05, sigs)
 	if dim:
-		_panel.draw_rect(r, Color(0.0, 0.02, 0.05, 0.26))
+		_panel.draw_rect(r, Color(0.0, 0.02, 0.05, 0.34))
 	# ---- selection chrome -------------------------------------------------
+	# the frames are art, so the selected state is a halo AROUND the card plus a lit key
+	# chip — nothing is drawn over the frame itself
 	if hot:
-		_panel.draw_rect(r.grow(8.0 * s), Color(CYAN.r, CYAN.g, CYAN.b, 0.22), false, 5.0 * s)
-		_panel.draw_rect(r.grow(3.0 * s), CYAN, false, maxf(2.5 * s, 1.5))
+		for k2 in 5:
+			# thin rings with a squared falloff read as a glow; fat overlapping rings
+			# just read as a grey slab around the card
+			_panel.draw_rect(r.grow((3.0 + float(k2) * 4.5) * s),
+				Color(CYAN.r, CYAN.g, CYAN.b, 0.20 * pow(1.0 - float(k2) / 5.0, 2.0)),
+				false, maxf(2.5 * s, 1.5))
+		_panel.draw_rect(r.grow(3.0 * s), CYAN, false, maxf(2.0 * s, 1.5))
 	else:
-		_panel.draw_rect(r.grow(2.0 * s), Color(CYAN.r, CYAN.g, CYAN.b, 0.18), false, 1.0)
+		_panel.draw_rect(r.grow(2.0 * s), Color(CYAN.r, CYAN.g, CYAN.b, 0.13), false, 1.0)
 	# index key, pinned above the resting slot so it never moves
-	var kcol: Color = CYAN if hot else Color(0.55, 0.68, 0.8)
 	if i < 9:
-		_panel.draw_string(_font, Vector2(base.position.x, base.position.y - 24.0 * s),
-			"[ %d ]" % (i + 1), HORIZONTAL_ALIGNMENT_CENTER, base.size.x, _fs(15), kcol)
+		var kfs := _fs(11)
+		var ky := base.position.y - 20.0 * s
+		if hot:
+			var kw := float(kfs) * 3.2
+			var chip := Rect2(base.position.x + (base.size.x - kw) * 0.5, ky - float(kfs) * 0.98,
+				kw, float(kfs) * 1.42)
+			_panel.draw_rect(chip, Color(0.04, 0.09, 0.15, 0.95))
+			_panel.draw_rect(chip, Color(CYAN.r, CYAN.g, CYAN.b, 0.75), false, 1.0)
+		_panel.draw_string(_font, Vector2(base.position.x, ky), "[ %d ]" % (i + 1),
+			HORIZONTAL_ALIGNMENT_CENTER, base.size.x, kfs,
+			CYAN if hot else Color(0.42, 0.54, 0.66))
 	# ---- sigils in words, under the card ----------------------------------
-	var wy := base.end.y + 18.0 * s
+	var wy := base.end.y + 16.0 * s
 	if sigs.is_empty():
 		_panel.draw_string(_font, Vector2(base.position.x, wy), "— no sigil —",
-			HORIZONTAL_ALIGNMENT_CENTER, base.size.x, _fs(13), Color(0.42, 0.52, 0.62))
+			HORIZONTAL_ALIGNMENT_CENTER, base.size.x,
+			_fit("— no sigil —", base.size.x, _fs(11), 7), Color(0.34, 0.42, 0.52))
 	else:
 		for k in sigs.size():
-			var wcol := AMBER if hot else Color(AMBER.r, AMBER.g, AMBER.b, 0.7)
-			_panel.draw_string(_font, Vector2(base.position.x, wy + k * 18.0 * s),
-				_sig_word(sigs[k]), HORIZONTAL_ALIGNMENT_CENTER, base.size.x, _fs(13), wcol)
+			var wcol := AMBER if hot else Color(AMBER.r, AMBER.g, AMBER.b, 0.58)
+			# CONFIRMED CLIP (screenshot at 14 cards): these are the words you read the offer
+			# by, and draw_string HARD-CLIPS at its width rather than overflowing it — the
+			# words were being cut to "OVERCL" / "DETONA" / "INTERCE" / "OVERFL" with nothing
+			# on screen to say they had been. Measure against the card's own width.
+			var wd := _sig_word(sigs[k])
+			_panel.draw_string(_font, Vector2(base.position.x, wy + k * 15.0 * s), wd,
+				HORIZONTAL_ALIGNMENT_CENTER, base.size.x, _fit(wd, base.size.x, _fs(11), 7), wcol)
 
 
 func _stat(pos: Vector2, txt: String, col: Color, fs: int) -> void:
@@ -486,62 +572,84 @@ func _draw_info(i: int) -> void:
 	var s := _s()
 	var vp := _vp()
 	var sigs := _sigils_of(id)
-	var w := minf(vp.x * 0.30, 430.0 * s)
-	var pad := 16.0 * s
-	var tps := _fs(15)
-	var bps := _fs(12)
-	# measure first: the panel is as tall as its wrapped content, never a fixed rect
+	var w := minf(vp.x * 0.28, 400.0 * s)
+	var pad := 15.0 * s
+	var tps := _fs(13)
+	var bps := _fs(11)
+	# measure first: the panel is as tall as its wrapped content, never a fixed rect.
+	# "d" is a rule, drawn not written — it separates the header from the sigil rules.
 	var lines: Array = []
 	lines.append(["t", _name_of(id)])
 	lines.append(["s", "%d POWER   ·   %d HP   ·   %d ENERGY" % [_atk_of(id), _hp_of(id), _cost_of(id)]])
 	for sg in sigs:
+		lines.append(["d", ""])
 		lines.append(["g", str(_sig_short.get(sg, str(sg))).to_upper()])
 		lines.append(["b", str(_sig_rules.get(sg, "—"))])
 	if _lore.has(_name_of(id)):
+		lines.append(["d", ""])
 		lines.append(["l", str(_lore[_name_of(id)])])
 	var inner := w - pad * 2.0
 	var h := pad
 	for ln in lines:
-		var px: int = tps if ln[0] == "t" else bps
-		var n := maxi(ceili(_font.get_string_size(str(ln[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, px).x / inner), 1)
-		h += float(n) * float(px) * 1.35 + (8.0 * s if ln[0] != "b" else 4.0 * s)
+		h += _info_h(str(ln[0]), str(ln[1]), inner, tps, bps, s)
 	h += pad
 	var px0: float = clampf(r.end.x + 14.0 * s, 0.0, vp.x - w - 8.0)
 	if r.end.x + 14.0 * s + w > vp.x:
 		px0 = maxf(r.position.x - w - 14.0 * s, 8.0)
 	var box := Rect2(px0, clampf(r.position.y, 8.0, maxf(vp.y - h - 8.0, 8.0)), w, h)
-	_panel.draw_rect(box, Color(0.02, 0.04, 0.07, 0.96))
-	_panel.draw_rect(box, Color(CYAN.r, CYAN.g, CYAN.b, 0.6), false, 2.0)
+	_panel.draw_polygon(PackedVector2Array([box.position, Vector2(box.end.x, box.position.y),
+		box.end, Vector2(box.position.x, box.end.y)]),
+		PackedColorArray([Color(0.030, 0.055, 0.090, 0.97), Color(0.030, 0.055, 0.090, 0.97),
+		Color(0.008, 0.016, 0.028, 0.97), Color(0.008, 0.016, 0.028, 0.97)]))
+	_panel.draw_rect(box, Color(CYAN.r, CYAN.g, CYAN.b, 0.42), false, 1.0)
 	var y := box.position.y + pad
 	for ln in lines:
 		var kind: String = str(ln[0])
 		var txt: String = str(ln[1])
 		var px: int = tps if kind == "t" else bps
+		var step := _info_h(kind, txt, inner, tps, bps, s)
+		if kind == "d":
+			_panel.draw_line(Vector2(box.position.x + pad, y + step * 0.5),
+				Vector2(box.end.x - pad, y + step * 0.5), Color(CYAN.r, CYAN.g, CYAN.b, 0.16), 1.0)
+			y += step
+			continue
 		var col := CYAN
 		if kind == "s":
-			col = Color(0.86, 0.93, 1.0)
+			col = Color(0.78, 0.86, 0.96)
 		elif kind == "g":
 			col = Color(1, 1, 1)
 		elif kind == "b":
-			col = Color(0.74, 0.82, 0.92)
+			col = Color(0.72, 0.80, 0.90)
 		elif kind == "l":
-			col = Color(0.58, 0.66, 0.78)
-		var n := maxi(ceili(_font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x / inner), 1)
+			col = Color(0.50, 0.58, 0.70)
+		var asc := _font.get_ascent(px)
 		if kind == "g":
-			_outlined(Vector2(box.position.x + pad, y + float(px)), txt, inner, px, col,
+			_outlined(Vector2(box.position.x + pad, y + asc), txt, inner, px, col,
 				HORIZONTAL_ALIGNMENT_LEFT)
 		else:
-			_panel.draw_multiline_string(_font, Vector2(box.position.x + pad, y + float(px)), txt,
-				HORIZONTAL_ALIGNMENT_LEFT, inner, px, n, col)
-		y += float(n) * float(px) * 1.35 + (8.0 * s if kind != "b" else 4.0 * s)
+			_panel.draw_multiline_string(_font, Vector2(box.position.x + pad, y + asc), txt,
+				HORIZONTAL_ALIGNMENT_LEFT, inner, px, -1, col)
+		y += step
+
+
+func _info_h(kind: String, txt: String, inner: float, tps: int, bps: int, s: float) -> float:
+	## one place decides a row's height, so the measured box and the drawn rows can never
+	## disagree — that mismatch is what made the old panel look crumbled
+	if kind == "d":
+		return 13.0 * s
+	var px: int = tps if kind == "t" else bps
+	# get_multiline_string_size wraps at exactly the width draw_multiline_string will use,
+	# so the measured height IS the drawn height — no guessing at line counts
+	return _font.get_multiline_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, inner, px).y \
+		+ (9.0 * s if kind == "t" else 5.0 * s)
 
 
 func _skip_rect() -> Rect2:
 	var vp := _vp()
 	var s := _s()
-	var w := 132.0 * s
-	var h := 34.0 * s
-	return Rect2(vp.x - w - 26.0 * s, vp.y - h - 22.0 * s, w, h)
+	var w := 108.0 * s
+	var h := 27.0 * s
+	return Rect2(vp.x - w - 24.0 * s, vp.y - h - 20.0 * s, w, h)
 
 
 func _input(e: InputEvent) -> void:

@@ -10,13 +10,13 @@ signal craft_chosen(id: String)
 
 const Craftables := preload("res://scripts/craftables.gd")
 
-const PANEL_W := 680.0
+const PANEL_W := 612.0
 const GRID_COLS := 6
-const CARD_W := 99.0
-const CARD_H := 74.0
-const CARD_GAP := 7.0
-const TAB_H := 26.0
-const DETAIL_H := 88.0
+const CARD_W := 88.0
+const CARD_H := 64.0
+const CARD_GAP := 6.0
+const TAB_H := 22.0
+const DETAIL_H := 100.0
 
 var _font: Font = ThemeDB.fallback_font
 var _tab := 0
@@ -171,6 +171,43 @@ func _gui_input(event: InputEvent) -> void:
 		accept_event()
 
 
+func _grad(r: Rect2, top: Color, bot: Color) -> void:
+	## vertical gradient wash — draw_polygon interpolates per-vertex colours,
+	## which is the gradient primitive GL Compatibility gives us here
+	draw_polygon(PackedVector2Array([r.position, Vector2(r.end.x, r.position.y),
+		r.end, Vector2(r.position.x, r.end.y)]),
+		PackedColorArray([top, top, bot, bot]))
+
+
+func _grad_panel(rect: Rect2, top: Color, bot: Color) -> void:
+	## the same wash, but following the sci-panel's notched silhouette so it
+	## never paints over the slanted corner
+	var pts := UITheme.panel_points(rect)
+	var mid := rect.get_center().y
+	var cols := PackedColorArray()
+	for p in pts:
+		cols.append(top if p.y < mid else bot)
+	draw_polygon(pts, cols)
+
+
+func _hairline(rect: Rect2, col: Color) -> void:
+	## inner hairline that follows the same silhouette
+	var pts := UITheme.panel_points(rect)
+	var loop := pts.duplicate()
+	loop.append(pts[0])
+	draw_polyline(loop, col, 1.0)
+
+
+func _fit(text: String, w: float, size: int, floor_size := 7) -> int:
+	## biggest size <= `size` that still fits `w` px — long recipe names
+	## shrink instead of running out of their box
+	var s := size
+	while s > floor_size and _font.get_string_size(text,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, s).x > w:
+		s -= 1
+	return s
+
+
 func _draw() -> void:
 	var vp := get_viewport_rect().size
 	draw_rect(Rect2(Vector2.ZERO, vp), Color(0, 0.02, 0.05, 0.72))
@@ -178,9 +215,14 @@ func _draw() -> void:
 	var ids := _ids()
 	var rows := int(ceil(ids.size() / float(GRID_COLS)))
 	var grid_h := rows * (CARD_H + CARD_GAP)
-	var body_h := 64.0 + TAB_H + 10.0 + grid_h + DETAIL_H + 30.0
+	var body_h := 58.0 + TAB_H + 10.0 + grid_h + DETAIL_H + 30.0
 	_panel = Rect2((vp.x - PANEL_W) * 0.5, (vp.y - body_h) * 0.5, PANEL_W, body_h)
 	UITheme.draw_sci_panel(self, _panel, UITheme.ACCENT)
+	# gradient backing + inner hairline — depth without lifting the blacks
+	_grad_panel(_panel.grow(-2.0), Color(0.07, 0.16, 0.22, 0.45),
+		Color(0.01, 0.03, 0.06, 0.15))
+	_hairline(_panel.grow(-5.0), Color(UITheme.ACCENT.r, UITheme.ACCENT.g,
+		UITheme.ACCENT.b, 0.10))
 	if _flash > 0.0:
 		draw_rect(_panel.grow(-3.0), Color(UITheme.ACCENT_WARM.r,
 			UITheme.ACCENT_WARM.g, UITheme.ACCENT_WARM.b, 0.6 * _flash), false, 2.0)
@@ -190,16 +232,17 @@ func _draw() -> void:
 
 	# header — printer icon + title + known-recipes tally
 	var ft: Texture2D = Craftables.FABRICATOR_TEX
-	var fs := 30.0 / maxf(ft.get_size().x, ft.get_size().y)
-	draw_texture_rect(ft, Rect2(px, y - 18, ft.get_size().x * fs, ft.get_size().y * fs), false)
-	draw_string(_font, Vector2(px + 38, y), "FABRICATOR",
-		HORIZONTAL_ALIGNMENT_LEFT, 300, 15, UITheme.ACCENT)
-	draw_string(_font, Vector2(px + 38, y + 14), "print objects for the rooms you built",
-		HORIZONTAL_ALIGNMENT_LEFT, 300, 9, UITheme.TEXT_DIM)
+	var fs := 25.0 / maxf(ft.get_size().x, ft.get_size().y)
+	draw_texture_rect(ft, Rect2(px, y - 15, ft.get_size().x * fs, ft.get_size().y * fs), false)
+	draw_string(_font, Vector2(px + 32, y), "FABRICATOR",
+		HORIZONTAL_ALIGNMENT_LEFT, 260, 13, UITheme.ACCENT)
+	draw_string(_font, Vector2(px + 32, y + 12),
+		"prints into rooms you built · cost is spent on placement",
+		HORIZONTAL_ALIGNMENT_LEFT, 320, 8, UITheme.TEXT_DIM)
 	var known := GameState.recipes_unlocked.size()
 	draw_string(_font, Vector2(px, y), "%d / %d  RECIPES" % [known, Craftables.ITEMS.size()],
-		HORIZONTAL_ALIGNMENT_RIGHT, PANEL_W - 48, 11, UITheme.TEXT_DIM)
-	y += 28.0
+		HORIZONTAL_ALIGNMENT_RIGHT, PANEL_W - 48, 9, UITheme.TEXT_DIM)
+	y += 24.0
 
 	# tabs
 	_tab_rects.clear()
@@ -216,8 +259,11 @@ func _draw() -> void:
 		sb.set_border_width_all(1)
 		sb.set_corner_radius_all(5)
 		sb.draw(get_canvas_item(), r)
-		draw_string(_font, r.position + Vector2(0, 17), Craftables.CATEGORIES[t],
-			HORIZONTAL_ALIGNMENT_CENTER, r.size.x, 10, col)
+		if on:
+			_grad(r.grow(-2.0), Color(col.r, col.g, col.b, 0.20),
+				Color(col.r, col.g, col.b, 0.02))
+		draw_string(_font, r.position + Vector2(0, 15), Craftables.CATEGORIES[t],
+			HORIZONTAL_ALIGNMENT_CENTER, r.size.x, 9, col)
 	y += TAB_H + 10.0
 
 	# card grid
@@ -245,20 +291,33 @@ func _draw() -> void:
 		sb2.set_border_width_all(2 if selc else 1)
 		sb2.set_corner_radius_all(6)
 		sb2.draw(get_canvas_item(), r)
-		# art — ghosted when the recipe is still lost
+		_grad(r.grow(-3.0), Color(0.10, 0.17, 0.24, 0.5), Color(0.02, 0.04, 0.07, 0.2))
+		# art — ghosted when the recipe is lost, dimmed when you cannot pay
 		var tex: Texture2D = it["tex"]
-		var box := 46.0
+		var box := 38.0
 		var s := box / maxf(tex.get_size().x, tex.get_size().y)
 		var dsz := tex.get_size() * s
-		draw_texture_rect(tex, Rect2(r.position + Vector2((r.size.x - dsz.x) * 0.5, 6 + (box - dsz.y) * 0.5), dsz),
-			false, Color(1, 1, 1, 1.0) if unlocked else Color(0.62, 0.72, 0.92, 0.32))
+		var art: Color = Color(1, 1, 1, 1.0) if afford else (
+			Color(0.80, 0.86, 0.96, 0.5) if unlocked else Color(0.62, 0.72, 0.92, 0.26))
+		draw_texture_rect(tex, Rect2(r.position + Vector2((r.size.x - dsz.x) * 0.5, 5 + (box - dsz.y) * 0.5), dsz),
+			false, art)
+		# affordability reads as SHAPE and brightness, not hue alone: a solid
+		# corner wedge means printable now, a cross means short on materials
+		if afford:
+			draw_colored_polygon(PackedVector2Array([
+				Vector2(r.end.x - 12, r.position.y + 2), Vector2(r.end.x - 2, r.position.y + 2),
+				Vector2(r.end.x - 2, r.position.y + 12)]), Color(0.5, 1.0, 0.6, 0.9))
+		elif unlocked:
+			draw_string(_font, r.position + Vector2(-4, 13), "✘",
+				HORIZONTAL_ALIGNMENT_RIGHT, r.size.x, 9, Color(1.0, 0.5, 0.45, 0.8))
+		var label := "no recipe yet"
 		if unlocked:
-			draw_string(_font, r.position + Vector2(4, r.size.y - 8), it["name"],
-				HORIZONTAL_ALIGNMENT_CENTER, r.size.x - 8, 9,
-				UITheme.TEXT if selc else UITheme.TEXT_DIM)
-		else:
-			draw_string(_font, r.position + Vector2(4, r.size.y - 8), "no recipe yet",
-				HORIZONTAL_ALIGNMENT_CENTER, r.size.x - 8, 9, Color(1, 1, 1, 0.28))
+			label = str(it["name"])
+		var lcol := Color(1, 1, 1, 0.28)
+		if unlocked:
+			lcol = UITheme.TEXT if selc else UITheme.TEXT_DIM
+		draw_string(_font, r.position + Vector2(4, r.size.y - 6), label,
+			HORIZONTAL_ALIGNMENT_CENTER, r.size.x - 8, _fit(label, r.size.x - 8, 8), lcol)
 	y += grid_h + 6.0
 
 	# detail strip for the selection
@@ -266,8 +325,8 @@ func _draw() -> void:
 	var id2 := _sel_id()
 	if id2 != "":
 		_draw_detail(dr, id2)
-	UITheme.draw_hints(self, Vector2(_panel.position.x + PANEL_W * 0.5, _panel.end.y - 6),
-		[["1-5", "tab"], ["←→↑↓", "browse"], ["E", "print"], ["Esc", "close"]], _font, 9)
+	UITheme.draw_hints(self, Vector2(_panel.position.x + PANEL_W * 0.5, _panel.end.y - 11),
+		[["1-5", "tab"], ["←→↑↓", "browse"], ["E", "print"], ["Esc", "close"]], _font, 8)
 
 
 func _draw_detail(r: Rect2, id: String) -> void:
@@ -279,26 +338,37 @@ func _draw_detail(r: Rect2, id: String) -> void:
 	sb.set_border_width_all(1)
 	sb.set_corner_radius_all(6)
 	sb.draw(get_canvas_item(), r)
+	_grad(r.grow(-3.0), Color(0.08, 0.15, 0.21, 0.55), Color(0.02, 0.03, 0.06, 0.2))
 	var x := r.position.x + 12.0
 	if not unlocked:
-		draw_string(_font, Vector2(x, r.position.y + 24), "?  RECIPE NOT RECOVERED",
-			HORIZONTAL_ALIGNMENT_LEFT, 320, 13, Color(1, 1, 1, 0.4))
-		draw_string(_font, Vector2(x, r.position.y + 42),
-			"Lost blueprints drift inside old wrecks. Salvage derelict ships to recover them.",
-			HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 24, 10, UITheme.TEXT_DIM)
+		draw_string(_font, Vector2(x, r.position.y + 22), "RECIPE NOT RECOVERED",
+			HORIZONTAL_ALIGNMENT_LEFT, 320, 11, Color(1, 1, 1, 0.45))
+		draw_string(_font, Vector2(x, r.position.y + 38),
+			"Blueprints sit in derelict hulls. Salvage wrecks in flight to recover this one.",
+			HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 24, 8, UITheme.TEXT_DIM)
 		_btn = Rect2()
 		return
-	draw_string(_font, Vector2(x, r.position.y + 22), it["name"],
-		HORIZONTAL_ALIGNMENT_LEFT, 260, 13, UITheme.TEXT)
-	draw_string(_font, Vector2(x, r.position.y + 38), it["desc"],
-		HORIZONTAL_ALIGNMENT_LEFT, 300, 9, UITheme.TEXT_DIM)
-	draw_string(_font, Vector2(x, r.position.y + 56), "SIZE  %d slot%s%s" % [
-		int(it["size"]), "s" if int(it["size"]) > 1 else "",
-		"  ·  floor mat" if it.get("flat", false) else ""],
-		HORIZONTAL_ALIGNMENT_LEFT, 260, 9, UITheme.TEXT_DIM)
-	# cost tallies, right-aligned block with have/need colors
+	var nm := str(it["name"])
+	var nw := r.size.x * 0.50 - 18.0
+	draw_string(_font, Vector2(x, r.position.y + 19), nm,
+		HORIZONTAL_ALIGNMENT_LEFT, nw, _fit(nm, nw, 13), UITheme.TEXT)
+	draw_string(_font, Vector2(x, r.position.y + 34), str(it["desc"]),
+		HORIZONTAL_ALIGNMENT_LEFT, nw, 8, UITheme.TEXT_DIM)
+	var tag := ""
+	if it.get("flat", false):
+		tag = "  ·  floor mat, sits under everything"
+	elif it.get("back", false):
+		tag = "  ·  wall piece, back row only"
+	draw_string(_font, Vector2(x, r.position.y + 50), "FOOTPRINT  %d slot%s%s" % [
+		int(it["size"]), "s" if int(it["size"]) > 1 else "", tag],
+		HORIZONTAL_ALIGNMENT_LEFT, nw + 40.0, 8, UITheme.TEXT_DIM)
+	# COST — the decision, so it stays louder than the flavour text. Every line
+	# carries a tick/cross and a tinted spine, so short-of-materials reads even
+	# if you cannot separate the green from the red.
 	var cx := r.position.x + r.size.x * 0.52
-	var cy := r.position.y + 16.0
+	var cy := r.position.y + 25.0
+	draw_string(_font, Vector2(cx, r.position.y + 12), "COST",
+		HORIZONTAL_ALIGNMENT_LEFT, 100, 8, UITheme.TEXT_DIM)
 	var all_ok := true
 	for sym in it["cost"]:
 		var need := int(it["cost"][sym])
@@ -306,33 +376,48 @@ func _draw_detail(r: Rect2, id: String) -> void:
 		var ok := have >= need
 		all_ok = all_ok and ok
 		var tint := Color(0.5, 1.0, 0.6) if ok else Color(1.0, 0.5, 0.45)
+		var lr := Rect2(cx, cy - 12.0, 124.0, 16.0)
+		_grad(lr, Color(tint.r, tint.g, tint.b, 0.16), Color(tint.r, tint.g, tint.b, 0.02))
+		draw_rect(Rect2(lr.position, Vector2(2.0, lr.size.y)),
+			Color(tint.r, tint.g, tint.b, 0.8))
+		draw_line(Vector2(lr.position.x, lr.end.y), Vector2(lr.end.x, lr.end.y),
+			Color(1, 1, 1, 0.07), 1.0)
 		var icon := Elements.icon_for(sym)
 		if icon != null:
-			var s := 16.0 / maxf(icon.get_size().x, icon.get_size().y)
-			draw_texture_rect(icon, Rect2(Vector2(cx, cy - 11),
-				icon.get_size() * s), false)
-		draw_string(_font, Vector2(cx + 20, cy), "%s  %d/%d" % [sym, have, need],
-			HORIZONTAL_ALIGNMENT_LEFT, 110, 10, tint)
-		cy += 16.0
-		if cy > r.end.y - 8.0:
-			cx += 118.0
-			cy = r.position.y + 16.0
-	# print button
-	_btn = Rect2(r.end.x - 118.0, r.end.y - 34.0, 106.0, 24.0)
-	var col := Color(0.5, 1.0, 0.6) if all_ok else Color(0.5, 0.55, 0.6)
+			var isc := 13.0 / maxf(icon.get_size().x, icon.get_size().y)
+			draw_texture_rect(icon, Rect2(Vector2(cx + 6, cy - 11),
+				icon.get_size() * isc), false)
+		draw_string(_font, Vector2(cx + 23, cy), "%s %d/%d" % [sym, have, need],
+			HORIZONTAL_ALIGNMENT_LEFT, 86, 11, tint)
+		draw_string(_font, Vector2(cx, cy), "✔" if ok else "✘",
+			HORIZONTAL_ALIGNMENT_RIGHT, 120.0, 9, tint)
+		cy += 17.0
+		if cy - r.position.y > r.size.y - 5.0:
+			cx += 130.0
+			cy = r.position.y + 25.0
+	# print button — hatched when you cannot pay, so state reads at a glance
+	_btn = Rect2(r.end.x - 108.0, r.end.y - 30.0, 96.0, 22.0)
+	var col := Color(0.5, 1.0, 0.6) if all_ok else Color(0.55, 0.6, 0.66)
 	var bsb := StyleBoxFlat.new()
-	bsb.bg_color = Color(col.r, col.g, col.b, 0.18 if all_ok else 0.06)
+	bsb.bg_color = Color(col.r, col.g, col.b, 0.16 if all_ok else 0.05)
 	bsb.border_color = Color(col.r, col.g, col.b, 0.9 if all_ok else 0.35)
-	bsb.set_border_width_all(2)
+	bsb.set_border_width_all(2 if all_ok else 1)
 	bsb.set_corner_radius_all(5)
 	bsb.draw(get_canvas_item(), _btn)
 	if all_ok:
+		_grad(_btn.grow(-2.0), Color(col.r, col.g, col.b, 0.28),
+			Color(col.r, col.g, col.b, 0.04))
 		var kw := UITheme.key_width("E", _font, 11)
 		var tw := _font.get_string_size("PRINT", HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x
-		var sx := _btn.position.x + (_btn.size.x - (kw + 7.0 + tw)) * 0.5
+		var sx := _btn.position.x + (_btn.size.x - (kw + 6.0 + tw)) * 0.5
 		UITheme.draw_key(self, Vector2(sx, _btn.position.y + 3.0), "E", _font, 11, col)
-		draw_string(_font, Vector2(sx + kw + 7.0, _btn.position.y + 16.0), "PRINT",
+		draw_string(_font, Vector2(sx + kw + 6.0, _btn.position.y + 15.0), "PRINT",
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 11, col)
 	else:
-		draw_string(_font, _btn.position + Vector2(0, 16), "NEED MATERIALS",
-			HORIZONTAL_ALIGNMENT_CENTER, _btn.size.x, 10, col)
+		var hx := _btn.position.x + 4.0
+		while hx < _btn.end.x - 4.0:
+			draw_line(Vector2(hx, _btn.end.y - 3.0), Vector2(hx + 7.0, _btn.position.y + 3.0),
+				Color(col.r, col.g, col.b, 0.13), 1.5)
+			hx += 8.0
+		draw_string(_font, _btn.position + Vector2(0, 14), "NEED MATERIALS",
+			HORIZONTAL_ALIGNMENT_CENTER, _btn.size.x, 11, col)

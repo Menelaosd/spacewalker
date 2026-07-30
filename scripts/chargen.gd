@@ -45,7 +45,8 @@ func _ready() -> void:
 	_name_edit.placeholder_text = "CALLSIGN"
 	_name_edit.max_length = 12
 	_name_edit.alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_name_edit.custom_minimum_size = Vector2(380, 44)
+	_name_edit.add_theme_font_size_override("font_size", 13)
+	_name_edit.custom_minimum_size = Vector2(380, 38)
 	_name_edit.text_submitted.connect(func(_s: String): _confirm())
 	box.add_child(_name_edit)
 
@@ -55,7 +56,7 @@ func _ready() -> void:
 	for i in GENDERS.size():
 		var b := Button.new()
 		b.text = GENDERS[i]
-		b.custom_minimum_size = Vector2(121, 40)
+		b.custom_minimum_size = Vector2(121, 34)
 		b.pressed.connect(_set_gender.bind(i))
 		grow.add_child(b)
 		_gender_btns.append(b)
@@ -66,24 +67,24 @@ func _ready() -> void:
 	box.add_child(arow)
 	var minus := Button.new()
 	minus.text = "◀"
-	minus.custom_minimum_size = Vector2(56, 40)
+	minus.custom_minimum_size = Vector2(52, 34)
 	minus.pressed.connect(_bump_age.bind(-1))
 	arow.add_child(minus)
 	_age_label = Label.new()
-	_age_label.custom_minimum_size = Vector2(180, 40)
+	_age_label.custom_minimum_size = Vector2(180, 34)
 	_age_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_age_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_age_label.add_theme_font_size_override("font_size", 20)
+	_age_label.add_theme_font_size_override("font_size", 15)
 	arow.add_child(_age_label)
 	var plus := Button.new()
 	plus.text = "▶"
-	plus.custom_minimum_size = Vector2(56, 40)
+	plus.custom_minimum_size = Vector2(52, 34)
 	plus.pressed.connect(_bump_age.bind(1))
 	arow.add_child(plus)
 
 	var go := Button.new()
 	go.text = "FILE RECORD  —  BEGIN"
-	go.custom_minimum_size = Vector2(380, 48)
+	go.custom_minimum_size = Vector2(380, 40)
 	go.pressed.connect(_confirm)
 	box.add_child(go)
 
@@ -147,26 +148,26 @@ func _draw() -> void:
 func _draw_panel() -> void:
 	var vp: Vector2 = _panel.get_viewport_rect().size
 	var font: Font = ThemeDB.fallback_font
-	var rect := Rect2(vp.x * 0.5 - 240, 150, 480, 400)
+	var rect := Rect2(vp.x * 0.5 - 230, 158, 460, 330)
 	UITheme.draw_sci_panel(_panel, rect)
-	UITheme.draw_headline(_panel, Rect2(rect.position + Vector2(24, 18),
-		Vector2(rect.size.x - 48, 34)), "EMERGENCY CREW RECORD", font, 17)
-	_panel.draw_string(font, rect.position + Vector2(0, 78),
+	UITheme.draw_headline(_panel, Rect2(rect.position + Vector2(22, 14),
+		Vector2(rect.size.x - 44, 28)), "EMERGENCY CREW RECORD", font, 14)
+	_panel.draw_string(font, rect.position + Vector2(0, 64),
 		"COLONIAL AUTHORITY · FORM 2211-C · LAST OF STATION",
-		HORIZONTAL_ALIGNMENT_CENTER, rect.size.x, 11,
+		HORIZONTAL_ALIGNMENT_CENTER, rect.size.x, 10,
 		Color(UITheme.ACCENT.r, UITheme.ACCENT.g, UITheme.ACCENT.b, 0.45))
-	# field captions, left-aligned to the widget column
+	# field captions — each baseline sits 6px above its widget row, so these must
+	# stay in step with the custom_minimum_size heights set in _ready()
 	var lx := vp.x * 0.5 - 190.0
 	_panel.draw_string(font, Vector2(lx, 252), "NAME / CALLSIGN",
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 11, UITheme.TEXT_DIM)
-	_panel.draw_string(font, Vector2(lx, 314), "GENDER",
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 11, UITheme.TEXT_DIM)
-	_panel.draw_string(font, Vector2(lx, 372), "AGE (STANDARD YEARS)",
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 11, UITheme.TEXT_DIM)
-	UITheme.draw_chevrons(_panel, Vector2(rect.position.x - 40, rect.get_center().y),
-		3, 14.0, UITheme.ACCENT, _t)
-	UITheme.draw_chevrons(_panel, Vector2(rect.end.x + 12, rect.get_center().y),
-		3, 14.0, UITheme.ACCENT, _t + 0.4)
-	_panel.draw_string(font, Vector2(0, vp.y - 22),
-		"ENTER — file record        ESC — file with defaults",
-		HORIZONTAL_ALIGNMENT_CENTER, vp.x, 12, UITheme.TEXT_DIM)
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 10, UITheme.TEXT_DIM)
+	_panel.draw_string(font, Vector2(lx, 308), "GENDER",
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 10, UITheme.TEXT_DIM)
+	_panel.draw_string(font, Vector2(lx, 360), "AGE (STANDARD YEARS)",
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 10, UITheme.TEXT_DIM)
+	UITheme.draw_chevrons(_panel, Vector2(rect.position.x - 34, rect.get_center().y),
+		3, 11.0, UITheme.ACCENT, _t)
+	UITheme.draw_chevrons(_panel, Vector2(rect.end.x + 10, rect.get_center().y),
+		3, 11.0, UITheme.ACCENT, _t + 0.4)
+	UITheme.draw_hints(_panel, Vector2(vp.x * 0.5, vp.y - 30.0),
+		[["ENTER", "file record"], ["ESC", "file with defaults"]], font, 10)

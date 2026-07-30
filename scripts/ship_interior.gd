@@ -2756,7 +2756,7 @@ func _draw_npc(nname: String, pos: Vector2, tint: Color) -> void:
 				_ci.draw_texture(tex, -tex.get_size() * 0.5, tint)
 				_ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	_ci.draw_string(_font, pos + Vector2(-40, -34), nname,
-		HORIZONTAL_ALIGNMENT_CENTER, 80, 9, Color(0.55, 0.9, 1.0, 0.5))
+		HORIZONTAL_ALIGNMENT_CENTER, 80, 8, Color(0.55, 0.9, 1.0, 0.5))
 
 
 func _draw_npc_frame(tex: Texture2D, cx: float, feet_y: float,
@@ -2972,44 +2972,44 @@ func _menu_panel(p: Vector2, w: float, h: float) -> Rect2:
 
 
 func _draw_board_panel(st: Dictionary) -> void:
-	var rect := _menu_panel(st["pos"], 196.0, 20.0 + GameState.contracts.size() * 16.0)
-	_ci.draw_string(_font, rect.position + Vector2(8, 13), "OPEN CONTRACTS",
+	var rect := _menu_panel(st["pos"], 196.0, 18.0 + GameState.contracts.size() * 13.0)
+	_ci.draw_string(_font, rect.position + Vector2(7, 12), "OPEN CONTRACTS",
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.55, 0.9, 1.0, 0.7))
 	for i in GameState.contracts.size():
 		var c: Dictionary = GameState.contracts[i]
 		var have: int = int(GameState.elements.get(c["sym"], 0))
 		var ok: bool = have >= int(c["qty"])
-		_ci.draw_string(_font, rect.position + Vector2(8, 28 + i * 16),
+		_ci.draw_string(_font, rect.position + Vector2(7, 25 + i * 13),
 			"%d× %s (%d/%d)" % [c["qty"], Elements.name_of(c["sym"]), mini(have, c["qty"]), c["qty"]],
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 10,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 8,
 			Color(0.4, 1.0, 0.5) if ok else UITheme.TEXT_DIM)
-		_ci.draw_string(_font, rect.position + Vector2(0, 28 + i * 16),
-			"%d ore  " % c["reward"], HORIZONTAL_ALIGNMENT_RIGHT, rect.size.x - 6, 10,
+		_ci.draw_string(_font, rect.position + Vector2(0, 25 + i * 13),
+			"%d ore  " % c["reward"], HORIZONTAL_ALIGNMENT_RIGHT, rect.size.x - 6, 8,
 			UITheme.ACCENT_WARM)
 
 
 func _draw_comms_panel(st: Dictionary) -> void:
 	# wide enough that the longest element name never runs under the price column
-	var rect := _menu_panel(st["pos"], 224.0, 20.0 + GameState.trader_stock.size() * 16.0)
-	_ci.draw_string(_font, rect.position + Vector2(8, 13), "VESNA'S STOCK · SHIFT %d" % GameState.shift,
+	var rect := _menu_panel(st["pos"], 224.0, 18.0 + GameState.trader_stock.size() * 13.0)
+	_ci.draw_string(_font, rect.position + Vector2(7, 12), "VESNA'S STOCK · SHIFT %d" % GameState.shift,
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(1.0, 0.75, 0.3, 0.8))
 	for i in GameState.trader_stock.size():
 		var o: Dictionary = GameState.trader_stock[i]
 		var left: int = int(o.get("qty", 1))
 		var afford: bool = GameState.banked >= int(o["price"]) and left > 0
-		_ci.draw_string(_font, rect.position + Vector2(8, 28 + i * 16),
+		_ci.draw_string(_font, rect.position + Vector2(7, 25 + i * 13),
 			"[%d] %s — %s ×%d" % [i + 1, o["sym"], Elements.name_of(o["sym"]), left] \
 				if left > 0 else "[%d] %s — SOLD OUT" % [i + 1, o["sym"]],
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 10,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 8,
 			UITheme.TEXT if afford else Color(1, 1, 1, 0.3))
-		_ci.draw_string(_font, rect.position + Vector2(0, 28 + i * 16),
-			"%d ore  " % o["price"], HORIZONTAL_ALIGNMENT_RIGHT, rect.size.x - 6, 10,
+		_ci.draw_string(_font, rect.position + Vector2(0, 25 + i * 13),
+			"%d ore  " % o["price"], HORIZONTAL_ALIGNMENT_RIGHT, rect.size.x - 6, 8,
 			Color(0.4, 1.0, 0.5) if afford else Color(1.0, 0.4, 0.3, 0.6))
 
 
 func _draw_workbench_panel(st: Dictionary) -> void:
-	var rect := _menu_panel(st["pos"], 224.0, 20.0 + GameState.RECIPES.size() * 16.0)
-	_ci.draw_string(_font, rect.position + Vector2(8, 13),
+	var rect := _menu_panel(st["pos"], 224.0, 18.0 + GameState.RECIPES.size() * 13.0)
+	_ci.draw_string(_font, rect.position + Vector2(7, 12),
 		"WORKBENCH · CANISTERS %d/3" % GameState.canisters,
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.5, 1.0, 0.6, 0.8))
 	for i in GameState.RECIPES.size():
@@ -3021,9 +3021,9 @@ func _draw_workbench_panel(st: Dictionary) -> void:
 		var label: String = "[%d] %s" % [i + 1, r["name"]]
 		if owned:
 			label += " ✓"
-		_ci.draw_string(_font, rect.position + Vector2(8, 28 + i * 16), label,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 10,
+		_ci.draw_string(_font, rect.position + Vector2(7, 25 + i * 13), label,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 8,
 			Color(0.5, 1.0, 0.6) if owned else UITheme.TEXT)
-		_ci.draw_string(_font, rect.position + Vector2(0, 28 + i * 16),
-			", ".join(req_bits) + "  ", HORIZONTAL_ALIGNMENT_RIGHT, rect.size.x - 6, 9,
+		_ci.draw_string(_font, rect.position + Vector2(0, 25 + i * 13),
+			", ".join(req_bits) + "  ", HORIZONTAL_ALIGNMENT_RIGHT, rect.size.x - 6, 8,
 			UITheme.TEXT_DIM)

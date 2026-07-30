@@ -15,8 +15,9 @@ const FIGURE_FADE := 0.4
 const FADE_OUT := 0.9
 const FADE_HOLD := 0.3
 const MARGIN_X := 90.0
-const TEXT_SIZE := 13
-const LINE_H := 18.0
+const TEXT_SIZE := 12          # prose — a step above the UI-label scale
+const LINE_H := 17.0
+const SPEAKER_SIZE := 11       # the name plate reads under the line, not over it
 
 # characters whose OLD single-figure art faces AWAY from the player's side —
 # mirror them so the two are actually talking to each other. Only used on the
@@ -46,6 +47,8 @@ var _fig_base: Texture2D = null     # crew "neutral" — scale/anchor reference
 var _player_base: Texture2D = null  # captain "neutral" — scale/anchor reference
 var _fading_out := false
 var _fade_t := 0.0
+var _box_w := 0.0               # measure the line count below was computed for
+var _box_lines := 1             # tallest wrapped line count in this conversation
 var _done := false              # finished() already emitted
 
 
@@ -92,6 +95,7 @@ func start(char_name: String) -> void:
 	_fading_out = false
 	_fade_t = 0.0
 	_done = false
+	_box_w = 0.0        # re-measure the panel for this conversation's lines
 	visible = true
 	# the conversation owns the whole screen — hide every other HUD element
 	# (radar, quest log, labels, banners) so nothing animates/flickers on top
@@ -139,13 +143,29 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 
+func _box_rect() -> Rect2:
+	## The dialog panel. Width is the old fixed measure; HEIGHT is sized to the
+	## TALLEST wrapped line in this conversation — measured once per width, so
+	## the box is never a half-empty slab and never resizes between lines.
+	var vp := get_viewport_rect().size
+	var bw := vp.x - MARGIN_X * 2.8
+	if not is_equal_approx(_box_w, bw):
+		_box_w = bw
+		_box_lines = 1
+		for l in _lines:
+			_box_lines = maxi(_box_lines,
+				_wrap(str((l as Dictionary).get("text", "")), bw - 52.0).size())
+	var bh := 94.0 + float(_box_lines - 1) * LINE_H
+	return Rect2(MARGIN_X * 1.4, vp.y - bh - 24.0, bw, bh)
+
+
 func _needed_chars(text: String) -> int:
 	## The _chars budget at which the WRAPPED text is fully rendered. The
 	## renderer spends len+1 per wrapped line (the +1 is the space the wrap
 	## consumed), so completion needs text length PLUS one per extra line —
 	## comparing against text.length() alone let Space skip to the next line
 	## while the tail of a wrapped line still looked mid-typing.
-	var text_w := get_viewport_rect().size.x - MARGIN_X * 2.8 - 52.0
+	var text_w := _box_rect().size.x - 52.0
 	var wrapped := _wrap(text, text_w)
 	var n := 0
 	for wl in wrapped:
@@ -313,11 +333,11 @@ func _draw() -> void:
 			var pos := Vector2(vp.x - 120.0 - bb.end.x * s, top)
 			draw_texture_rect(ctex, Rect2(pos, dsz), false, ccol)
 
-	# dialog box — a compact sci panel along the bottom (lines are short;
-	# a third of the screen was way too much box)
-	var box_h := vp.y * 0.21
-	var box := Rect2(MARGIN_X * 1.4, vp.y - box_h - 24.0,
-		vp.x - MARGIN_X * 2.8, box_h)
+	# dialog box — a compact sci panel along the bottom, sized to the tallest
+	# line this conversation actually needs.
+	var box := _box_rect()
+	# (the rect is measured in _box_rect so the wrap width used by the
+	# typewriter and the box drawn here can never drift apart)
 	UITheme.draw_sci_panel(self, box, ac)
 
 	# speaker tail — a small triangle on the box's top edge pointing up at
@@ -340,17 +360,22 @@ func _draw() -> void:
 		var px := box.position.x + 26.0
 		var text_w := box.size.x - 52.0
 
-		# speaker name plate + divider
-		draw_string(_font, Vector2(px, box.position.y + 30.0), speaker,
-			HORIZONTAL_ALIGNMENT_LEFT, 260, 12, ac)
-		draw_line(Vector2(px, box.position.y + 38.0),
-			Vector2(px + 150.0, box.position.y + 38.0),
+		# speaker name plate — an accent tab + the name, set smaller and cooler
+		# than the line itself. The rule is measured off the name, so a long
+		# name never runs past it and never clips.
+		var sw := _font.get_string_size(speaker, HORIZONTAL_ALIGNMENT_LEFT,
+			-1, SPEAKER_SIZE).x
+		draw_rect(Rect2(px, box.position.y + 16.0, 2.0, float(SPEAKER_SIZE)), ac)
+		draw_string(_font, Vector2(px + 8.0, box.position.y + 26.0), speaker,
+			HORIZONTAL_ALIGNMENT_LEFT, 260, SPEAKER_SIZE, ac)
+		draw_line(Vector2(px, box.position.y + 33.0),
+			Vector2(px + sw + 34.0, box.position.y + 33.0),
 			Color(ac.r, ac.g, ac.b, 0.35), 1.0)
 
 		# typewriter body — wrap the FULL text so lines never reflow mid-reveal
 		var wrapped := _wrap(text, text_w)
 		var remain := int(_chars)
-		var y := box.position.y + 62.0
+		var y := box.position.y + 50.0
 		for wl in wrapped:
 			if remain <= 0:
 				break
@@ -363,10 +388,10 @@ func _draw() -> void:
 		# "more" pulse once the line is fully revealed (alpha sine — no motion)
 		if int(_chars) >= _needed_chars(text):
 			var pa := 0.35 + 0.45 * (0.5 + 0.5 * sin(_t * 4.0))
-			draw_string(_font, Vector2(box.end.x - 34.0, box.end.y - 22.0), "▼",
-				HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(ac.r, ac.g, ac.b, pa))
+			draw_string(_font, Vector2(box.end.x - 30.0, box.end.y - 22.0), "▼",
+				HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(ac.r, ac.g, ac.b, pa))
 
-	UITheme.draw_hints(self, Vector2(box.position.x + box.size.x * 0.5, box.end.y - 6.0),
+	UITheme.draw_hints(self, Vector2(box.position.x + box.size.x * 0.5, box.end.y - 16.0),
 		[["Space", "next"], ["Esc", "skip"]], _font, 9)
 
 	# fade to solid black over everything; held there while the host swaps scene

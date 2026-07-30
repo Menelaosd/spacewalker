@@ -7,16 +7,16 @@ extends Control
 ## Menus nest via a stack, so NEW GAME / CONTINUE open a slot sub-menu and
 ## Esc walks back. Keyboard (↑/↓ + Enter/Esc) and mouse both drive it.
 
-const VERSION := "1.8.0"
+const VERSION := "0.210"
 const SLOTS := 3
 const BG_TEX := preload("res://assets/sprites/title_bg.png")
 const LOGO_TEX := preload("res://assets/sprites/logo.png")
 
 const MENU_X := 70.0
-const MENU_TOP := 342.0
-const ITEM_W := 280.0
-const ITEM_H := 38.0
-const ITEM_GAP := 9.0
+const MENU_TOP := 352.0
+const ITEM_W := 244.0
+const ITEM_H := 30.0
+const ITEM_GAP := 7.0
 
 var _font: Font = ThemeDB.fallback_font
 var _t := 0.0
@@ -244,6 +244,15 @@ func _item_rect(i: int) -> Rect2:
 	return Rect2(MENU_X, MENU_TOP + i * (ITEM_H + ITEM_GAP), ITEM_W, ITEM_H)
 
 
+func _fit_size(text: String, maxw: float, base: int, floor_size := 8) -> int:
+	## Width-aware shrink-to-fit: the largest size <= base that fits maxw.
+	var s := base
+	while s > floor_size and _font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT,
+			-1, s).x > maxw:
+		s -= 1
+	return s
+
+
 # ------------------------------------------------------------------
 # Draw
 # ------------------------------------------------------------------
@@ -259,6 +268,14 @@ func _draw() -> void:
 	draw_polygon(
 		PackedVector2Array([Vector2(0, 0), Vector2(gw, 0), Vector2(gw, vp.y), Vector2(0, vp.y)]),
 		PackedColorArray([dark, clear, clear, dark]))
+	# gradient behind the banner — a navy fall-off from the top edge so the logo
+	# reads over the planet without lifting the blacks anywhere else
+	var bh := vp.y * 0.40
+	var deep := Color(0.008, 0.022, 0.045, 0.80)
+	var gone := Color(0.008, 0.022, 0.045, 0.0)
+	draw_polygon(
+		PackedVector2Array([Vector2(0, 0), Vector2(vp.x, 0), Vector2(vp.x, bh), Vector2(0, bh)]),
+		PackedColorArray([deep, deep, gone, gone]))
 	# top & bottom vignette bands
 	draw_rect(Rect2(0, 0, vp.x, 4), Color(0, 0, 0, 0.6))
 	draw_rect(Rect2(0, vp.y - 4, vp.x, 4), Color(0, 0, 0, 0.6))
@@ -300,9 +317,26 @@ func _draw_frame(vp: Vector2) -> void:
 					UITheme.ACCENT_WARM if k % 2 == 0 else Color(acc.r, acc.g, acc.b, 0.5))
 
 
+func _draw_bloom(c: Vector2, hw: float, hh: float, col: Color) -> void:
+	## Soft four-way gradient bloom — one quad per quadrant, lit only at the
+	## shared centre corner, so the falloff is smooth with no banding.
+	var off := Color(col.r, col.g, col.b, 0.0)
+	for q in [[-1.0, -1.0], [1.0, -1.0], [-1.0, 1.0], [1.0, 1.0]]:
+		var sx: float = q[0]
+		var sy: float = q[1]
+		draw_polygon(PackedVector2Array([
+			c, c + Vector2(sx * hw, 0.0),
+			c + Vector2(sx * hw, sy * hh), c + Vector2(0.0, sy * hh)]),
+			PackedColorArray([col, off, off, off]))
+
+
 func _draw_logo(vp: Vector2) -> void:
 	var sc := 0.62
 	var c := Vector2(vp.x * 0.5, 118.0 + sin(_t * 0.8) * 3.0)
+	# cyan gradient bloom behind the banner
+	var acc := UITheme.ACCENT
+	_draw_bloom(c, vp.x * 0.34, 130.0, Color(acc.r, acc.g, acc.b, 0.085))
+	_draw_bloom(c, vp.x * 0.16, 66.0, Color(acc.r, acc.g, acc.b, 0.06))
 	draw_set_transform(c, 0.0, Vector2(sc, sc))
 	# cyan under-glow + rare signal glitch
 	draw_texture(LOGO_TEX, -LOGO_TEX.get_size() * 0.5 + Vector2(0, 8),
@@ -315,18 +349,31 @@ func _draw_logo(vp: Vector2) -> void:
 			Color(1.0, 0.4, 0.4, 0.35))
 	draw_texture(LOGO_TEX, -LOGO_TEX.get_size() * 0.5)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	# a hairline rule under the banner, fading out at both ends
+	var ry := c.y + LOGO_TEX.get_size().y * sc * 0.5 + 10.0
+	var half := vp.x * 0.28
+	var lit := Color(acc.r, acc.g, acc.b, 0.35)
+	var dead := Color(acc.r, acc.g, acc.b, 0.0)
+	draw_polygon(PackedVector2Array([
+		Vector2(vp.x * 0.5 - half, ry), Vector2(vp.x * 0.5, ry),
+		Vector2(vp.x * 0.5, ry + 1.0), Vector2(vp.x * 0.5 - half, ry + 1.0)]),
+		PackedColorArray([dead, lit, lit, dead]))
+	draw_polygon(PackedVector2Array([
+		Vector2(vp.x * 0.5, ry), Vector2(vp.x * 0.5 + half, ry),
+		Vector2(vp.x * 0.5 + half, ry + 1.0), Vector2(vp.x * 0.5, ry + 1.0)]),
+		PackedColorArray([lit, dead, dead, lit]))
 
 
 func _draw_menu() -> void:
 	# panel behind the command list
 	var top := _item_rect(0)
 	var bot := _item_rect(_menu.size() - 1)
-	var panel := Rect2(top.position.x - 18, top.position.y - 30,
-		ITEM_W + 36, (bot.end.y - top.position.y) + 44)
+	var panel := Rect2(top.position.x - 15, top.position.y - 26,
+		ITEM_W + 30, (bot.end.y - top.position.y) + 38)
 	UITheme.draw_sci_panel(self, panel)
 	UITheme.draw_brackets(self, panel, UITheme.ACCENT, 12.0, 3.0)
-	draw_string(_font, panel.position + Vector2(16, 21), "◈ " + _menu_title,
-		HORIZONTAL_ALIGNMENT_LEFT, ITEM_W, 11,
+	draw_string(_font, panel.position + Vector2(15, 18), "◈ " + _menu_title,
+		HORIZONTAL_ALIGNMENT_LEFT, ITEM_W, 10,
 		Color(UITheme.ACCENT.r, UITheme.ACCENT.g, UITheme.ACCENT.b, 0.8))
 	# hazard ticks top-right of the panel
 	for k in 5:
@@ -341,7 +388,9 @@ func _draw_item(i: int) -> void:
 	var r := _item_rect(i)
 	var it: Dictionary = _menu[i]
 	var enabled: bool = it.get("enabled", true)
-	var on := (i == _sel or i == _hover) and enabled
+	var sel := i == _sel and enabled
+	var hov := i == _hover and enabled
+	var on := sel or hov
 	var acc := UITheme.ACCENT
 	if it.get("danger", false):
 		acc = UITheme.DANGER
@@ -354,29 +403,39 @@ func _draw_item(i: int) -> void:
 	var pts := PackedVector2Array([
 		Vector2(p.x + cut, p.y), Vector2(e.x, p.y), Vector2(e.x, e.y - cut),
 		Vector2(e.x - cut, e.y), Vector2(p.x, e.y), Vector2(p.x, p.y + cut)])
-	var fill := 0.72 if on else (0.42 if enabled else 0.28)
+	var fill := 0.74 if sel else (0.56 if hov else (0.40 if enabled else 0.26))
 	draw_colored_polygon(pts, Color(0.03, 0.13, 0.18, fill))
 	var outline := pts.duplicate()
 	outline.append(pts[0])
-	draw_polyline(outline, Color(acc.r, acc.g, acc.b, 0.95 if on else 0.5), 1.4)
+	draw_polyline(outline, Color(acc.r, acc.g, acc.b,
+		1.0 if sel else (0.75 if hov else 0.45)), 1.4)
+	# accent wash — a gradient falling away from the selection bar, so the live
+	# row reads at a glance without flooding the whole plate with light
+	if on:
+		var g := 0.20 if sel else 0.09
+		var near := Color(acc.r, acc.g, acc.b, g)
+		var far := Color(acc.r, acc.g, acc.b, 0.0)
+		draw_polygon(pts, PackedColorArray([near, far, far, far, near, near]))
 	# left accent bar, brighter and thicker when selected
-	draw_rect(Rect2(p.x, p.y + 6, 4.0 if on else 3.0, r.size.y - 12),
-		Color(acc.r, acc.g, acc.b, 0.95 if on else 0.45))
-	# selection glow
-	if on:
-		draw_colored_polygon(pts, Color(acc.r, acc.g, acc.b, 0.06))
+	draw_rect(Rect2(p.x, p.y + 5, 4.0 if sel else (3.0 if hov else 2.0), r.size.y - 10),
+		Color(acc.r, acc.g, acc.b, 1.0 if sel else (0.7 if hov else 0.4)))
 	# icon
-	_draw_menu_icon(str(it["icon"]), Vector2(p.x + 28, r.get_center().y), 13.0,
+	_draw_menu_icon(str(it["icon"]), Vector2(p.x + 23, r.get_center().y), 11.0,
 		Color(acc.r, acc.g, acc.b, 1.0 if enabled else 0.5))
-	# label
+	# label — shrink-to-fit so a long slot summary can never clip
 	var tcol := UITheme.TEXT if enabled else Color(1, 1, 1, 0.35)
-	if on:
+	if sel:
 		tcol = Color.WHITE
-	draw_string(_font, Vector2(p.x + 50, r.get_center().y + 5), str(it["label"]),
-		HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 76, 12, tcol)
-	# animated chevron on the active row
-	if on:
-		UITheme.draw_chevrons(self, Vector2(e.x - 26, r.get_center().y), 2, 10.0,
+	elif hov:
+		tcol = Color(1, 1, 1, 0.92)
+	var lbl := str(it["label"])
+	var lw := r.size.x - 64.0
+	var ls := _fit_size(lbl, lw, 11)
+	draw_string(_font, Vector2(p.x + 40, r.get_center().y + ls * 0.36), lbl,
+		HORIZONTAL_ALIGNMENT_LEFT, lw, ls, tcol)
+	# animated chevron on the selected row
+	if sel:
+		UITheme.draw_chevrons(self, Vector2(e.x - 22, r.get_center().y), 2, 9.0,
 			acc, _t)
 
 
@@ -415,19 +474,18 @@ func _draw_menu_icon(kind: String, c: Vector2, s: float, col: Color) -> void:
 
 func _draw_footer(vp: Vector2) -> void:
 	var acc := UITheme.ACCENT
-	# version, tucked a little further into the frame with hazard ticks
+	# version — quiet: one dim line under a hairline, no hazard ticks shouting
+	var vtext := "BETA %s" % VERSION
 	var vleft := 64.0
-	var vy := vp.y - 58.0
-	draw_string(_font, Vector2(vleft, vy + 4), "VERSION %s" % VERSION,
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 12,
-		Color(acc.r, acc.g, acc.b, 0.75))
-	var vx := vleft + _font.get_string_size("VERSION %s" % VERSION,
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x + 12.0
-	for k in 5:
-		draw_rect(Rect2(vx + k * 9.0, vy - 4, 6, 3),
-			UITheme.ACCENT_WARM if k % 2 == 0 else Color(acc.r, acc.g, acc.b, 0.5))
-	# control hint, bottom-right
-	draw_string(_font, Vector2(0, vp.y - 30),
-		"↑ ↓  select     ENTER  confirm     ESC  back  ",
-		HORIZONTAL_ALIGNMENT_RIGHT, vp.x - 34, 11,
-		Color(1, 1, 1, 0.4))
+	var vy := vp.y - 52.0
+	draw_string(_font, Vector2(vleft, vy), vtext,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 10,
+		Color(acc.r, acc.g, acc.b, 0.38))
+	var vw := _font.get_string_size(vtext, HORIZONTAL_ALIGNMENT_LEFT, -1, 10).x
+	draw_line(Vector2(vleft, vy + 4.0), Vector2(vleft + vw, vy + 4.0),
+		Color(acc.r, acc.g, acc.b, 0.18), 1.0)
+	# control hints, bottom-right — real keycaps, matching every other screen
+	var hints := [["↑↓", "select"], ["ENTER", "confirm"], ["ESC", "back"]]
+	var hw := UITheme.hints_width(hints, _font, 10)
+	UITheme.draw_hints_at(self, Vector2(vp.x - 36.0 - hw, vp.y - 44.0),
+		hints, _font, 10)

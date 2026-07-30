@@ -81,14 +81,22 @@ func _draw() -> void:
 	if _closing:
 		a = 1.0 - clampf(_close_t / CLOSE_TIME, 0.0, 1.0)
 
-	draw_rect(Rect2(Vector2.ZERO, vp), Color(0.0, 0.01, 0.03, 0.75 * a))
+	# graded backdrop — darkest at the edges, a shade open behind the card
+	var d0 := Color(0.0, 0.008, 0.022, 0.88 * a)
+	var d1 := Color(0.0, 0.018, 0.045, 0.66 * a)
+	draw_polygon(PackedVector2Array([Vector2(0.0, 0.0), Vector2(vp.x, 0.0),
+		Vector2(vp.x, vp.y * 0.5), Vector2(0.0, vp.y * 0.5)]),
+		PackedColorArray([d0, d0, d1, d1]))
+	draw_polygon(PackedVector2Array([Vector2(0.0, vp.y * 0.5), Vector2(vp.x, vp.y * 0.5),
+		Vector2(vp.x, vp.y), Vector2(0.0, vp.y)]),
+		PackedColorArray([d1, d1, d0, d0]))
 
 	var card_bottom := vp.y * 0.5
 	if _card != null:
 		var ts := _card.get_size()
 		if ts.x > 0.0 and ts.y > 0.0:
-			# fit within 62% of the viewport both ways, aspect preserved
-			var fit := minf(vp.x * 0.62 / ts.x, vp.y * 0.62 / ts.y)
+			# fit within 56% of the viewport both ways, aspect preserved
+			var fit := minf(vp.x * 0.56 / ts.x, vp.y * 0.56 / ts.y)
 			# one-shot ease-out scale-in 0.96 -> 1.0 on open only
 			var f := clampf(_t / OPEN_TIME, 0.0, 1.0)
 			var eased := 1.0 - (1.0 - f) * (1.0 - f)
@@ -97,16 +105,20 @@ func _draw() -> void:
 			var r := Rect2(pos, dsz)
 			card_bottom = r.end.y
 
-			# faint static accent glow behind the card
-			draw_rect(r.grow(28.0), Color(ac.r, ac.g, ac.b, 0.04 * a))
-			draw_rect(r.grow(14.0), Color(ac.r, ac.g, ac.b, 0.07 * a))
-			draw_rect(r.grow(5.0), Color(ac.r, ac.g, ac.b, 0.10 * a))
+			# soft graded halo — hairline rings falling off from the card edge,
+			# so the card sits in light instead of a hard boxy glow
+			for i in 14:
+				var g := 1.0 - float(i) / 14.0
+				draw_rect(r.grow(2.0 + float(i) * 2.0),
+					Color(ac.r, ac.g, ac.b, 0.09 * g * g * a), false, 2.0)
 
 			draw_texture_rect(_card, r, false, Color(1, 1, 1, a))
+			# hairline border — the card's own edge, one pixel of accent
+			draw_rect(r.grow(0.5), Color(ac.r, ac.g, ac.b, 0.55 * a), false, 1.0)
 
-	draw_string(_font, Vector2(0, card_bottom + 24.0),
+	draw_string(_font, Vector2(0, card_bottom + 21.0),
 		"CREW REGISTRY — HELIOS EXILE MANIFEST",
-		HORIZONTAL_ALIGNMENT_CENTER, vp.x, 10,
+		HORIZONTAL_ALIGNMENT_CENTER, vp.x, 9,
 		Color(UITheme.TEXT_DIM.r, UITheme.TEXT_DIM.g, UITheme.TEXT_DIM.b,
 			UITheme.TEXT_DIM.a * a))
 

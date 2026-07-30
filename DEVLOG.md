@@ -31,6 +31,72 @@ and turns with the helm (`flight.gd`). Two implementations were needed — the p
   reads softest — `SHIP_SHADOW_DARK` is the one knob if it needs more bite.
 
 
+## 30/07/2026 — v0.232: game-wide UI + text pass (20 agents), and the map finally offers a choice
+
+The captain: *"everything looks big to me"* and *"φτιάξε τα κείμενα"* — with one hard exclusion,
+`inventory_screen.gd` (the periodic-table element grid) was not to be touched. It wasn't; verified
+every one of its text calls already passes an explicit size, so the shared-theme changes cannot
+reach it.
+
+**THE MAP WAS NOT ASKING YOU TO CHOOSE.** Reported as *"on the far left lane I can't cross to the
+middle while it looks visually possible"*. Two separate causes:
+1. Link generation gave each node its nearest next-row neighbour plus a **40% roll** for a second.
+   Measured over 40 maps: **59% of nodes had exactly one way forward**, and from an outer column you
+   usually could not reach the middle at all. Now the two nearest are ALWAYS linked (a third stays a
+   25% bonus so maps still vary): **59% → 12%** single-option nodes, mean links 1.43 → 2.01. The
+   remaining 12% are rows that genuinely hold one node, i.e. the CORE.
+2. `_patch()` stamped a full-width square at EVERY corridor cell — including end cells, where
+   nothing connects. At a corner that block reads as a lateral exit, which is exactly the "looks
+   possible" part. It now only fills true joints (`_cell_degree >= 2`).
+Side effect worth noting: this also makes the sealed-QUARANTINE dead-end guard from v0.229 nearly
+unreachable, since "your only link" is now rare by construction.
+
+**Text accuracy — the same bug class as MERGE LAB, found everywhere.** `atk_boost` and `graft` are
+keyed by card ID, so every "upgrade a card" effect hits EVERY copy in the deck, and the UI said
+otherwise. OVERCLOCK RIG promised "the card you pick… gone forever" when in fact every copy is
+buffed and every copy turns brittle. CODE SPLICER hid its cost, that it takes only the donor's FIRST
+sigil, and the per-ID reach. RECYCLER never mentioned its cap of 16 or that grafted sigils count.
+SURVIVOR POD implied the survivors were already saved — they are only banked if you crack the CORE.
+Three sigil RULES were outright wrong: SPEAR-PHISH only retargets when its own lane is blocked,
+SENTRY fires once per turn and is HELIOS-only, and AIRBORNE's 2-trace cap was invisible. Six sigils
+shouted a different word than the one printed on the card (BUFFER firing as "ARMOR", WIPE as
+"NECROSIS"); the floaters now read `SIGIL_SHORT` at the call site so they cannot drift again — the
+same fix the SCRAP MITE incident earned. **43 of 79 cards had no LORE line at all** (the whole
+v0.227 expansion); all written, 79/79 now.
+
+**Type scale.** 160 literal sizes across 30 files, 19 distinct values, min 8 / median 12 / max 42 —
+collapsed onto a 7-rung scale. Two findings reframed it: the project stretches a fixed 1280x720
+canvas, so every px is multiplied on a real screen; and `_fs()` in the breach was not a scaler but a
+hard floor of 12, which is why breach text sat a rung above the rest of the game.
+
+**Polish.** A shared kit in `ui_theme.gd` (`panel` / `bar` / `chip` / `rule` / `vgrad`) so fourteen
+screens don't each hand-roll a gradient — per-vertex `draw_polygon` colours, one draw call, no
+shader, and nothing fills lighter than `HULL_HI`. Card faces: the frame art had an **empty nameplate
+nobody was drawing into**, so the sigil moved down into it and the card NAME took the prominent slot
+— the inverted hierarchy the captain spotted. The power/hp digits were also hanging past the card's
+bottom edge and the cost pip was half off the frame.
+
+**Godot trap worth keeping: `draw_string` HARD-CLIPS at its `width` argument.** It does not overflow.
+So every unmeasured width is a silent amputation, not a cosmetic overflow — that is how the picker
+was rendering "OVERCL" and "INTERCE" with no error anywhere.
+
+**Process lesson, paid for twice.** The applier is NOT idempotent. Running it a second time
+double-applied patches and broke `ui_theme.gd`, which cascaded to every screen; and agent 19's
+insertion-style patch (which re-emits its own anchor) got applied twice, duplicating 129 lines and
+declaring `panel()`/`chip()` twice. Restored from the last commit and rebuilt in ONE pass. Anything
+like this again wants a per-patch applied-marker.
+
+**Not included:** agent 08's main-HUD polish (`hud.gd`, `hint_bar.gd`) and agent 10's moulded keycap
+(`key_prompt.gd`) were lost in that rollback — both had emptied or deltaed their patch files on the
+assumption their direct edits had survived. Their notes are intact in the patch files; worth redoing.
+Also still open, both real and both gameplay rather than text: UPLINK RELAY charges 3 shards and does
+nothing (`revealed` is written and never read), and every rig `_spend()`s BEFORE showing its prompt,
+so ESC/SKIP burns the fee — worst at EXCHANGE, where cancelling costs 7 shards and gives nothing.
+
+Verified: 26/26 touched scripts parse clean, `test_duel.gd` ALL PASS, `test_blackice.gd` all
+branches, map/duel/picker screenshotted at 2560x1440.
+
+
 ## 30/07/2026 — v0.231: the four open items closed
 
 **`SW_BREACH_AT=<row>` — half the board was unreviewable.** The camera hard-follows a marker that

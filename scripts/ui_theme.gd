@@ -17,6 +17,44 @@ const CUT := 14.0                              # corner slant
 const UI_SCALE := 0.60                          # global HUD shrink factor
 const RADAR_SCALE := 0.92                       # radar rides its OWN scale (readable)
 
+# ------------------------------------------------------------------
+# TYPE SCALE — the one source of truth for every font size in the game.
+# Sizes are VIRTUAL px on the 1280x720 base canvas (project stretch mode is
+# canvas_items), so a 1080p screen already multiplies all of them by 1.5.
+# Seven rungs, ~1.22 apart. Nothing should draw at a size off this scale.
+# Old size -> rung:  8,9 -> MICRO   10,11 -> LABEL   12,13 -> BODY
+#                    14,15,16 -> HEAD   17,18,20 -> TITLE
+#                    22,26,28 -> DISPLAY   30..42 -> HERO
+const FS_MICRO := 8        # units, footnotes, dense list rows
+const FS_LABEL := 9        # HUD labels, stat readouts, key-hint captions
+const FS_BODY := 11        # running text, rule sentences, button text
+const FS_HEAD := 13        # panel + section headers, card names
+const FS_TITLE := 16       # screen + modal titles
+const FS_DISPLAY := 20     # one banner line per screen, max
+const FS_HERO := 26        # end-of-run verdict / wordmark only
+const FS_FLOOR := 8        # never draw smaller than this
+const FS_DAMP := 0.6       # how hard text tracks a screen's own HUD scale
+
+
+static func fs(px: int, s := 1.0) -> int:
+	## Size for a design px value on a screen that keeps its own HUD scale `s`.
+	## Damped: text must not track resolution 1:1 (a bigger screen is not a closer
+	## one), and floored so nothing drops out of legibility. With s == 1.0 this is
+	## just the scale value — safe to route every size through it.
+	return maxi(int(round(float(px) * (1.0 + (s - 1.0) * FS_DAMP))), FS_FLOOR)
+
+
+static func fit(font: Font, txt: String, max_w: float, want_px: int,
+		floor_px := FS_FLOOR) -> int:
+	## Width-aware shrink-to-fit. The standing rule is "always fit the text
+	## properly", so measure and step down rather than guess a smaller constant.
+	## Returns the largest size <= want_px whose rendered width fits max_w.
+	var px: int = maxi(want_px, floor_px)
+	while px > floor_px and font.get_string_size(
+			txt, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x > max_w:
+		px -= 1
+	return px
+
 
 static func shrink(c: Control, right: bool, bottom: bool, s := UI_SCALE) -> void:
 	## Scale a corner-anchored HUD panel down about the corner nearest the
@@ -24,6 +62,135 @@ static func shrink(c: Control, right: bool, bottom: bool, s := UI_SCALE) -> void
 	var ms := c.get_combined_minimum_size()
 	c.pivot_offset = Vector2(ms.x if right else 0.0, ms.y if bottom else 0.0)
 	c.scale = Vector2(s, s)
+
+
+# ------------------------------------------------------------------
+# POLISH KIT — the shared gradient/flourish helpers every screen draws with.
+# Technique: per-vertex colours (draw_polygon / draw_polyline_colors). One
+# draw call, zero allocation, no shader, and GL Compatibility handles vertex
+# colours natively. Colour is an affine function of Y, so ANY triangulation
+# of the polygon reproduces the ramp exactly — notched panels gradient with
+# no seam. Banded draw_rect stair-steps; GradientTexture2D would allocate a
+# texture inside _draw every frame.
+# DARKNESS RULE: panel and track fills never go lighter than HULL_HI — measured,
+# a panel ramps #0c111a -> #06090f exactly, and a bar track sits below the page.
+# The one deliberate exception is chip(), a low-alpha accent tint so a chip reads
+# as foreground. Accents otherwise live in 1px lines and edges only.
+# ------------------------------------------------------------------
+const HULL := Color8(6, 9, 15)           # #06090f deep hull navy — the floor
+const HULL_HI := Color8(12, 17, 26)      # #0c111a the LIGHTEST fill allowed
+const CYAN := Color8(89, 210, 255)       # #59d2ff player
+const AMBER := Color8(255, 176, 85)      # #ffb055 HELIOS
+const CORAL := Color8(255, 111, 94)      # #ff6f5e boss
+const INK := Color8(205, 217, 231)       # #cdd9e7 blue-biased neutral text
+const INK_DIM := Color(0.804, 0.851, 0.906, 0.62)
+
+
+static func vgrad(ci: CanvasItem, rect: Rect2, top: Color, bot: Color) -> void:
+	## The kit's one gradient primitive: a vertical ramp across a rect.
+	var p := rect.position
+	var e := rect.end
+	ci.draw_polygon(
+		PackedVector2Array([p, Vector2(e.x, p.y), e, Vector2(p.x, e.y)]),
+		PackedColorArray([top, top, bot, bot]))
+
+
+static func vgrad_poly(ci: CanvasItem, pts: PackedVector2Array,
+		top: Color, bot: Color) -> void:
+	## Same vertical ramp across an arbitrary (notched, slanted) polygon.
+	if pts.size() < 3:
+		return
+	var y0: float = pts[0].y
+	var y1: float = y0
+	for v: Vector2 in pts:
+		y0 = minf(y0, v.y)
+		y1 = maxf(y1, v.y)
+	var h := maxf(y1 - y0, 0.001)
+	var cols := PackedColorArray()
+	for v: Vector2 in pts:
+		cols.append(top.lerp(bot, (v.y - y0) / h))
+	ci.draw_polygon(pts, cols)
+
+
+static func fit_size(font: Font, text: String, max_w: float,
+		size: int, min_size := 7) -> int:
+	## Largest size <= `size` whose text fits `max_w`. The captain's rule is
+	## smaller fonts that NEVER clip — shrink to fit, don't guess.
+	var s := size
+	while s > min_size and font.get_string_size(
+			text, HORIZONTAL_ALIGNMENT_LEFT, -1, s).x > max_w:
+		s -= 1
+	return s
+
+
+static func panel(ci: CanvasItem, rect: Rect2, accent := CYAN,
+		edge := true, fill_a := 1.0) -> void:
+	## The standard dark panel: cut corners, HULL_HI -> HULL vertical gradient,
+	## hairline accent border, top sheen, optional accent edge down the left
+	## that fades out at the bottom. `fill_a` < 1.0 to float over the 3D scene.
+	var c := minf(6.0, minf(rect.size.x, rect.size.y) * 0.22)
+	var p := rect.position
+	var e := rect.end
+	var pts := PackedVector2Array([
+		Vector2(p.x + c, p.y), Vector2(e.x, p.y), Vector2(e.x, e.y - c),
+		Vector2(e.x - c, e.y), Vector2(p.x, e.y), Vector2(p.x, p.y + c)])
+	vgrad_poly(ci, pts, Color(HULL_HI, fill_a), Color(HULL, fill_a))
+	var ring := pts.duplicate()
+	ring.append(pts[0])
+	ci.draw_polyline(ring, Color(accent, 0.22 * fill_a), 1.0)
+	ci.draw_line(Vector2(p.x + c, p.y + 1.0), Vector2(e.x - 1.0, p.y + 1.0),
+		Color(accent, 0.10 * fill_a), 1.0)
+	if edge:
+		ci.draw_polyline_colors(
+			PackedVector2Array([Vector2(p.x + 1.0, p.y + c), Vector2(p.x + 1.0, e.y)]),
+			PackedColorArray([Color(accent, 0.85 * fill_a), Color(accent, 0.0)]), 2.0)
+
+
+static func bar(ci: CanvasItem, rect: Rect2, frac: float, col := CYAN,
+		show_track := true) -> void:
+	## Value bar: sunken dark track, gradient fill, bright leading edge.
+	frac = clampf(frac, 0.0, 1.0)
+	if show_track:
+		vgrad(ci, rect, Color(0, 0, 0, 0.55), Color(HULL, 0.85))
+		ci.draw_rect(rect, Color(col, 0.20), false, 1.0)
+	var w := (rect.size.x - 2.0) * frac
+	if w <= 0.5:
+		return
+	var f := Rect2(rect.position + Vector2(1.0, 1.0), Vector2(w, rect.size.y - 2.0))
+	vgrad(ci, f, Color(col, 0.95), Color(col.darkened(0.55), 0.95))
+	ci.draw_line(Vector2(f.end.x - 0.5, f.position.y), Vector2(f.end.x - 0.5, f.end.y),
+		Color(1, 1, 1, 0.75), 1.0)
+
+
+static func chip_width(text: String, font: Font, size := 10) -> float:
+	## Width a `chip` needs for this label — lay a row out before drawing it.
+	return font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x + 12.0
+
+
+static func chip(ci: CanvasItem, rect: Rect2, text: String, col := CYAN,
+		font: Font = null, size := 10) -> void:
+	## Compact stat / keycap chip: tinted gradient face (stays dark), accent
+	## hairline, top highlight, label auto-shrunk so it can never clip.
+	var f: Font = font if font != null else ThemeDB.fallback_font
+	vgrad(ci, rect, Color(col, 0.16), Color(col, 0.05))
+	ci.draw_rect(rect, Color(col, 0.45), false, 1.0)
+	ci.draw_line(rect.position + Vector2(1.0, 1.0),
+		Vector2(rect.end.x - 1.0, rect.position.y + 1.0), Color(1, 1, 1, 0.12), 1.0)
+	var s := fit_size(f, text, rect.size.x - 8.0, size)
+	ci.draw_string(f, Vector2(rect.position.x, rect.get_center().y + s * 0.36), text,
+		HORIZONTAL_ALIGNMENT_CENTER, rect.size.x, s, INK)
+
+
+static func rule(ci: CanvasItem, from: Vector2, to: Vector2,
+		col := CYAN, w := 1.0) -> void:
+	## Hairline divider that fades to nothing at both ends. One draw call.
+	var pts := PackedVector2Array()
+	var cols := PackedColorArray()
+	for i in 9:
+		var t := float(i) / 8.0
+		pts.append(from.lerp(to, t))
+		cols.append(Color(col, 0.55 * sin(t * PI)))
+	ci.draw_polyline_colors(pts, cols, w)
 
 
 # ------------------------------------------------------------------
@@ -102,11 +269,11 @@ static func draw_brackets(ci: CanvasItem, rect: Rect2, accent := ACCENT,
 
 
 static func draw_header(ci: CanvasItem, pos: Vector2, text: String,
-		font: Font, size := 19, accent := ACCENT, width := 200.0) -> void:
+		font: Font, size := FS_TITLE, accent := ACCENT, width := 200.0) -> void:
 	ci.draw_string(font, pos + Vector2(1, 1), text,
 		HORIZONTAL_ALIGNMENT_LEFT, -1, size, Color(0, 0, 0, 0.6))
 	ci.draw_string(font, pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, TEXT)
-	var y := pos.y + 9.0
+	var y := pos.y + 7.0
 	ci.draw_line(Vector2(pos.x, y), Vector2(pos.x + width, y),
 		Color(accent.r, accent.g, accent.b, 0.25), 1.0)
 	ci.draw_line(Vector2(pos.x, y), Vector2(pos.x + width * 0.45, y),
@@ -121,7 +288,7 @@ static func draw_header(ci: CanvasItem, pos: Vector2, text: String,
 
 
 static func draw_headline(ci: CanvasItem, rect: Rect2, text: String,
-		font: Font, size := 15) -> void:
+		font: Font, size := FS_HEAD) -> void:
 	## Slanted tech banner with striped end caps.
 	var cy := rect.get_center().y
 	var sk := 10.0
@@ -145,7 +312,7 @@ static func draw_headline(ci: CanvasItem, rect: Rect2, text: String,
 
 
 static func draw_warning_banner(ci: CanvasItem, rect: Rect2, text: String,
-		font: Font, col := ACCENT_WARM, size := 13) -> void:
+		font: Font, col := ACCENT_WARM, size := FS_BODY) -> void:
 	## Center label with hazard-stripe wings, like the reference WARNING bar.
 	var cy := rect.get_center().y
 	var label_w := maxf(rect.size.x * 0.4,
@@ -235,7 +402,7 @@ static func draw_ring_gauge(ci: CanvasItem, center: Vector2, radius: float,
 	if show_pct:
 		ci.draw_string(font, center + Vector2(-radius, 5.0),
 			"%d%%" % int(frac * 100.0), HORIZONTAL_ALIGNMENT_CENTER,
-			radius * 2.0, 13, color.lightened(0.3))
+			radius * 2.0, FS_BODY, color.lightened(0.3))
 
 
 static func draw_key_chip(ci: CanvasItem, center: Vector2, key: String,
@@ -244,7 +411,7 @@ static func draw_key_chip(ci: CanvasItem, center: Vector2, key: String,
 	ci.draw_rect(r, Color(accent.r, accent.g, accent.b, 0.12))
 	draw_brackets(ci, r, accent, 6.0, 1.0)
 	ci.draw_string(font, Vector2(r.position.x, center.y + 5.0), key,
-		HORIZONTAL_ALIGNMENT_CENTER, r.size.x, 13, TEXT)
+		HORIZONTAL_ALIGNMENT_CENTER, r.size.x, FS_BODY, TEXT)
 
 
 # ------------------------------------------------------------------
@@ -254,13 +421,13 @@ static func draw_key_chip(ci: CanvasItem, center: Vector2, key: String,
 const KEY_H_PAD := 7.0    # keycap height above font size (shared for row layout)
 
 
-static func key_width(label: String, font: Font, size := 11) -> float:
+static func key_width(label: String, font: Font, size := FS_LABEL) -> float:
 	var tw := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
 	return maxf(tw + 10.0, size + 9.0)   # squarer caps, more like a real key
 
 
 static func draw_key(ci: CanvasItem, pos: Vector2, label: String,
-		font: Font, size := 11, accent := ACCENT) -> float:
+		font: Font, size := FS_LABEL, accent := ACCENT) -> float:
 	## A raised, physical keycap (top-left at `pos`); returns the cap width.
 	## Rounded top face + a thick front lip (bottom border) + a cast shadow so
 	## it reads as a real key, not a flat outline. Every key prompt routes here.
@@ -286,7 +453,7 @@ static func draw_key(ci: CanvasItem, pos: Vector2, label: String,
 	return w
 
 
-static func hints_width(items: Array, font: Font, size := 11, gap := 15.0) -> float:
+static func hints_width(items: Array, font: Font, size := FS_LABEL, gap := 15.0) -> float:
 	var total := 0.0
 	for it in items:
 		total += key_width(it[0], font, size) + 5.0 \
@@ -295,7 +462,7 @@ static func hints_width(items: Array, font: Font, size := 11, gap := 15.0) -> fl
 
 
 static func draw_hints_at(ci: CanvasItem, pos: Vector2, items: Array,
-		font: Font, size := 11, dim := TEXT_DIM) -> float:
+		font: Font, size := FS_LABEL, dim := TEXT_DIM) -> float:
 	## Left-aligned row of "[cap] label" pairs starting at pos (row top-left);
 	## returns the total width. items = [[key, label], ...].
 	var gap := 15.0
@@ -311,7 +478,7 @@ static func draw_hints_at(ci: CanvasItem, pos: Vector2, items: Array,
 
 
 static func draw_hints(ci: CanvasItem, center: Vector2, items: Array,
-		font: Font, size := 11, dim := TEXT_DIM) -> void:
+		font: Font, size := FS_LABEL, dim := TEXT_DIM) -> void:
 	## Centered row of "[cap] label" pairs.
 	var kh := size + KEY_H_PAD
 	var x := center.x - hints_width(items, font, size) * 0.5
@@ -357,7 +524,7 @@ static func make_theme() -> Theme:
 	t.set_color("font_color", "Button", TEXT)
 	t.set_color("font_hover_color", "Button", Color.WHITE)
 	t.set_color("font_pressed_color", "Button", ACCENT)
-	t.set_font_size("font_size", "Button", 12)
+	t.set_font_size("font_size", "Button", FS_BODY)
 
 	var panel := StyleBoxFlat.new()
 	panel.bg_color = BG
@@ -369,5 +536,5 @@ static func make_theme() -> Theme:
 	panel.content_margin_right = 12.0
 	t.set_stylebox("panel", "PanelContainer", panel)
 	t.set_color("font_color", "Label", TEXT)
-	t.set_font_size("font_size", "Label", 11)
+	t.set_font_size("font_size", "Label", FS_LABEL)
 	return t

@@ -99,25 +99,19 @@ func _draw() -> void:
 	var text: String = _pages[_page]
 	var visible_text := text.substr(0, int(_chars))
 	var lines := visible_text.split("\n")
-	var y := vp.y * 0.36
+	var y := vp.y * 0.38
 	for line in lines:
-		draw_string(_font, Vector2(vp.x * 0.5 - 320 + 1.5, y + 1.5), line,
-			HORIZONTAL_ALIGNMENT_LEFT, 640, 18, Color(0, 0, 0, 0.7))
-		draw_string(_font, Vector2(vp.x * 0.5 - 320, y), line,
-			HORIZONTAL_ALIGNMENT_LEFT, 640, 18, UITheme.TEXT)
-		y += 29.0
+		draw_string(_font, Vector2(vp.x * 0.5 - 300 + 1.5, y + 1.5), line,
+			HORIZONTAL_ALIGNMENT_LEFT, 600, 15, Color(0, 0, 0, 0.7))
+		draw_string(_font, Vector2(vp.x * 0.5 - 300, y), line,
+			HORIZONTAL_ALIGNMENT_LEFT, 600, 15, UITheme.TEXT)
+		y += 24.0
 	# cursor blink
 	if fmod(_t, 0.8) < 0.4 and int(_chars) < text.length():
 		var last := lines[lines.size() - 1] if lines.size() > 0 else ""
-		var w := _font.get_string_size(last, HORIZONTAL_ALIGNMENT_LEFT, -1, 18).x
-		draw_rect(Rect2(vp.x * 0.5 - 320 + w + 4, y - 29.0 - 13, 8, 17), UITheme.ACCENT)
+		var w := _font.get_string_size(last, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
+		draw_rect(Rect2(vp.x * 0.5 - 300 + w + 4, y - 24.0 - 11, 7, 14), UITheme.ACCENT)
 
-	# hint — keycaps
-	var hx := vp.x * 0.5 - 96.0
-	var kx := UITheme.draw_key(self, Vector2(hx, vp.y - 34), "SPACE", _font)
-	draw_string(_font, Vector2(hx + kx + 8, vp.y - 22), "continue",
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 12, UITheme.TEXT_DIM)
-	var ex := hx + kx + 74.0
-	var kx2 := UITheme.draw_key(self, Vector2(ex, vp.y - 34), "ESC", _font)
-	draw_string(_font, Vector2(ex + kx2 + 8, vp.y - 22), "skip",
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 12, UITheme.TEXT_DIM)
+	# hint — keycaps, centred and self-measuring so it can never drift off-centre
+	UITheme.draw_hints(self, Vector2(vp.x * 0.5, vp.y - 24.0),
+		[["SPACE", "continue"], ["ESC", "skip"]], _font, 10)

@@ -75,15 +75,90 @@ func _ship_pos() -> Vector2:
 	return GameState.sector
 
 
+# ------------------------------------------------------------------
+# Instrument chrome — gradient plates, hairline borders, fitted labels
+# ------------------------------------------------------------------
+func _grad_rect(r: Rect2, top: Color, bottom: Color) -> void:
+	## Vertical gradient fill. The chart's only panel material — kept near-black
+	## so the void behind it never lifts.
+	draw_polygon(
+		PackedVector2Array([r.position, Vector2(r.end.x, r.position.y), r.end,
+			Vector2(r.position.x, r.end.y)]),
+		PackedColorArray([top, top, bottom, bottom]))
+
+
+func _plate(r: Rect2, accent: Color, a := 0.22) -> void:
+	## Gradient backing + hairline border.
+	_grad_rect(r, Color(0.047, 0.067, 0.102, 0.85), Color(0.024, 0.035, 0.059, 0.55))
+	draw_rect(r, Color(accent.r, accent.g, accent.b, a), false, 1.0)
+
+
+func _tw(s: String, size: int) -> float:
+	return _font.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+
+
+func _rng(d: float) -> String:
+	## Range figure, never wider than six characters.
+	if d >= 10000.0:
+		return "%.0fk" % (d / 1000.0)
+	if d >= 1000.0:
+		return "%.1fk" % (d / 1000.0)
+	return "%d" % int(d)
+
+
+func _tag(anchor: Vector2, off: float, title: String, sub: String,
+		size: int, col: Color, vp: Vector2) -> void:
+	## One contact label: NAME at `size`, then a dimmer range figure two points
+	## smaller on the same baseline. A negative `off` hangs the tag on the left of
+	## the marker; a positive one flips left anyway when the tag would run past the
+	## right edge, so a long station name can never clip.
+	var sub_size := maxi(size - 2, 6)
+	var nw := _tw(title, size)
+	var sw := 0.0
+	if sub != "":
+		sw = _tw("  " + sub, sub_size)
+	var x := anchor.x + off
+	if off < 0.0:
+		x = anchor.x + off - nw - sw
+	elif x + nw + sw > vp.x - 10.0:
+		x = anchor.x - off - nw - sw
+	x = clampf(x, 6.0, maxf(vp.x - nw - sw - 6.0, 6.0))
+	var y := clampf(anchor.y, 14.0, vp.y - 8.0)
+	draw_string(_font, Vector2(x + 1.0, y + 1.0), title,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, size, Color(0, 0, 0, 0.65))
+	draw_string(_font, Vector2(x, y), title,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, size, col)
+	if sub != "":
+		draw_string(_font, Vector2(x + nw, y), "  " + sub,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, sub_size,
+			Color(col.r, col.g, col.b, 0.5))
+
+
+func _station_pip(p: Vector2, dd: float, sc: Color, pulse: float) -> void:
+	## A station landmark: haloed diamond with a hollow core.
+	draw_circle(p, dd + 4.0 + pulse * 1.5, Color(sc.r, sc.g, sc.b, 0.12))
+	draw_colored_polygon(PackedVector2Array([
+		p + Vector2(0, -dd), p + Vector2(dd, 0),
+		p + Vector2(0, dd), p + Vector2(-dd, 0)]), sc)
+	draw_colored_polygon(PackedVector2Array([
+		p + Vector2(0, -dd * 0.45), p + Vector2(dd * 0.45, 0),
+		p + Vector2(0, dd * 0.45), p + Vector2(-dd * 0.45, 0)]), Color(0.03, 0.06, 0.1))
+	draw_arc(p, dd + 2.5, 0.0, TAU, 20, Color(sc.r, sc.g, sc.b, 0.7), 1.2)
+
+
 func _draw() -> void:
 	if not visible:
 		return
 	var vp := get_viewport_rect().size
-	draw_rect(Rect2(Vector2.ZERO, vp), Color(0.02, 0.03, 0.05, 0.92))
+	draw_rect(Rect2(Vector2.ZERO, vp), Color(0.012, 0.02, 0.035, 0.96))
+	# hull-navy wash under the title block only — space itself stays black
+	_grad_rect(Rect2(0.0, 0.0, vp.x, 170.0),
+		Color(0.047, 0.067, 0.102, 0.5), Color(0.047, 0.067, 0.102, 0.0))
 
 	var center := Vector2(vp.x * 0.5, vp.y * 0.54)
 	var scale := minf(vp.x, vp.y) * 0.5 * 0.82 / _max_r
 	var acc := UITheme.ACCENT
+	var ship := _ship_pos()
 
 	# outer boundary of the known void
 	draw_arc(center, _max_r * scale, 0.0, TAU, 128, Color(acc.r, acc.g, acc.b, 0.10), 1.0)
@@ -92,8 +167,13 @@ func _draw() -> void:
 		var rr: float = float(band[0]) * scale
 		draw_arc(center, rr, 0.0, TAU, 96, Color(acc.r, acc.g, acc.b, 0.13), 1.0)
 		# label centred at the BOTTOM of each ring (the emptiest arc), never over centre
-		draw_string(_font, center + Vector2(-60.0, rr - 5.0), str(band[1]),
-			HORIZONTAL_ALIGNMENT_CENTER, 120.0, 8, Color(acc.r, acc.g, acc.b, 0.4))
+		# — a fade plate keeps the arc from striking through the type
+		var bl: String = str(band[1])
+		var blw := _tw(bl, 7) + 12.0
+		_grad_rect(Rect2(center.x - blw * 0.5, center.y + rr - 15.0, blw, 14.0),
+			Color(0.012, 0.02, 0.035, 0.0), Color(0.012, 0.02, 0.035, 0.85))
+		draw_string(_font, center + Vector2(-60.0, rr - 4.0), bl,
+			HORIZONTAL_ALIGNMENT_CENTER, 120.0, 7, Color(acc.r, acc.g, acc.b, 0.45))
 
 	# nebulae — colour+name once seen, a faint unknown blip until then
 	var seen := 0
@@ -106,50 +186,59 @@ func _draw() -> void:
 			var rad: float = maxf(GameState.nebula_radius(i) * scale, 3.5)
 			draw_circle(p, rad, Color(col.r, col.g, col.b, 0.20))
 			draw_arc(p, rad, 0.0, TAU, 48, Color(col.r, col.g, col.b, 0.75), 1.5)
-			draw_string(_font, p + Vector2(rad + 4.0, 4.0), str(n["name"]),
-				HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(col.r, col.g, col.b, 0.95))
+			_tag(p + Vector2(0.0, 3.0), rad + 5.0, str(n["name"]),
+				_rng((GameState.nebula_center(i) - ship).length()), 9,
+				Color(col.r, col.g, col.b, 0.95), vp)
 		else:
-			draw_circle(p, 2.0, Color(0.55, 0.65, 0.75, 0.35))
-			draw_string(_font, p + Vector2(4.0, 4.0), "?",
-				HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.55, 0.65, 0.75, 0.4))
+			draw_circle(p, 1.8, Color(0.55, 0.65, 0.75, 0.35))
+			draw_string(_font, p + Vector2(3.5, 3.0), "?",
+				HORIZONTAL_ALIGNMENT_LEFT, -1, 8, Color(0.55, 0.65, 0.75, 0.4))
 
 	# current distress beacon (the live objective)
 	if GameState.rescue_available():
-		var bp := center + GameState.rescue_beacon() * scale
+		var bw := GameState.rescue_beacon()
+		var bp := center + bw * scale
 		var pulse := 0.5 + 0.5 * sin(_t * 3.0)
 		var dg := UITheme.DANGER
-		draw_arc(bp, 7.0 + 4.0 * pulse, 0.0, TAU, 32, Color(dg.r, dg.g, dg.b, 0.9), 2.0)
-		draw_circle(bp, 3.0, dg)
-		draw_string(_font, bp + Vector2(9.0, 4.0), "DISTRESS",
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 10, dg)
+		# the live objective reads as the SELECTED contact: brackets + range
+		UITheme.draw_brackets(self, Rect2(bp - Vector2(9.0, 9.0), Vector2(18.0, 18.0)),
+			dg, 5.0, 0.0)
+		draw_arc(bp, 7.0 + 4.0 * pulse, 0.0, TAU, 32, Color(dg.r, dg.g, dg.b, 0.9), 1.6)
+		draw_circle(bp, 2.5, dg)
+		_tag(bp + Vector2(0.0, 3.0), 13.0, "DISTRESS", _rng((bw - ship).length()),
+			9, dg, vp)
 
 	# --- endgame STATIONS: giant rescue-station landmarks (art in stations_v2/;
 	# gameplay wiring is TODO — for now they mark the map so they aren't unused) ---
 	var pulse := 0.5 + 0.5 * sin(_t * 2.5)
-	for i in Stations.count():
-		var stp := center + Stations.world_pos(i) * scale
-		var sc := Color(0.4, 0.95, 1.0)
-		var dd := 8.0
-		# glow halo so the giant stations read clearly against the nebulae/blips
-		draw_circle(stp, dd + 5.0 + pulse * 2.0, Color(sc.r, sc.g, sc.b, 0.12))
-		draw_colored_polygon(PackedVector2Array([
-			stp + Vector2(0, -dd), stp + Vector2(dd, 0),
-			stp + Vector2(0, dd), stp + Vector2(-dd, 0)]), sc)
-		draw_colored_polygon(PackedVector2Array([
-			stp + Vector2(0, -dd * 0.45), stp + Vector2(dd * 0.45, 0),
-			stp + Vector2(0, dd * 0.45), stp + Vector2(-dd * 0.45, 0)]), Color(0.03, 0.06, 0.1))
-		draw_arc(stp, dd + 3.0, 0.0, TAU, 20, Color(sc.r, sc.g, sc.b, 0.7), 1.5)
-		draw_string(_font, stp + Vector2(dd + 5.0, 4.0), str(Stations.LIST[i]["name"]),
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(sc.r, sc.g, sc.b, 0.95))
+	var sc := Color(0.4, 0.95, 1.0)
+	var st_spread := Stations.GAP * scale >= 54.0   # room for one name per diamond?
+	if st_spread:
+		for i in Stations.count():
+			var stp := center + Stations.world_pos(i) * scale
+			_station_pip(stp, 6.0, sc, pulse)
+			_tag(stp + Vector2(0.0, 3.0), 11.0, str(Stations.LIST[i]["name"]),
+				_rng((Stations.world_pos(i) - ship).length()), 9,
+				Color(sc.r, sc.g, sc.b, 0.95), vp)
+	else:
+		# the grid is tighter than its own labels at this scale — ten diamonds and
+		# ten names landed on top of each other. Collapse it to ONE counted contact.
+		var cp := center + Stations.CLUSTER * scale
+		_station_pip(cp, 7.0, sc, pulse)
+		draw_arc(cp, 12.0 + pulse * 2.0, 0.0, TAU, 28, Color(sc.r, sc.g, sc.b, 0.30), 1.0)
+		_tag(cp + Vector2(0.0, 3.0), 16.0, "STATIONS",
+			"%d contacts  %s" % [Stations.count(),
+				_rng((Stations.CLUSTER - ship).length())],
+			9, Color(sc.r, sc.g, sc.b, 0.95), vp)
 
 	# home
 	draw_circle(center, 4.0, acc)
 	draw_arc(center, 7.0, 0.0, TAU, 24, Color(acc.r, acc.g, acc.b, 0.6), 1.0)
-	draw_string(_font, center + Vector2(9.0, 4.0), "HOME",
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 9, UITheme.TEXT_DIM)
+	draw_string(_font, center + Vector2(8.0, 3.0), "HOME",
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 8, UITheme.TEXT_DIM)
 
 	# the ship — a bright chevron that POINTS where you're heading (bow direction)
-	var sp := center + _ship_pos() * scale
+	var sp := center + ship * scale
 	var warm := UITheme.ACCENT_WARM
 	var head := 0.0
 	if flight != null and is_instance_valid(flight):
@@ -158,14 +247,18 @@ func _draw() -> void:
 	draw_colored_polygon(PackedVector2Array([
 		Vector2(0, -9), Vector2(6, 6), Vector2(0, 2.5), Vector2(-6, 6)]), warm)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-	draw_string(_font, sp + Vector2(9.0, -2.0), "YOU",
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 9, warm)
+	# hung on the LEFT of the chevron — HOME and the station cluster both sit right
+	_tag(sp + Vector2(0.0, -8.0), -9.0, "YOU", "", 8, warm, vp)
 
-	# header + legend
-	UITheme.draw_header(self, Vector2(vp.x * 0.5 - 130.0, 42.0), "STAR CHART",
-		_font, 16, acc, 260.0)
-	draw_string(_font, Vector2(vp.x * 0.5 - 130.0, 74.0),
-		"DISCOVERED  %d / %d  NEBULAE" % [seen, GameState.NEBULAE.size()],
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 10, UITheme.TEXT_DIM)
-	UITheme.draw_hints_at(self, Vector2(vp.x * 0.5 - 60.0, vp.y - 40.0),
-		[["M", "close"]], _font, 10)
+	# header — gradient plate, hairline border, width-fitted so nothing clips
+	var hdr_w := 200.0
+	var sub := "DISCOVERED  %d / %d  NEBULAE   ·   RANGE  %s" % [seen,
+		GameState.NEBULAE.size(), _rng(ship.length())]
+	var plate_w := maxf(hdr_w, _tw(sub, 8)) + 26.0
+	var hx := vp.x * 0.5 - plate_w * 0.5 + 13.0
+	_plate(Rect2(hx - 13.0, 26.0, plate_w, 54.0), acc, 0.20)
+	UITheme.draw_header(self, Vector2(hx, 46.0), "STAR CHART", _font, 13, acc, hdr_w)
+	draw_string(_font, Vector2(hx, 70.0), sub,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 8, UITheme.TEXT_DIM)
+	UITheme.draw_hints_at(self, Vector2(vp.x * 0.5 - 50.0, vp.y - 38.0),
+		[["M", "close"]], _font, 9)
