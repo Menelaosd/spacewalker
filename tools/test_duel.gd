@@ -41,13 +41,19 @@ func _ready() -> void:
 	_check(duel.energy == 0, "vessel cost 1 energy (Act 3 rule: not free)")
 	_check(not duel._can_afford("prism_ripper"), "5-cost ripper unaffordable at 0 energy")
 
-	print("-- battery bearer --")
+	print("-- overcharge (battery bearer) --")
+	# hand[0] is now CRYPTOJACKER (power_siphon) — scrap_mite was consumed above. Read the
+	# cost off the card instead of hard-coding it: this assertion used to expect a 2-cost
+	# card and silently went stale when the expansion re-statted it to 1.
 	duel.energy = 2
 	duel.energy_max = 2
-	duel._sel = 0   # conduit
+	var oc_id: String = str(duel.hand[0])
+	var oc_cost: int = int(duel.CARDS[oc_id][4])
+	duel._sel = 0
 	duel._place_selected(1)
-	_check(duel.energy_max == 3, "battery bearer grew max energy to 3")
-	_check(duel.energy == 1, "+1 current, then 2 cost deducted (resolves before cost)")
+	_check(duel.energy_max == 3, "overcharge grew max energy to 3")
+	_check(duel.energy == 3 - oc_cost,
+		"+1 current, then cost deducted (resolves BEFORE cost): %d" % (3 - oc_cost))
 
 	print("-- nano armor --")
 	duel.energy = 3
@@ -107,7 +113,14 @@ func _ready() -> void:
 	duel2.tip = -duel2.WIN_TIP
 	duel2._check_over()
 	_check(duel2.phase == duel2.Phase.OVER and not duel2._won, "tip -5 = ejected")
-	_check(_count(duel2.queue) == 2, "tier 3 telegraphs 2 units per turn")
+	# per_turn is 1 on EVERY tier now, bosses included, and that is deliberate — it is the
+	# AI's draw rate, and the player draws exactly 1 card/turn, so 1 is parity. At 2 the
+	# enemy board grows faster than any wall can answer and the 5-point trace budget is gone
+	# by turn 2-3; this mode hit that failure twice. Escalation comes from POOL COMPOSITION
+	# instead. This assertion used to require 2 and was pinning the bug in place.
+	_check(_count(duel2.queue) == 1, "every tier telegraphs 1 unit/turn (draw-rate parity)")
+	for t in duel2.OPP_DECKS:
+		_check(int(duel2.OPP_DECKS[t]["per_turn"]) == 1, "tier %s per_turn is 1" % str(t))
 
 	print("RESULT: %s (%d fails)" % ["ALL PASS" if fails == 0 else "FAILED", fails])
 	get_tree().quit(1 if fails > 0 else 0)

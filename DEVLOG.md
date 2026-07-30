@@ -31,6 +31,300 @@ and turns with the helm (`flight.gd`). Two implementations were needed — the p
   reads softest — `SHIP_SHADOW_DARK` is the one knob if it needs more bite.
 
 
+## 30/07/2026 — v0.230: every ability audited, and the run played end-to-end
+
+**Ability audit — all 18 sigils, no inerts, no double-fires.** Every sigil now has a read site;
+every sigil printed on a HELIOS card has an ENEMY-path read (that symmetry only landed in v0.228).
+Once-guards verified individually where double-firing could hide: `morphogen` is gated by `morphed`
+(once per unit, not per turn), `failover` by `failed_over` AND it returns *before* the meltdown block
+— so CRON BOMB, which carries both, revives once and only detonates on its real death — and
+`sentry_spent` clears in `_turn_start` (once per turn, not once per card placed). Two static-scan
+flags checked and cleared: `spike_casing`'s two reads in `_advance_opp` are the mutually-exclusive
+blocker/intercept branches, and `airborne`'s two are different jobs (null the target, then cap the
+trace). `autoturret` reading in `_place_selected` is correct, not a bug — it is HELIOS-only and fires
+when YOU place opposite it. OVERCLOCK confirmed working in both directions: `atk_boost` is read by
+`_unit_atk`, and its `fragile` drawback is read by `_kill`.
+
+**New harness `tools/sim_progression.gd`** plays the tiers a run actually presents, in order,
+carrying the deck forward and drafting after each win. (A full-map harness was attempted first and
+abandoned: driving the real 3D map headlessly runs at ~0.1 fps — it is built for a camera, not a
+batch job. The map economy is therefore modelled, so read these as duel-chain numbers.)
+
+**A run is THREE fights, not more** — `ROW_PLAN` is access/gain/util/**battle**/gain/util/**battle**/
+gain/util/**core**. Measured over 120-150 runs per ladder with the deliberately naive bot:
+
+| ladder | fight 1 | fight 2 | core | whole run |
+|---|---|---|---|---|
+| 1 → 2 → 5 (sentinel path) | 93-94% | 66-69% | 19-29% | **12-18%** |
+| 1 → 3 → 5 (bounty path)   | 98%    | 35%    | 20%    | **7%** |
+| 1 → 4 → 5 (rejected)      | 89%    | 14%    | 27%    | **3%** |
+
+The curve ramps correctly and the clear rate is healthy for a bot that never uses a sigil tactically.
+
+**The bug this found: BOUNTY DAEMON was fighting at TIER 1 — the teaching deck — at the deepest
+battle row.** `streak` counts won duels, and with only three battles the streak at row 6 is ALWAYS
+exactly 1, so `clampi(1 + streak / 2, 1, 4)` collapsed to 1. The easiest fight in the game sat where
+the hardest should be, and `streak >= 6` (the WARRANT SUITE trigger added in v0.228) was unreachable
+for the same reason. Streak is simply not a usable lever in a 3-fight structure. Bounty now scales by
+DEPTH: tier 2 early, **tier 3** at row 5+.
+
+**Capped at 3 deliberately.** Tier 4 as a mandatory second fight measured 14% clear and dropped
+whole-run clears to 3% — and the bounty is ROLLED, not chosen, so it must never hand you a fight you
+cannot refuse.
+
+**BLACK ICE is now the run's OPT-IN apex fight** — the home tier 4 COUNTERINTRUSION and boss 6
+WARRANT SUITE needed. They could not go on a mandatory node without gutting the clear rate, and BLACK
+ICE was a pure coin flip (`randi() % 2`: +8-12 shards or -4) with no decision in it, which also read
+wrong: in the fiction black ICE is lethal defensive software, not a lockbox.
+
+Now: arriving offers a choice. **Leave it sealed** and nothing happens — walk on, nothing gained or
+lost. **Cut into it** and you fight the hardest thing on the station: **tier 4 COUNTERINTRUSION**, or
+at row 8+ the **WARRANT SUITE boss itself**. Losing ends the run like any duel.
+
+The payout was set by measurement, not by feel. First pass paid 18-26 shards and one card; simulated,
+that was a bad deal — taking the ice cleared only 20-25% and dropped **whole-run clears from 16% to
+3%**, while the extra card left the later fights statistically unchanged (60%/25% vs a 65%/26%
+baseline). So the salvage now comes out **WELDED: +1 POWER permanently, with none of the OVERCLOCK
+RIG's burn-out risk** — the rig charges 9 shards for a buff that can lose you the card; this was paid
+for with the hardest fight in the run. Drop pool is top-end only (nothing under 3 energy).
+
+Verified branch by branch with `tools/test_blackice.gd`, which drives the real map's own functions:
+decline → no duel, node closes, nothing gained; accept at row 1 → tier 4; accept at row 8 → tier 6;
+win → +18/+26 shards, deck +1, weld applied.
+
+Reachability of the three bosses is now: **5 SOLAR WARDEN** every run (the core), **6 WARRANT SUITE**
+by choosing a deep BLACK ICE, **7 ICE-9** by forcing a toolless QUARANTINE GATE — a secret boss found
+by getting into trouble, which is the right way to meet it.
+
+
+## 30/07/2026 — v0.229: the sigils finally stand IN the fog (and the shadow lesson)
+
+The captain: *"i dont like how the sigils are in the fog! make their shadow stronger, make it
+look really awesome and blend in"*, then *"the shadows are stupid and make the fog a bit blurry
+where the sigil blends in"*.
+
+**Three painted shadows failed before the real cause turned up, and the failures are the point:**
+1. A black **alpha** plane under the fog — mathematically invisible. The floor fog is `blend_add`,
+   so at a node nearly all the on-screen brightness *is* the fog and the deck beneath is near-black.
+   An alpha plane underneath an additive layer cannot subtract from it. (Same trap as the ship
+   shadow in v0.210: a black caster on SUB blend was a no-op.) Measured: luminance *rose*
+   monotonically toward the prop centre. A shadow is a dip; there was none.
+2. A **hard core** blob — read as an ugly oval decal stamped on the deck at this camera pitch.
+3. A **multiply** quad — correct blend, but it rendered as a hard-edged dark **rectangle**. Two
+   variants failed (gradient-textured, then procedural falloff), so the quads went in the bin.
+
+**The actual problem was never the shadow — it was the additive sheet washing across the props'
+bases.** The fix is on the fog side: sample `DEPTH_TEXTURE`, reconstruct the **world Y** of whatever
+the depth buffer holds at that pixel, and fade the fog out where that Y is raised. Bare deck keeps
+full fog; anything standing on it — a sigil, a wall block, the astronaut — pushes the haze aside, so
+it laps *around* the base instead of over it. One texture fetch fixes every object at once.
+
+**`DEPTH_TEXTURE` DOES work under GL Compatibility in 4.7** — verified by probe and on screen. Note
+for future work: a *textbook* soft-particle fade is wrong here (the sheets float only 0.11–0.37 above
+an opaque deck, so a distance-based fade erases the whole sheet); it has to be keyed on world height.
+`d * 2.0 - 1.0` is the GL depth convention — Forward+ uses reverse-Z and would need a different
+reconstruction if the renderer ever changes.
+
+Also landed: props are now lit per-node (`_light_sigils`) instead of being flat full-bright sprites —
+the single biggest reason they read as pasted on. Both the astronaut and the props sample light at
+**one shared height**; sampling him at his feet and them at sprite-centre made props ~30% brighter
+purely from the falloff on a light at y=1.5. Locked nodes desaturate *toward* grey rather than to it
+(collapsing to luminance first flipped a FIREWALL's orange to cold blue and erased the accent palette
+on the ~14 of 17 props locked at any moment); the CORE is exempt since it is locked all run and it is
+the goal beacon. Cleared nodes dim but keep their accent, matching the grey spent corridor. Tint
+smoothing is frame-rate independent now. Light shafts dropped to ~a third alpha — at this near-top-down
+camera the Y-billboard rendered nearly edge-on as a hard white stripe lying on the deck, which was the
+most sticker-like thing in the frame.
+
+**The API trap behind failure #3, worth remembering: `Gradient.set_color()` takes a POINT INDEX,
+not an offset.** `set_color(0.55, ...)` truncates to index 0 and silently overwrites the stop you
+set on the line above; on a 4-point gradient the same mistake leaves the outermost stop at Godot's
+DEFAULT opaque white, so every texel past UV radius 0.5 — corners included — is fully opaque. That
+is precisely why the multiply quad drew a black rectangle with hard corners. `_build_shadow_tex`
+now sets `offsets` / `colors` as arrays so it cannot recur. Note the astronaut's approved blob was
+also built through this bug: it has always been a plain 0.32→0 ramp, not the 0.5-centre/0.55-knee
+curve the code appeared to describe. The corrected code reproduces what shipped exactly — the look
+he signed off on is preserved deliberately.
+
+**The base dissolve's noise was replaced too.** A per-pixel hash was tried first and measured as
+white-noise grain ~380x above Nyquist that re-randomised on sub-pixel camera moves (20x the pixel
+churn of no noise at all) — and because it was scaled BY the blend factor it peaked deep inside the
+haze and was **zero at the shoulder**, so it could not soften the very transition it was added for.
+It now rides on the same value noise the floor fog is drawn with, as a wobble on the waterline:
+band-limited, ~15-20px features, reads as blur, does not crawl. `fog_wobble = 0.0` returns a clean
+gradient with no code change. Also fixed: `fog_top` for the core node was 0.34, which put its blend
+at y=0.49 — above the y=0.37 fog sheet, i.e. fogging it higher than the fog physically reaches. Fog
+is world-space; it does not get taller because the machine is bigger. Both sizes now use 0.26.
+
+**Two more things the sweep caught.** The haze target was an absolute constant, but the additive
+fog a prop must blend into varies ~30x across one screen — so a fixed `fog_color` made every base
+either a glowing skirt (on a dark node) or a black cut-out (on a bright one) purely by where the
+prop stood. It now tracks the same light `_light_sigils` already computes. And a colour-only mix can
+never dissolve anything: ALPHA stayed 1.0, so the silhouette was a razor cut however the pixels
+inside it were tinted. The dissolve now acts on COVERAGE — the alpha-cut threshold rises with the
+haze factor, jittered on the fog's noise — giving hard PIXEL edges (correct for pixel art) and a
+soft SHAPE edge.
+
+**And one thing to put back:** the shared-lighting refactor had quietly moved the astronaut onto the
+props' sample height and floor, measuring +12-15% brighter on R/G and warmer. He is a signed-off
+asset tuned over many iterations, so his own numbers are restored and commented as deliberate — the
+helper is shared, the tuning is not. Only the frame-rate-independence fix was kept (`-8.2` matches
+the approved 0.12/frame at 60 fps).
+
+**Known open, not fixed here:** node name labels lose ~45% of peak luminance by row 2 and are
+unreadable by row 3 (the Environment's black fog applies to `Label3D` too, and the HUD banner
+overlaps the furthest row) — the real fix is drawing them in 2D via `unproject_position`, which the
+HUD draw hook already supports. `SIGIL_SHADER` has no compile fallback, so a GPU that rejects it
+would render all 17 props as grey rectangles. And rows 4+ including the HELIOS CORE cannot be
+screenshot at all — there is no dev hook to advance the marker, so half the board is unreviewable;
+`SW_BREACH_AT=<row>` would fix that and is worth adding before the next art pass.
+
+**Performance, measured rather than guessed.** The fog shader ran its two 5-octave FBMs *before*
+fetching the corridor mask that multiplies most of them to zero — so every fragment outside the
+corridor paid full price for noise it then threw away. Gating the noise (and the new depth fetch)
+behind the mask measured **31.25 ms → 17.06 ms** per frame in an amplified-overdraw rig; free here,
+an estimated 2-4 ms back on a Steam Deck or Iris Xe. Also removed: `distance_fade_*` on the node
+lights, which the GL Compatibility renderer **silently ignores** (measured identical brightness with
+and without it at 28 units) — it was there to cull distant lights and never did.
+
+`_light_sigils` was cleared as a suspect: ~0.21 ms/frame, ~1.3% of a 60 fps budget, and the cost is
+GDScript overhead rather than maths. `set_shader_parameter` was cleared too — 0.18 µs per call, and
+an epsilon guard measured *no* saving because the loop around it is the cost.
+
+**The light rig was the real GPU cost, and it is now fixed.** The map was building **61-95 omnis**
+against GL Compatibility's hard caps of **32 renderable** and **8 per object** — both silently
+enforced, no warning. 100% of floor tiles were overlapped by 9-25 lights, so roughly 60% of the
+lights we paid for could never reach the screen; and because the 32-cap keeps the *last 32 in
+creation order* rather than the nearest, which lights survived shifted as the camera moved. That was
+a brightness-popping source, not merely waste. Separately `shadow_enabled` fired on all 19-27 node
+lights (not the ~10 the comment claimed) for **+335 draw calls** (174 → 509) — buying nothing, since
+a light straight above a vertical quad projects a sliver `shadow_normal_bias` erases.
+
+Fixed as one change, because they must go together — cutting lights alone pushes draw calls to *925*
+by giving every remaining caster an atlas slot: corridor lights now build on a **checker (every 2nd
+cell)** with `omni_range` 3.6 → 5.0 so the trench stays continuously lit, and `shadow_enabled = big`
+leaves only the core/access nodes casting. Verified with `tools/count_lights.gd` across seeds 3/11/29:
+**49-53 omnis (was 61-95) and 2 shadow casters (was 19-27)**. The wider range is a small bonus — it
+reaches the cube walls slightly better, which is a thing the captain had asked for repeatedly.
+
+Found by 10 parallel inspectors; measured, not eyeballed.
+
+
+## 30/07/2026 — v0.228: the expansion goes LIVE — bosses reachable, HELIOS gets its sigils, 79 portraits
+
+v0.227 built the content. This entry is about the discovery, from a 40-agent art+balance sweep and
+420+ simulated duels, that **most of it was unreachable or inert**, and the fixes.
+
+**The headline bug: tiers 4–7 were dead content.** Three independent auditors found it separately.
+`make()` correctly preserves boss tiers, but nothing ever *passed* one — every difficulty came from
+`TYPES[type][2]`, whose max was `core = 3`, and the one dynamic case was hard-clamped
+(`clampi(1 + streak / 2, 1, 3)`). So HELIOS CORE fought the ordinary tier-3 deck and SOLAR WARDEN /
+WARRANT SUITE / ICE-9 had never been played by anyone. Now: `core → 5`, bounty escalates to tier 4
+and summons **WARRANT SUITE at streak ≥ 6**, and a forced QUARANTINE GATE opens **ICE-9**.
+
+**Four of the six new sigils never fired for HELIOS.** NECROSIS and LEECH live inside `_resolve_hit`
+and AIRBORNE inside `_advance_strike` — both are the *player's* strike path. The enemy strike was a
+bare `_hit_unit`, and the DRIFT loop read `you[]` only. Consequence: WARRANT SUITE (half its deck
+airborne) was a pile of plain bodies any wall stopped cold, and ICE-9 — a boss built entirely on
+NECROSIS — had no teeth whatsoever. All four are now mirrored in `_advance_opp`, and DRIFT moved into
+a shared `_drift_row(row, ...)` used by both sides.
+
+**Two one-card-win exploits closed.**
+- AIRBORNE never reaches `_resolve_hit`, so it took *zero* retaliation — no thorns, no trade, no
+  damage spent on a body — while tipping its full power. Grafted onto any 3+ power body via SPLICER
+  it won on the second ring from an empty board. It now caps at **2 trace**; everything else caps at
+  **WIN_TIP − 1**, so no single ring can carry a whole win (this also kills the OVERVOLT + OVERCLOCK
+  5-power finisher).
+- OVERFLOW's budget was per *hit*, but FORK hits 2 lanes and CHAIN hits 3 from one striker — up to
+  +7 trace in a ring, defeating the multi-lane rule that the code comment right above it *states*.
+  The budget is now per **striker** (`_spill`, reset in `_advance_strike`).
+- The enemy's trace tip got the **same two ceilings**. HELIOS must not run rules the player doesn't.
+
+**Two softlocks.** A duel had no exit at all — the map's `_unhandled_input` returns early while a duel
+is up, so ESC did nothing and every input was a 3D mouse hit test. And `Phase.DRAW` is *mandatory*
+with only the two 3D pile meshes as targets; `DECK_POS` leaves the camera frustum on any display
+narrower than ~3:2, making the turn unstartable. Added `_unhandled_input` to the duel: **ESC twice
+concedes** (the map ejects you like any run loss), and **SPACE/ENTER draws** (SHIFT for the side deck).
+
+**A run-ending dead end.** A toolless QUARANTINE GATE returned early without advancing `cur`, so the
+reachable set never rebuilt — and about half of all rows generate a single link. If your one exit was
+a sealed gate the run was hard-dead, banking nothing. It now forces open when it is the only door,
+and ICE-9 collects the toll.
+
+**Balance, measured not guessed.** New harness `tools/sim_duel3d.gd` drives the real duel node through
+its own engine functions (`Engine.time_scale = 60`, watchdog, per-tier win rates). 840 duels with the
+base 17-card deck and a deliberately dumb greedy policy exposed a broken ordering: **tier 4 was the
+hardest fight in the game at 12%** — harder than all three bosses — while **ICE-9 was the easiest at
+62%**, easier than tier 2, because 9 total power cannot close a 5-point trace no matter how lethal its
+blocks are. Three swaps: DAEMON GR1ZZ (boss-grade vanilla, no tier identity) moved T4 → T7, T4 took
+QUARANTINE BIN, T7 took WARRANT DAEMON as a closer, T6 traded GR1ZZ for SYN FLOOD. Result — T1 92%,
+T2 62%, T3 30%, T4 22%, T5 37%, T6 26%, T7 23%. Monotone through the tiers, bosses clustered, nothing
+unwinnable. Absolute numbers understate a real player badly (the bot never uses a sigil tactically);
+the *ordering* is the deliverable.
+
+**Art: all 79 cards have their own portrait.** 128×128 (was 64), generated per-card from silhouette
+briefs — 73 clean, 6 with noted craft deviations. Six cards used to *share* a portrait. 36 art keys
+repointed, mipmaps enabled (they're drawn well under native size), and the **50 orphaned old
+portraits deleted** (100 files with imports).
+
+**Verified:** both scripts parse; 840 headless duels across all 7 tiers with zero script errors; a
+live 1600×900 duel screenshot confirms the new portraits render. Full 79-card sheet:
+`scratchpad/card_sheet_79.html`.
+
+
+## 25/07/2026 — v0.227: THE BIG CARD EXPANSION — 37 → 80 cards, 4 tiers + 3 bosses
+
+Captain's call: the roster was a placeholder that had grown to 37, of which 13 were unreachable
+and 6 shared portraits. Two design agents produced full documents (player pool / HELIOS + tiers)
+against a fixed 19-sigil vocabulary; both showed their balance arithmetic.
+
+**6 NEW SIGILS, all implemented in the engine:**
+- `necrosis` (WIPE) — its damage is lethal. Applied AFTER the armour check, so BUFFER beats it.
+- `airborne` (TUNNEL) — its strike reaches the trace through a blocked lane. INTERCEPT still
+  catches it: that is the designed counter-play (the two design docs disagreed here; the player's
+  counter-play won, since the enemy identity survives without the bypass).
+- `broadcast` — friendly units either side get +1 power. Read LIVE in `_unit_atk` via
+  `_broadcast_bonus()`, so killing the broadcaster removes the aura instantly.
+- `side_channel` (DRIFT) — slides one lane sideways at turn start, bouncing off walls/friends.
+- `failover` — first death returns it at 1 hp. Two deliberate rulings from the design doc: the
+  return is NOT a "play" (so `overcharge` cannot re-fire) and MELTDOWN is held for the SECOND
+  death (so a bomb can't detonate twice out of one card).
+- `leech` (SIPHON) — repairs 1 hp when it damages a unit, clamped to its printed hp.
+
+**43 new cards** (22 player / 18 HELIOS / 3 boss signatures) → 80 total, no duplicate ids, every
+deck reference resolves. Player curve is deliberately bottom-heavy (6/7/5/4 by cost): the opening
+is decided by cards costing <=2 and the old pool had only 41% of those, so a 3-card VAULT offer
+now contains a turn-1/2 playable ~87% of the time.
+
+**OPP_DECKS rebuilt: 4 tiers with identities + 3 boss decks.** T1 PERIMETER teaches the telegraph,
+T2 ACTIVE DEFENSE prices itself in player CARDS destroyed (thorns/turrets/DETONATE), T3 HARD
+KERNEL is the bulk-and-lane-denial wall, T4 COUNTERINTRUSION drops hp on purpose because AIRBORNE
+and NECROSIS take defence off the table. Bosses: SOLAR WARDEN (two 0-power CORE ARBITERs that buff
+neighbours and must die twice), WARRANT SUITE (half the deck unblockable), ICE-9 QUARANTINE (half
+NECROSIS — the answer is to stop blocking).
+
+**`per_turn` is 1 EVERYWHERE, and the doc proves why it must be.** per_turn IS the AI's draw rate;
+the player draws exactly 1 card/turn, so 1 is parity. At 2 the enemy board grows faster than any
+wall regardless of energy — that is the arithmetic behind the two unwinnable-tier incidents.
+Escalation now comes from pool composition, with `failover` as the safe "fields more than one".
+
+**Two live bugs found by the designers:**
+- Enemy units were created with NO `armor` key while `_hit_unit` reads `u.get("armor")` — so
+  `ablative_plating` was inert on every HELIOS card ever. Now stamped in `_opp_fill_queue`.
+- `make()` did `clampi(diff, 1, 3)`, so tier 4 and every boss deck silently played as tier 3.
+  Now only unknown tiers are clamped.
+
+PLAYER_DECK reshaped (17 slots): out `power_overload` (the doc's own "most undercosted card" —
+every run opened holding it, flattening the reward arc) and `hydra_swarm`; in `shim_layer` and
+`dns_tunnel`, which teach INTERCEPT and AIRBORNE in the tutorial deck.
+
+KNOWN GAPS: 43 cards render frame-only until their art exists (next round). Enemy-side `airborne`,
+`side_channel`, `leech` and `necrosis` are implemented on the PLAYER strike path; the
+`_advance_opp` mirror still needs them or HELIOS's T4/boss identity is vanilla bodies. Map wiring
+for tier 4 + boss keys (TYPES difficulty, a BLACK WALL node, bounty escalation) is described in the
+design doc and not yet applied.
+
+
 ## 25/07/2026 — v0.226: 50-agent audit + the criticals it found
 
 47-agent read-only audit (3 died on the org spend limit, incl. both synthesis passes — findings

@@ -48,48 +48,94 @@ const EDGE := Color(0.3, 0.55, 0.7, 0.5)
 # id: [NAME, portrait, atk, hp, energy_cost, sigils]
 const CARDS := {
 	# --- fodder / side deck ---
-	"scrap_mite":     ["SHELLCODE STUB", "u_hollow", 0, 2, 1, []],
+	"scrap_mite":     ["SHELLCODE STUB", "u_scrap_mite", 0, 2, 1, []],
 	# --- PLAYER intrusion units (cyan) ---
-	"power_siphon":   ["CRYPTOJACKER", "u_siphon", 0, 1, 1, ["overcharge"]],
-	"buckler_mite":   ["NOP SLED", "u_buckler", 1, 1, 2, ["ablative_plating"]],
-	"lance_drone":    ["SPEAR-PHISH", "u_lance", 1, 1, 2, ["targeting_laser"]],
-	"fork_turret":    ["FORK BOMB", "u_fork", 2, 2, 4, ["split_bore"]],
-	"grunt_bot":      ["BRUTE-FORCER", "u_grunt", 1, 1, 1, []],
-	"piston_ram":     ["HYDRA", "u_piston", 2, 2, 3, []],
-	"bulwark_breaker": ["ROOTKIT", "u_bulwark", 1, 3, 3, []],
-	"skip_worm":      ["LATERAL WORM", "u_skipworm", 2, 3, 4, []],
-	"screech_mote":   ["PORT SCANNER", "u_screech", 2, 1, 2, ["provoke"]],
-	"spike_mite":     ["TRIPWIRE", "u_spikemite", 1, 1, 2, ["spike_casing"]],
-	"sapper_worm":    ["LOGIC BOMB", "u_sapper", 1, 2, 3, ["meltdown"]],
-	"charge_mite":    ["OVERCLOCK DAEMON", "u_chargemite", 1, 1, 2, ["overcharge"]],
-	"swarm_hound":    ["BOTNET", "u_swarmhound", 2, 2, 4, ["mite_spawner"]],
-	"prism_ripper":   ["ZERO-DAY", "u_ripper", 3, 1, 3, []],
-	"watcher_seed":   ["DROPPER", "u_seed", 0, 1, 1, ["morphogen"]],
+	"power_siphon":   ["CRYPTOJACKER", "u_power_siphon", 0, 1, 1, ["overcharge"]],
+	"buckler_mite":   ["NOP SLED", "u_buckler_mite", 1, 1, 2, ["ablative_plating"]],
+	"lance_drone":    ["SPEAR-PHISH", "u_lance_drone", 1, 1, 2, ["targeting_laser"]],
+	"fork_turret":    ["FORK BOMB", "u_fork_turret", 2, 2, 4, ["split_bore"]],
+	"grunt_bot":      ["BRUTE-FORCER", "u_grunt_bot", 1, 1, 1, []],
+	"piston_ram":     ["HYDRA", "u_piston_ram", 2, 2, 3, []],
+	"bulwark_breaker": ["ROOTKIT", "u_bulwark_breaker", 1, 3, 3, []],
+	"skip_worm":      ["LATERAL WORM", "u_skip_worm", 2, 3, 4, []],
+	"screech_mote":   ["PORT SCANNER", "u_screech_mote", 2, 1, 2, ["provoke"]],
+	"spike_mite":     ["TRIPWIRE", "u_spike_mite", 1, 1, 2, ["spike_casing"]],
+	"sapper_worm":    ["LOGIC BOMB", "u_sapper_worm", 1, 2, 3, ["meltdown"]],
+	"charge_mite":    ["OVERCLOCK DAEMON", "u_charge_mite", 1, 1, 2, ["overcharge"]],
+	"swarm_hound":    ["BOTNET", "u_swarm_hound", 2, 2, 4, ["mite_spawner"]],
+	"prism_ripper":   ["ZERO-DAY", "u_prism_ripper", 3, 1, 3, []],
+	"watcher_seed":   ["DROPPER", "u_watcher_seed", 0, 1, 1, ["morphogen"]],
 	# --- STRONG cards (top-end bombs; overflow/chain_load are new sigils) ---
 	# 3 power, NOT 5: at 5 its overflow routing was a one-card instant win (5 == WIN_TIP)
-	"buffer_overflow": ["STACK SMASH", "u_ripper", 3, 1, 4, ["overflow"]],
-	"chain_reaper":   ["KERNEL PANIC", "u_fork", 3, 3, 4, ["chain_load"]],
-	"sentinel_ghost": ["SNIPER-SHELL", "u_bulwark", 2, 5, 4, ["targeting_laser"]],
-	"thermite_charge": ["THERMITE", "u_sapper", 3, 2, 3, ["meltdown"]],
-	"hydra_swarm":    ["DDOS SWARM", "u_swarmhound", 3, 3, 4, ["mite_spawner"]],
-	"power_overload": ["OVERVOLT", "u_grunt", 4, 2, 3, ["overcharge"]],
+	"buffer_overflow": ["STACK SMASH", "u_buffer_overflow", 3, 1, 4, ["overflow"]],
+	"chain_reaper":   ["KERNEL PANIC", "u_chain_reaper", 3, 3, 4, ["chain_load"]],
+	"sentinel_ghost": ["SNIPER-SHELL", "u_sentinel_ghost", 2, 5, 4, ["targeting_laser"]],
+	"thermite_charge": ["THERMITE", "u_thermite_charge", 3, 2, 3, ["meltdown"]],
+	"hydra_swarm":    ["DDOS SWARM", "u_hydra_swarm", 3, 3, 4, ["mite_spawner"]],
+	"power_overload": ["OVERVOLT", "u_power_overload", 4, 2, 3, ["overcharge"]],
 	# --- ENEMY firewall units (red); AI pays no energy so cost = 0 ---
-	"barrier_node":   ["PACKET FILTER", "u_barrier", 0, 3, 0, []],
-	"sentry_ice":     ["SENTRY ICE", "u_sentry", 1, 2, 0, ["autoturret"]],
-	"packet_daemon":  ["HUNTER DAEMON", "u_daemon", 3, 2, 0, []],
-	"raptor_proc":    ["REVERSE PROXY", "u_raptor", 2, 3, 0, ["interpose"]],
-	"heap_giant":     ["RESPAWN DAEMON", "u_heap", 2, 4, 0, []],
-	"spike_wall":     ["TARPIT", "u_spikewall", 1, 2, 0, ["spike_casing"]],
-	"trace_hound":    ["TRACER", "u_tracehound", 1, 1, 0, []],
-	"null_relay":     ["NULL ROUTE", "u_null", 0, 1, 0, []],
-	"firewall_slab":  ["HARDENED WAF", "u_slab", 1, 5, 0, []],
+	"barrier_node":   ["PACKET FILTER", "u_barrier_node", 0, 3, 0, []],
+	"sentry_ice":     ["SENTRY ICE", "u_sentry_ice", 1, 2, 0, ["autoturret"]],
+	"packet_daemon":  ["HUNTER DAEMON", "u_packet_daemon", 3, 2, 0, []],
+	"raptor_proc":    ["REVERSE PROXY", "u_raptor_proc", 2, 3, 0, ["interpose"]],
+	"heap_giant":     ["RESPAWN DAEMON", "u_heap_giant", 2, 4, 0, ["failover"]],
+	"spike_wall":     ["TARPIT", "u_spike_wall", 1, 2, 0, ["spike_casing"]],
+	"trace_hound":    ["TRACER", "u_trace_hound", 1, 1, 0, []],
+	"null_relay":     ["NULL ROUTE", "u_null_relay", 0, 1, 0, []],
+	"firewall_slab":  ["HARDENED WAF", "u_firewall_slab", 1, 5, 0, []],
 	# --- BOSS / special firewall cards ---
-	"freeze_frame":   ["PACKET CAPTURE", "u_freeze", 1, 1, 0, []],
-	"index_warden":   ["REGISTRY WARDEN", "u_index", 1, 2, 0, ["ablative_plating"]],
-	"kernel_ghost":   ["KERNEL GHOST", "u_kernel", 2, 2, 0, []],
-	"daemon_ursa":    ["DAEMON GR1ZZ", "u_ursa", 4, 4, 0, []],
-	"daemon_vespa":   ["DAEMON S0N1A", "u_vespa", 2, 1, 0, ["interpose"]],
-	"daemon_quill":   ["DAEMON QU177", "u_quill", 2, 2, 0, ["spike_casing"]],
+	"freeze_frame":   ["PACKET CAPTURE", "u_freeze_frame", 1, 1, 0, []],
+	"index_warden":   ["REGISTRY WARDEN", "u_index_warden", 1, 2, 0, ["ablative_plating"]],
+	"kernel_ghost":   ["KERNEL GHOST", "u_kernel_ghost", 2, 2, 0, []],
+	"daemon_ursa":    ["DAEMON GR1ZZ", "u_daemon_ursa", 4, 4, 0, []],
+	"daemon_quill":   ["DAEMON QU177", "u_daemon_quill", 2, 2, 0, ["spike_casing"]],
+	# =========== EXPANSION v0.227: player-obtainable pool (22) ===========
+	# Curve 6/7/5/4 by cost. Value = power+hp+sigils (-0.5 if 0 power) vs cost+1.
+	"null_shunt": ["NULL SHUNT", "u_null_shunt", 0, 2, 1, ["side_channel"]],
+	"port_drifter": ["PORT DRIFTER", "u_port_drifter", 1, 1, 1, ["side_channel"]],
+	"c2_beacon": ["C2 BEACON", "u_c2_beacon", 0, 1, 1, ["broadcast"]],
+	"watchdog_stub": ["WATCHDOG", "u_watchdog_stub", 0, 1, 1, ["failover"]],
+	"shim_layer": ["SHIM LAYER", "u_shim_layer", 0, 1, 1, ["interpose"]],
+	"payload_drop": ["PAYLOAD DROP", "u_payload_drop", 0, 1, 1, ["mite_spawner"]],
+	"bit_flipper": ["BIT FLIPPER", "u_bit_flipper", 1, 1, 2, ["leech"]],
+	"dns_tunnel": ["DNS TUNNEL", "u_dns_tunnel", 1, 1, 2, ["airborne"]],
+	"cold_boot": ["COLD BOOT", "u_cold_boot", 0, 2, 2, ["overcharge"]],
+	"raw_socket": ["RAW SOCKET", "u_raw_socket", 1, 2, 2, []],
+	"honey_pot": ["HONEYPOT", "u_honey_pot", 0, 2, 2, ["spike_casing"]],
+	"process_fork": ["PROCESS FORK", "u_process_fork", 1, 1, 2, ["split_bore"]],
+	"hot_patch": ["HOTPATCH", "u_hot_patch", 1, 1, 2, ["failover"]],
+	"wiper_bit": ["WIPER", "u_wiper_bit", 1, 1, 3, ["necrosis"]],
+	"beacon_relay": ["BEACON RELAY", "u_beacon_relay", 0, 2, 3, ["broadcast", "ablative_plating"]],
+	"bastion_host": ["BASTION HOST", "u_bastion_host", 0, 3, 3, ["interpose"]],
+	"power_rail": ["POWER RAIL", "u_power_rail", 1, 2, 3, ["overcharge"]],
+	"sink_pit": ["SINKHOLE", "u_sink_pit", 1, 2, 3, ["leech", "provoke"]],
+	"out_of_band": ["OUT-OF-BAND", "u_out_of_band", 2, 1, 4, ["airborne"]],
+	"use_after_free": ["USE-AFTER-FREE", "u_use_after_free", 1, 1, 4, ["necrosis", "side_channel"]],
+	"cron_bomb": ["CRON BOMB", "u_cron_bomb", 1, 2, 4, ["meltdown", "failover"]],
+	"bot_master": ["BOTMASTER", "u_bot_master", 1, 2, 4, ["broadcast"]],
+	# =========== EXPANSION v0.227: HELIOS pool (18) + boss signatures (3) ===========
+	# All cost 0 — the AI pays no energy; its only throttle is per_turn (see OPP_DECKS).
+	"port_sentry": ["PORT SENTRY", "u_port_sentry", 0, 2, 0, ["autoturret"]],
+	"rate_limiter": ["RATE LIMITER", "u_rate_limiter", 0, 2, 0, ["provoke"]],
+	"trace_beacon": ["TRACE BEACON", "u_trace_beacon", 0, 1, 0, ["broadcast"]],
+	"syn_flood": ["SYN FLOOD", "u_syn_flood", 1, 1, 0, ["side_channel"]],
+	"honeypot_ice": ["HONEYPOT ICE", "u_honeypot_ice", 0, 3, 0, ["spike_casing"]],
+	"ids_sensor": ["INTRUSION SENSOR", "u_ids_sensor", 1, 3, 0, ["autoturret"]],
+	"quarantine_bin": ["QUARANTINE BIN", "u_quarantine_bin", 1, 2, 0, ["meltdown"]],
+	"log_scraper": ["LOG SCRAPER", "u_log_scraper", 1, 2, 0, ["leech"]],
+	"reverse_shell": ["REVERSE SHELL", "u_reverse_shell", 2, 2, 0, ["failover"]],
+	"cipher_lock": ["CIPHER LOCK", "u_cipher_lock", 0, 5, 0, ["broadcast"]],
+	"kernel_guard": ["KERNEL GUARD", "u_kernel_guard", 1, 4, 0, ["interpose"]],
+	"drift_hunter": ["DRIFT HUNTER", "u_drift_hunter", 2, 2, 0, ["side_channel"]],
+	"revenant_proc": ["REVENANT PROCESS", "u_revenant_proc", 3, 3, 0, ["failover"]],
+	"audit_engine": ["AUDIT ENGINE", "u_audit_engine", 3, 4, 0, ["provoke"]],
+	"ghost_route": ["GHOST ROUTE", "u_ghost_route", 1, 1, 0, ["airborne"]],
+	"tunnel_broker": ["TUNNEL BROKER", "u_tunnel_broker", 2, 2, 0, ["airborne"]],
+	"ice_shard": ["BLACK ICE SHARD", "u_ice_shard", 1, 2, 0, ["necrosis"]],
+	"sink_hole": ["SINKHOLE DRAIN", "u_sink_hole", 2, 4, 0, ["leech"]],
+	"core_arbiter": ["CORE ARBITER", "u_core_arbiter", 0, 4, 0, ["broadcast", "failover"]],
+	"warrant_daemon": ["WARRANT DAEMON", "u_warrant_daemon", 2, 3, 0, ["airborne", "failover"]],
+	"ice_nine": ["ICE-9", "u_ice_nine", 2, 2, 0, ["necrosis", "ablative_plating"]],
 }
 # Act 3's free chaff body — the "Empty Vessel" of canon (0 power / 2 hp / cost 1).
 # It is the ONE id the game hands out without it being in a deck: the endless side
@@ -101,33 +147,73 @@ const CARDS := {
 const SIDE_ID := "scrap_mite"
 # starter deck (17) — energy engine + blockers + snipers + six top-end finishers
 const PLAYER_DECK := ["power_siphon", "power_siphon", "buckler_mite", "buckler_mite",
-	"lance_drone", "lance_drone", "grunt_bot", "grunt_bot", "watcher_seed", "sapper_worm", "fork_turret",
-	"buffer_overflow", "chain_reaper", "sentinel_ghost", "thermite_charge", "hydra_swarm", "power_overload"]
+	"lance_drone", "lance_drone", "grunt_bot", "grunt_bot", "shim_layer", "watcher_seed",
+	"sapper_worm", "dns_tunnel", "fork_turret",
+	"buffer_overflow", "chain_reaper", "sentinel_ghost", "thermite_charge"]
 # HELIOS firewall decks per tier (T1/T2/T3 pools); zone bosses layered in later
 const OPP_DECKS := {
-	# T1 used to be unlosable (whole deck = 3 power, 1 card/turn). One HUNTER DAEMON
-	# (3/2) in the pool is what gives it teeth: leave a row undefended and the trace
-	# takes 3 of the 5 it can afford. `per_turn` STAYS AT 1 — the earlier bump to 2
-	# was the overshoot the captain felt. Turn 1 the player has 1 energy (1 body),
-	# turn 2 has 2 (1-2 bodies), so 1 queued threat per turn is answerable and 2 was
-	# not: HELIOS out-fielded the opening hand 2:1 and the leak was unavoidable.
-	1: {"deck": ["barrier_node", "sentry_ice", "null_relay", "trace_hound", "sentry_ice", "packet_daemon"], "per_turn": 1},
-	2: {"deck": ["spike_wall", "packet_daemon", "sentry_ice", "trace_hound", "barrier_node", "packet_daemon", "spike_wall"], "per_turn": 1},
-	# per_turn 1, not 2: this pool is 16 power over 7 cards (mean 2.29) and the AI pays no
-	# energy, so at 2/turn it fielded ~4.6 power every turn from turn 1 while the player's
-	# curve starts at 1 — the run finale was unwinnable even with perfect all-defence play.
-	# The mean-2.29 pool IS the step up from tier 1's mean 1.0.
-	3: {"deck": ["raptor_proc", "heap_giant", "firewall_slab", "daemon_ursa", "packet_daemon", "raptor_proc", "heap_giant"], "per_turn": 1},
+	# per_turn IS THE AI'S DRAW RATE. The player draws exactly 1 card/turn, so 1 is parity and
+	# it stays 1 EVERYWHERE: at 2 the enemy board grows faster than any wall can answer no
+	# matter the energy curve, and the 5-point trace budget is gone by turn 2-3. That is the
+	# failure this mode hit twice. Escalate with POOL COMPOSITION instead — `failover` is the
+	# safe "fields more than one" lever (two bodies from one queue slot, second at 1 hp).
+	# Pools reshuffle when empty, so deck SIZE buys variety, not duration.
+	# T1 PERIMETER — mean 0.70 power / 1.60 hp. Teaches the telegraph; almost nothing has teeth.
+	1: {"deck": ["barrier_node", "null_relay", "port_sentry", "rate_limiter", "trace_beacon",
+		"trace_hound", "freeze_frame", "syn_flood", "sentry_ice", "packet_daemon"], "per_turn": 1},
+	# T2 ACTIVE DEFENSE — 1.30 / 2.10. Priced in PLAYER CARDS destroyed, not trace: thorns,
+	# turrets, DETONATE, LEECH. Stop walling and start killing.
+	2: {"deck": ["honeypot_ice", "index_warden", "ids_sensor", "quarantine_bin", "log_scraper",
+		"spike_wall", "syn_flood", "reverse_shell", "kernel_ghost", "packet_daemon"], "per_turn": 1},
+	# T3 HARD KERNEL — 1.80 / 3.50, the bulk wall. Raw power sits BELOW the old tier 3 on
+	# purpose: CIPHER LOCK's BROADCAST puts effective power back around 2.15 and the top-end
+	# spike moves up to T4. Two INTERCEPT bodies deny the trace, two FAILOVER bodies mean a
+	# kill isn't a kill.
+	3: {"deck": ["cipher_lock", "firewall_slab", "kernel_guard", "ids_sensor", "raptor_proc",
+		"drift_hunter", "heap_giant", "audit_engine", "revenant_proc", "packet_daemon"], "per_turn": 1},
+	# T4 COUNTERINTRUSION — 2.20 / 2.80. hp DROPS from T3 deliberately: 20% of what it fields
+	# is AIRBORNE and NECROSIS eats blockers, so defence is off the table and the race has to
+	# be winnable. If these duels drag past ~10 turns, cut hp — never raise per_turn.
+	4: {"deck": ["ghost_route", "ice_shard", "kernel_guard", "tunnel_broker", "drift_hunter",
+		"sink_hole", "revenant_proc", "audit_engine", "packet_daemon", "quarantine_bin"], "per_turn": 1},
+	# --- BOSS DECKS (keys 5+) ---
+	# 5 SOLAR WARDEN (HELIOS CORE): fattest deck. The two 0-power CORE ARBITERs buff every
+	# neighbour and must be killed TWICE; ignoring them is the trap. A quarter of the deck
+	# cannot damage you at all, which is what keeps the fortress survivable.
+	5: {"deck": ["core_arbiter", "core_arbiter", "firewall_slab", "raptor_proc",
+		"tunnel_broker", "revenant_proc", "audit_engine", "daemon_ursa",
+		# QU177's thorns belong in the fortress, and this was the softest boss at 37%.
+		# Deck size buys VARIETY, not duration — the pool reshuffles when it empties.
+		"daemon_quill"], "per_turn": 1},
+	# 6 WARRANT SUITE (bounty apex): half the deck is AIRBORNE, so you cannot turtle — only
+	# race. Lowest late hp precisely because defence is unavailable.
+	6: {"deck": ["warrant_daemon", "warrant_daemon", "ghost_route", "tunnel_broker",
+		"ice_shard", "drift_hunter", "packet_daemon", "syn_flood"], "per_turn": 1},
+	# 7 ICE-9 QUARANTINE (secret, behind the QUARANTINE GATE): only 9 total power but half the
+	# deck is NECROSIS, so every block is a card lost forever. The intended answer is to STOP
+	# blocking and eat the chip damage.
+	7: {"deck": ["ice_nine", "ice_nine", "ice_shard", "ice_shard", "cipher_lock",
+		"daemon_ursa", "kernel_guard", "warrant_daemon"], "per_turn": 1},
 }
+
 const SIGIL_SHORT := {
 	"overcharge": "OVERCLOCK", "ablative_plating": "BUFFER", "targeting_laser": "TARGET",
 	"split_bore": "FORK", "spike_casing": "TRIPWIRE", "provoke": "NOISE",
 	"meltdown": "DETONATE", "autoturret": "SENTRY", "interpose": "INTERCEPT",
 	"mite_spawner": "BOTNET", "morphogen": "UNPACK",
 	"overflow": "OVERFLOW", "chain_load": "CHAIN",
+	# --- expansion sigils ---
+	"necrosis": "WIPE", "airborne": "TUNNEL", "broadcast": "BROADCAST",
+	"side_channel": "DRIFT", "failover": "FAILOVER", "leech": "SIPHON",
 }
 # plain-English rules text for the right-click inspect panel
 const SIGIL_RULES := {
+	"necrosis": "Any damage it deals kills outright — armour still stops the first hit.",
+	"airborne": "Its strike reaches the trace even through a blocked lane. INTERCEPT still catches it.",
+	"broadcast": "Friendly units in the lanes either side get +1 power while this lives.",
+	"side_channel": "Slides one lane sideways at the start of your turn.",
+	"failover": "The first time it dies it returns to its lane with 1 hp.",
+	"leech": "Repairs itself 1 hp whenever it damages a unit.",
 	"overcharge": "When played: +1 max energy, +1 energy now.",
 	"ablative_plating": "Ignores the first hit it takes.",
 	"spike_casing": "Whatever strikes this takes 1 damage back.",
@@ -226,6 +312,8 @@ var _sel := -1
 var _strike_lane := -1
 var _strike_t := 0.0
 var _opp_step := 0
+var _esc_at := -99.0   # last ESC press — two within 3s concede the duel
+var _spill := 0        # OVERFLOW trace spill already banked by the CURRENT striker
 var _over_at := -1.0
 var _tip_anim := 0.0
 var _toast := {}
@@ -260,7 +348,8 @@ var _font: Font = ThemeDB.fallback_font
 
 static func make(diff: int) -> Node3D:
 	var d: Node3D = load("res://scripts/breach_duel3d.gd").new()
-	d.tier = clampi(diff, 1, 3)
+	# clamp only UNKNOWN tiers — boss decks live at keys 5+ and were being squashed to 3
+	d.tier = diff if OPP_DECKS.has(diff) else clampi(diff, 1, 4)
 	return d
 
 
@@ -1071,6 +1160,42 @@ func _can_afford(id: String) -> bool:
 	return energy >= int(CARDS[id][4])
 
 
+func _unhandled_input(e: InputEvent) -> void:
+	## Keyboard is the ESCAPE HATCH, not a convenience. Two softlocks lived here:
+	##  * the duel had NO exit at all — the map's _unhandled_input returns early while a
+	##    duel is up, so ESC did nothing and the only inputs were 3D mouse hit tests.
+	##  * Phase.DRAW is a MANDATORY action whose only targets were the two 3D pile meshes.
+	##    DECK_POS sits far to the right, so on any display narrower than ~3:2 it leaves
+	##    the camera frustum and the turn cannot be started. Never gate a required action
+	##    on a 3D hit test.
+	if not (e is InputEventKey) or not e.pressed or e.echo:
+		return
+	var k := e as InputEventKey
+	if k.keycode == KEY_ESCAPE:
+		if _t - _esc_at < 3.0:
+			get_viewport().set_input_as_handled()
+			finished.emit(false)        # concede — the map ejects you like any run loss
+		else:
+			_esc_at = _t
+			_show_toast("ESC AGAIN TO ABORT THE BREACH", RED)
+			get_viewport().set_input_as_handled()
+		return
+	if phase == Phase.DRAW and k.keycode in [KEY_SPACE, KEY_ENTER, KEY_KP_ENTER]:
+		get_viewport().set_input_as_handled()
+		if k.shift_pressed and mites_left > 0:
+			mites_left -= 1
+			_draw_card(SIDE_ID)
+
+		elif deck.size() > 0:
+			_draw_card(deck.pop_back())
+
+		elif mites_left > 0:
+			mites_left -= 1
+			_draw_card(SIDE_ID)
+
+		_sync_board()
+
+
 func _click(m: Vector2) -> void:
 	match phase:
 		Phase.OVER:
@@ -1211,8 +1336,27 @@ func _hit_unit(u: Dictionary, dmg: int, row: int, lane: int) -> bool:
 
 # --- sigil engine --------------------------------------------------
 func _unit_atk(u: Dictionary) -> int:
-	## base power + any morphogen/buff stacks + permanent run upgrades (OVERCLOCK/MERGE)
-	return int(CARDS[u["id"]][2]) + int(u.get("buff", 0)) + int(atk_boost.get(u["id"], 0))
+	## base power + morphogen/buff stacks + run upgrades (OVERCLOCK/MERGE) + BROADCAST aura
+	return int(CARDS[u["id"]][2]) + int(u.get("buff", 0)) + int(atk_boost.get(u["id"], 0)) \
+		+ _broadcast_bonus(u)
+
+
+func _broadcast_bonus(u: Dictionary) -> int:
+	## BROADCAST: a unit standing next to a friendly broadcaster hits one harder. Auras
+	## are read live rather than stamped on, so killing the broadcaster removes it at once.
+	for side in [you, opp]:
+		var l: int = (side as Array).find(u)
+		if l < 0:
+			continue
+		for dl in [-1, 1]:
+			var n: int = l + dl
+			if n < 0 or n >= LANES:
+				continue
+			var m = (side as Array)[n]
+			if m != null and _has(str(m["id"]), "broadcast"):
+				return 1
+		return 0
+	return 0
 
 
 func _sniper_target() -> int:
@@ -1231,6 +1375,19 @@ func _kill(side: String, lane: int) -> void:
 	var arr: Array = you if side == "you" else opp
 	var u = arr[lane]
 	if u == null:
+		return
+	# FAILOVER: the first death puts it straight back in its lane at 1 hp. Deliberate
+	# rulings (see the expansion design doc): the return is NOT a "play", so overcharge
+	# does not re-fire, and MELTDOWN is held for the SECOND death so a bomb cannot
+	# detonate twice out of one card.
+	if _has(str(u["id"]), "failover") and not bool(u.get("failed_over", false)):
+		u["failed_over"] = true
+		u["hp"] = 1
+		u["armor"] = false
+		arr[lane] = u
+		_flash_unit(u)
+		_float_txt("FAILOVER", _slot_pos(2 if side == "you" else 1, lane), CYAN)
+		_sync_board()
 		return
 	arr[lane] = null
 	# OVERCLOCK RIG's permadeath: an overclocked card that dies leaves the run deck for
@@ -1272,6 +1429,27 @@ func _interpose_guard(side: String, lane: int) -> int:
 	return -1
 
 
+func _drift_row(row: Array, slot_row: int, col: Color) -> void:
+	## SIDE-CHANNEL (DRIFT): every unit in `row` slides one lane sideways if there's room.
+	## Direction alternates per unit so a drifter sweeps rather than pinning one wall.
+	## Shared by both sides — it used to read `you` only, which left every HELIOS drifter
+	## (SYN FLOOD, DRIFT HUNTER) as a vanilla body.
+	for l in LANES:
+		var du = row[l]
+		if du == null or not _has(str(du["id"]), "side_channel"):
+			continue
+		var dir: int = -1 if bool(du.get("drift_left", true)) else 1
+		var to: int = l + dir
+		if to < 0 or to >= LANES or row[to] != null:
+			dir = -dir                      # bounce off the wall / a friend
+			to = l + dir
+		if to >= 0 and to < LANES and row[to] == null:
+			du["drift_left"] = dir < 0
+			row[to] = du
+			row[l] = null
+			_float_txt("DRIFT", _slot_pos(slot_row, to), col)
+
+
 func _strike_trace(u: Dictionary, atk: int, from_lane: int, lane: int) -> bool:
 	## Your unit strikes an EMPTY enemy lane: an adjacent INTERCEPT guard eats it,
 	## otherwise it tips the trace. Returns true if the duel just ended.
@@ -1280,8 +1458,16 @@ func _strike_trace(u: Dictionary, atk: int, from_lane: int, lane: int) -> bool:
 		_float_txt("INTERCEPT", _slot_pos(1, guard), AMBER)
 		_resolve_hit(u, atk, from_lane, guard)
 		return false
-	tip += atk
-	_float_txt("+%d TRACE" % atk, _slot_pos(0, lane) + Vector3(0, 0, -1.2), CYAN)
+	# A SINGLE strike can never carry a whole win. Two hard ceilings:
+	#  * airborne caps at 2 — it takes no retaliation at all (it never reaches _resolve_hit,
+	#    so no thorns, no trade, no damage spent on a body). Uncapped, one grafted AIRBORNE
+	#    on any 3+ power body won on the second ring with zero board interaction.
+	#  * everything else caps at WIN_TIP - 1, so a 4-power body buffed to 5 by OVERCLOCK
+	#    can't tip the full trace from an empty board in one ring.
+	var cap: int = 2 if _has(str(u["id"]), "airborne") else WIN_TIP - 1
+	var gain: int = mini(atk, cap)
+	tip += gain
+	_float_txt("+%d TRACE" % gain, _slot_pos(0, lane) + Vector3(0, 0, -1.2), CYAN)
 	return _check_over()
 
 
@@ -1295,7 +1481,17 @@ func _resolve_hit(u: Dictionary, atk: int, from_lane: int, lane: int) -> void:
 	if _has(str(tgt["id"]), "provoke"):
 		dmg = maxi(0, dmg - 1)          # NOISE: target jams incoming by 1
 	var pre := int(tgt["hp"])
+	# NECROSIS: any damage at all is lethal — armour still eats the first instance
+	if dmg > 0 and _has(str(u["id"]), "necrosis") and not bool(tgt.get("armor", false)):
+		dmg = maxi(dmg, int(tgt["hp"]))
+		_float_txt("NECROSIS", _slot_pos(1, lane), RED)
 	var died := _hit_unit(tgt, dmg, 1, lane)
+	# LEECH: repairs itself 1 for landing a hit (never past its printed hp)
+	if dmg > 0 and _has(str(u["id"]), "leech"):
+		var cap: int = int(CARDS[str(u["id"])][3])
+		if int(u["hp"]) < cap:
+			u["hp"] = int(u["hp"]) + 1
+			_float_txt("LEECH +1", _slot_pos(2, from_lane), CYAN)
 	if _has(str(tgt["id"]), "spike_casing"):
 		if _hit_unit(u, 1, 2, from_lane):
 			_kill("you", from_lane)
@@ -1305,8 +1501,15 @@ func _resolve_hit(u: Dictionary, atk: int, from_lane: int, lane: int) -> void:
 		if excess > 0:
 			if _has(str(u["id"]), "overflow"):
 				# OVERFLOW: pierce carries to the enemy trace, but never more than 2 —
-				# uncapped, one big hit on a 1-hp chump dumped a whole win into the trace
-				excess = mini(excess, OVERFLOW_CAP)
+				# uncapped, one big hit on a 1-hp chump dumped a whole win into the trace.
+				# The budget is per STRIKE, not per hit: FORK hits 2 lanes and CHAIN hits 3
+				# from one striker, and a per-hit cap let a grafted OVERFLOW+CHAIN route 6
+				# into the trace in a single ring — exactly what the multi-lane rule above
+				# exists to forbid. _spill is reset for every striker in _advance_strike.
+				excess = mini(excess, OVERFLOW_CAP - _spill)
+				if excess <= 0:
+					return
+				_spill += excess
 				tip += excess
 				_float_txt("+%d TRACE" % excess, _slot_pos(0, lane) + Vector3(0, 0, -1.2), CYAN)
 			else:
@@ -1392,6 +1595,7 @@ func _advance_strike() -> void:
 		_strike_t = 0.05
 		return
 	_lunge_unit(u, -1.0)
+	_spill = 0        # OVERFLOW's trace budget is per striker — see _resolve_hit
 	# FORK BOMB (split_bore) — BIFURCATED: strike the two diagonal lanes, not straight.
 	# Canon: an EMPTY target lane tips the trace, same as a straight strike.
 	if _has(str(u["id"]), "split_bore"):
@@ -1437,6 +1641,16 @@ func _advance_strike() -> void:
 		var snipe := _sniper_target()
 		if snipe >= 0:
 			t_lane = snipe
+	# AIRBORNE: flies over the blocker — its power reaches the trace even through a full
+	# lane. INTERCEPT still catches it (handled inside _strike_trace), which is the
+	# designed counter-play; without that it would be an unanswerable clock.
+	if _has(str(u["id"]), "airborne"):
+		_float_txt("AIRBORNE", _slot_pos(2, _strike_lane), CYAN)
+		if _strike_trace(u, atk, _strike_lane, t_lane):
+			_sync_board()
+			return
+		_sync_board()
+		return
 	if opp[t_lane] != null:
 		_resolve_hit(u, atk, _strike_lane, t_lane)
 		Sfx.play("clack", -6.0)
@@ -1474,8 +1688,27 @@ func _advance_opp() -> void:
 			_strike_t = 0.05
 			return
 		_lunge_unit(u, 1.0)
+		# AIRBORNE, mirrored: flies over your blocker. Dropping the target routes it into
+		# the else-branch below, which already runs your INTERCEPT guard check — the same
+		# counter-play the player gets. Without this, WARRANT SUITE (half the deck airborne)
+		# was a deck of plain bodies any wall stopped cold.
+		if tgt != null and _has(str(u["id"]), "airborne"):
+			_float_txt("AIRBORNE", _slot_pos(1, lane), RED)
+			tgt = null
 		if tgt != null:
-			var died := _hit_unit(tgt, atk, 2, lane)
+			var dmg := atk
+			# NECROSIS, mirrored: any damage kills outright unless the target has armour.
+			# ICE-9 QUARANTINE is built entirely on this; inert, boss 7 had no teeth at all.
+			if _has(str(u["id"]), "necrosis") and not bool(tgt.get("armor", false)):
+				dmg = maxi(dmg, int(tgt["hp"]))
+				_float_txt("NECROSIS", _slot_pos(2, lane), RED)
+			var died := _hit_unit(tgt, dmg, 2, lane)
+			# LEECH, mirrored: repairs itself 1 per landed hit, never past its printed hp
+			if _has(str(u["id"]), "leech"):
+				var lcap: int = int(CARDS[str(u["id"])][3])
+				if int(u["hp"]) < lcap:
+					u["hp"] = int(u["hp"]) + 1
+					_float_txt("LEECH +1", _slot_pos(1, lane), RED)
 			if _has(str(tgt["id"]), "spike_casing"):
 				if _hit_unit(u, 1, 1, lane):
 					_kill("opp", lane)
@@ -1495,8 +1728,15 @@ func _advance_opp() -> void:
 					_kill("you", guard)
 				Sfx.play("clack", -6.0)
 			else:
-				tip -= atk
-				_float_txt("-%d TRACE" % atk, _slot_pos(2, lane) + Vector3(0, 0, 1.2), RED)
+				# SAME two ceilings the player's _strike_trace uses — airborne caps at 2
+				# because it takes no retaliation, everything else at WIN_TIP - 1 so no
+				# single ring can carry a whole win. HELIOS must not get a rule the player
+				# doesn't: WARRANT SUITE is half airborne, and uncapped it closed the trace
+				# in two rings.
+				var ocap: int = 2 if _has(str(u["id"]), "airborne") else WIN_TIP - 1
+				var loss: int = mini(atk, ocap)
+				tip -= loss
+				_float_txt("-%d TRACE" % loss, _slot_pos(2, lane) + Vector3(0, 0, 1.2), RED)
 				Sfx.play("clack", -2.0)
 				if _check_over():
 					_sync_board()
@@ -1517,6 +1757,10 @@ func _turn_start() -> void:
 	energy = energy_max
 	if grew:
 		_show_toast("MAX ENERGY +1", CYAN)
+	# SIDE-CHANNEL (DRIFT): slides one lane sideways at the start of your turn if there's
+	# room. Direction alternates per unit so a drifter sweeps rather than pinning a wall.
+	_drift_row(you, 2, CYAN)
+	_drift_row(opp, 1, RED)   # HELIOS drifts too — SYN FLOOD and DRIFT HUNTER are built on it
 	# a SENTRY turret reloads each turn: one zap per turn, not one per card you place
 	# (per-lifetime made the sigil inert; per-placement made a lane unplayable)
 	for l in LANES:
@@ -1560,7 +1804,10 @@ func _opp_fill_queue() -> void:
 			return
 		var lane: int = empt[randi() % empt.size()]
 		var id: String = opp_deck.pop_back()
-		queue[lane] = {"id": id, "hp": int(CARDS[id][3])}
+		# armor MUST be stamped here too — without it `_hit_unit`'s `u.get("armor")` was
+		# always false and ablative_plating did nothing on any HELIOS card
+		queue[lane] = {"id": id, "hp": int(CARDS[id][3]),
+			"armor": _has(id, "ablative_plating")}
 
 
 func _check_over() -> bool:

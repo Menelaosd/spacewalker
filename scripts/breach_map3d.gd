@@ -28,7 +28,7 @@ const TYPES := {
 	"access": ["ACCESS PORT", "icon_access", 0], "firewall": ["FIREWALL", "icon_firewall", 1],
 	"sentinel": ["SENTINEL", "icon_sentinel", 2], "pod": ["SURVIVOR POD", "icon_pod", 0],
 	"cache": ["DATA CACHE", "icon_cache", 0], "ghost": ["GHOST SIGNAL", "icon_ghost", 0],
-	"vault": ["DATA VAULT", "icon_vault", 0], "core": ["HELIOS CORE", "icon_core", 3],
+	"vault": ["DATA VAULT", "icon_vault", 0], "core": ["HELIOS CORE", "icon_core", 5],   # 5 = SOLAR WARDEN boss deck
 	# --- the sigil economy: shards fund the deck-editing rigs (Act 3 Robobucks) ---
 	"recycler": ["RECYCLER", "icon_recycler", 0],
 	"splicer": ["CODE SPLICER", "icon_splicer", 0],
@@ -79,6 +79,7 @@ var _choice := {}
 var nodes: Array = []      # {row,col,ncol,type,links,state,gx,gz, node:Node3D, token:MeshInstance3D}
 var cur := -1
 var _pending := -1
+var _ice_fought := false   # did the player ACCEPT the BLACK ICE fight (vs walk past it)
 var _msg := "Breach open. Walk the marker to a lit node."
 var _t := 0.0
 
@@ -105,6 +106,7 @@ var _path_mat: StandardMaterial3D       # recessed walkway floor
 var _cube_top_mat: StandardMaterial3D   # top of the raised block field
 var _cube_side_mat: StandardMaterial3D  # block side walls
 var _shadow_tex: Texture2D
+var _sigil_shader: Shader          # SIGIL_SHADER, one instance shared by every prop
 var _font: Font = ThemeDB.fallback_font
 var _flows: Array = []      # {spr, pts:PackedVector3Array, cum, len, phase, speed}
 var _overlay: CanvasLayer   # scanline/vignette/tilt-shift post overlay (hidden during duel)
@@ -219,10 +221,18 @@ func _load_art(name: String) -> Texture2D:
 
 
 func _build_shadow_tex() -> void:
+	# TRAP: Gradient.set_color() takes a POINT INDEX, not an offset. This used to read
+	# `set_color(0.55, ...)` / `set_color(1, ...)`, which truncate to index 0 and index 1 —
+	# so the "0.55 knee" silently overwrote the centre stop and the curve was never what it
+	# looked like. Worse, on a 4-point gradient the same mistake left the outermost stop at
+	# Godot's DEFAULT opaque white, which made every texel past UV radius 0.5 — corners
+	# included — fully opaque: a black rectangle with hard corners instead of a soft pool.
+	# That was the "stupid shadow". Set offsets and colours as arrays so it cannot recur.
+	# These values reproduce what actually shipped and was approved for the astronaut: a
+	# plain linear ramp from alpha 0.32 to 0.
 	var g := Gradient.new()
-	g.set_color(0, Color(0, 0, 0, 0.5))
-	g.set_color(0.55, Color(0, 0, 0, 0.32))
-	g.set_color(1, Color(0, 0, 0, 0))
+	g.offsets = PackedFloat32Array([0.0, 1.0])
+	g.colors = PackedColorArray([Color(0, 0, 0, 0.32), Color(0, 0, 0, 0.0)])
 	var gt := GradientTexture2D.new()
 	gt.gradient = g
 	gt.fill = GradientTexture2D.FILL_RADIAL
@@ -231,6 +241,8 @@ func _build_shadow_tex() -> void:
 	gt.width = 96
 	gt.height = 96
 	_shadow_tex = gt
+	_sigil_shader = Shader.new()
+	_sigil_shader.code = SIGIL_SHADER
 
 
 # ==================================================================
@@ -482,7 +494,7 @@ func _paint_edges() -> void:
 			var hotc: bool = hot_cells.has(c)
 			lg.light_color = Color(1.0, 0.88, 0.46) if hotc else Color(0.4, 0.75, 1.0)
 			lg.light_energy = 4.6 if hotc else 2.2
-			lg.omni_range = 5.4 if hotc else 3.6
+			lg.omni_range = 7.0 if hotc else 5.0
 		else:
 			lg.light_color = Color(0.42, 0.48, 0.58)
 			lg.light_energy = 0.34
@@ -801,15 +813,24 @@ func _build_path_glow() -> void:
 			# a blue point light on every path cell — lights the trench + nearby cube
 			# walls, and everything past its reach falls to black. Registered per cell so
 			# _paint_edges can dim the stretches you've already walked.
+			# EVERY SECOND CELL, in a checker. GL Compatibility caps positional lights at 32
+			# renderable and 8 PER OBJECT, both enforced silently. One light per cell built
+			# 61-95 omnis and overlapped every floor tile with 9-25 of them, so ~60% of the
+			# lights could never reach the screen — and because the 32-cap keeps the LAST 32
+			# in creation order rather than the nearest, which ones survived shifted as the
+			# camera moved. That is a brightness-popping source, not just wasted work.
+			# The wider range below keeps the trench continuously lit at half the count.
 			for c in pts:
 				if lit.has(c):
+					continue
+				if (c.x + c.y) % 2 != 0:
 					continue
 				lit[c] = true
 				var lg := OmniLight3D.new()
 				lg.position = _cell_world(c.x, c.y) + Vector3(0, 0.8, 0)
 				lg.light_color = Color(0.4, 0.75, 1.0)
 				lg.light_energy = 2.2
-				lg.omni_range = 3.6
+				lg.omni_range = 5.0
 				add_child(lg)
 				_cell_light[c] = lg
 	# --- ONE mesh for the whole conduit ---
@@ -864,19 +885,13 @@ func _build_token(i: int) -> void:
 	root.position = _cell_world(nd["gx"], nd["gz"])
 	add_child(root)
 	nd["node"] = root
-	# drop shadow on the floor
-	var sh := MeshInstance3D.new()
-	var sp := PlaneMesh.new()
-	var ssz := CELL * (0.8 if big else 0.56)
-	sp.size = Vector2(ssz, ssz)
-	sh.mesh = sp
-	var smat := StandardMaterial3D.new()
-	smat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	smat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	smat.albedo_texture = _shadow_tex
-	sh.mesh.surface_set_material(0, smat)
-	sh.position = Vector3(0.12, 0.02, 0.16)
-	root.add_child(sh)
+	# NO painted drop shadow here. There used to be one, and a second broad one was later
+	# added below it — both invisible, and the reason is worth keeping: at a node almost all
+	# the visible brightness IS the additive fog sheet, and the deck under it is near-black.
+	# A black alpha plane BENEATH an additive layer cannot darken that layer. Cranking its
+	# alpha only punched a hard-cornered black rectangle through the mist. Props are grounded
+	# instead by THINNING THE FOG under each node (see _build_floor_fog) so the prop stands
+	# in a clearing and the deck's own darkness does the work.
 	# round token disc
 	var disc := MeshInstance3D.new()
 	var dp := PlaneMesh.new()
@@ -935,22 +950,25 @@ func _build_token(i: int) -> void:
 	icon.alpha_cut = SpriteBase3D.ALPHA_CUT_DISCARD
 	# it throws a real shadow from the node light above it and the astronaut's suit lamp
 	icon.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
+	# per-node material: it owns this prop's light tint, so each one is lit independently
+	if icon.texture != null:
+		var imat := ShaderMaterial.new()
+		imat.shader = _sigil_shader
+		imat.set_shader_parameter("tex", icon.texture)
+		imat.set_shader_parameter("fog_color", FOG_TINT)
+		imat.set_shader_parameter("tint", Color(1, 1, 1, 1))
+		# a big node stands taller, so its base clears the haze sooner
+		imat.set_shader_parameter("fog_top", 0.26)
+		icon.material_override = imat
+		nd["imat"] = imat
 	root.add_child(icon)
-	# soft contact shadow pooled under the pedestal — grounds it into the deck and the fog
-	var gsh := MeshInstance3D.new()
-	var gp := PlaneMesh.new()
-	var gsz := CELL * (0.72 if big else 0.5)
-	gp.size = Vector2(gsz, gsz * 0.72)
-	gsh.mesh = gp
-	var gmat := StandardMaterial3D.new()
-	gmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	gmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	gmat.albedo_texture = _shadow_tex
-	gmat.albedo_color = Color(0, 0, 0, 0.85)
-	gsh.mesh.surface_set_material(0, gmat)
-	gsh.position = Vector3(0.0, 0.03, gsz * 0.1)
-	gsh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	root.add_child(gsh)
+	# NO painted shadow under a prop — four attempts all failed and the reasons are worth
+	# keeping. An alpha-black plane is invisible: the floor fog is blend_add, so at a node
+	# nearly all the on-screen brightness IS the fog and a plane underneath cannot subtract
+	# from it (measured: luminance ROSE toward the prop centre; a shadow is a dip). A hard
+	# core read as an oval decal. A multiply quad was the right blend but rendered as a hard
+	# rectangle. Grounding comes from the fog itself parting around raised geometry — see the
+	# depth fade at the end of FLOOR_FOG_SHADER.
 	nd["icon"] = icon   # hidden while the astronaut stands on this node
 	# stagger each prop's idle so a row of them doesn't pulse in lockstep
 	nd["iphase"] = randf() * 6.0
@@ -959,19 +977,23 @@ func _build_token(i: int) -> void:
 	# down the corridor so the stage isn't one flat blue
 	var acol: Color = TYPE_COLOR.get(nd["type"], CYAN)
 	var lgt := OmniLight3D.new()
+	# STRAIGHT OVERHEAD, and it must stay that way. Offsetting it so the prop would throw a
+	# real cast shadow was tried: the prop is a flat quad, so lighting it from behind casts a
+	# hard-edged RECTANGLE across the deck — far worse than the degenerate sliver it replaced.
 	lgt.position.y = 1.5
 	lgt.light_color = acol
 	lgt.light_energy = 3.4 if big else 2.0
 	lgt.omni_range = 8.0 if big else 4.6
-	# real cast shadows — ONLY on node lights (one per node, ~10 total). The per-cell
+	# real cast shadows — ONLY on node lights (one per node, 19-27 in practice, NOT the
+	# ~10 this once claimed — see the shadow-cost note in DEVLOG v0.229). The per-cell
 	# corridor lights stay shadowless fill; shadowing all of them would tank GL compat.
-	lgt.shadow_enabled = true
+	lgt.shadow_enabled = big
 	lgt.shadow_bias = 0.04
 	lgt.shadow_normal_bias = 1.4
 	lgt.shadow_opacity = 0.82
-	lgt.distance_fade_enabled = true
-	lgt.distance_fade_begin = 26.0
-	lgt.distance_fade_length = 8.0
+	# NOTE: distance_fade_* is silently IGNORED by the GL Compatibility renderer (measured:
+	# identical brightness with and without it at 28 units). It was here to cull distant node
+	# lights against the 32-light cap; it never did. Left off rather than left misleading.
 	root.add_child(lgt)
 	nd["light"] = lgt
 	# a shaft of light standing in the haze above the node — GL compat has no volumetric
@@ -985,7 +1007,7 @@ func _build_token(i: int) -> void:
 		shaft.shaded = false
 		shaft.transparent = true
 		shaft.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR
-		shaft.modulate = Color(acol.r, acol.g, acol.b, 0.16 if big else 0.11)
+		shaft.modulate = Color(acol.r, acol.g, acol.b, 0.05 if big else 0.035)
 		shaft.render_priority = -1     # behind the icon, in front of the floor haze
 		shaft.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		root.add_child(shaft)
@@ -1061,10 +1083,120 @@ func _build_atmosphere() -> void:
 # texture (unsupported in GL Compatibility) — additive blend of near-
 # black is its own soft edge, and the scene's black fog fades distance.
 # ------------------------------------------------------------------
+const LIGHT_FLOOR := Color(0.43, 0.49, 0.59)   # ambient + corridor fill, shared
+const LIGHT_CEIL := Color(1.07, 1.07, 1.09)    # soft blowout guard, shared
+const LIGHT_SAMPLE_Y := 0.55                   # mid-body: figure and machine lit alike
+const FOG_TINT := Color(0.30, 0.62, 0.85)   # MUST match FLOOR_FOG_SHADER's fog_color
 const FOG_Y := 0.11            # low: the sigil props must stand clear of it
 const FOG_PAD_CELLS := 1       # extra cells of mask bleed around the path
 const MASK_PX_PER_CELL := 12   # coverage-mask resolution
 const MASK_BLUR := 3           # soft-edge radius in mask pixels
+
+# A sigil prop used to be a flat unshaded sprite standing in an ADDITIVE fog sheet, which
+# is the worst possible combination: nothing in the engine tinted it, so it stayed at full
+# brightness while the deck around it was lit and hazed, and the additive fog quads crossing
+# its lower body BRIGHTENED it into a hard band instead of passing in front of it. That band
+# is what read as "a sticker floating in the fog".
+# This material fixes all three at once, per pixel:
+#   * `tint` carries the light actually reaching the node (fed by _light_sigils), so a prop
+#     darkens on a dead branch and warms in its own accent pool.
+#   * the bottom of the prop DISSOLVES into the haze colour, so the fog envelops its feet
+#     instead of cutting across them.
+#   * distant props recede toward the same haze, so the whole corridor shares one atmosphere.
+const SIGIL_SHADER := """
+shader_type spatial;
+render_mode unshaded, cull_disabled;   // no depth prepass exists in GL Compatibility
+
+uniform sampler2D tex : source_color, filter_nearest;
+uniform vec4  tint       : source_color = vec4(1.0, 1.0, 1.0, 1.0);
+uniform vec3  fog_color  : source_color = vec3(0.30, 0.62, 0.85);
+uniform float fog_top    = 0.26;   // world Y where the floor haze thins out
+uniform float fog_amount = 0.16;   // low: the fog no longer washes the base (depth fade)
+uniform float fog_grain  = 4.2;    // noise cells per world unit across the prop
+uniform float fog_wobble = 0.95;   // how far the waterline rides; 0.0 = a clean gradient
+uniform float base_dark  = 0.60;   // contact darkening right where it meets the deck
+
+varying vec3 wpos;
+
+void vertex() {
+	wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+}
+
+// the SAME value noise FLOOR_FOG_SHADER is drawn with, so the prop dissolves along the
+// fog's own fingers rather than along a line of its own invention
+float sg_hash(vec2 p) {
+	p = fract(p * vec2(123.34, 345.45));
+	p += dot(p, p + 34.345);
+	return fract(p.x * p.y);
+}
+float sg_vnoise(vec2 p) {
+	vec2 i = floor(p);
+	vec2 f = fract(p);
+	vec2 u = f * f * (3.0 - 2.0 * f);
+	float a = sg_hash(i);
+	float b = sg_hash(i + vec2(1.0, 0.0));
+	float c = sg_hash(i + vec2(0.0, 1.0));
+	float d = sg_hash(i + vec2(1.0, 1.0));
+	return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+float sg_fbm(vec2 p) {
+	float v = 0.0;
+	float a = 0.5;
+	mat2 m = mat2(vec2(1.6, 1.2), vec2(-1.2, 1.6));
+	for (int i = 0; i < 3; i++) {
+		v += a * sg_vnoise(p);
+		p = m * p;
+		a *= 0.5;
+	}
+	return v / 0.875;
+}
+
+void fragment() {
+	vec4 t = texture(tex, UV);
+	vec2 np = vec2(wpos.x + wpos.z * 0.7, wpos.y * 1.55) * fog_grain
+		+ vec2(TIME * 0.050, TIME * 0.021);
+	// A REAL dissolve has to act on COVERAGE, not colour. Tinting toward the haze leaves
+	// ALPHA at 1.0, so the silhouette stays a razor-straight cut however the pixels inside
+	// it are coloured — which is why the base kept reading as a sticker edge no matter how
+	// the mix was tuned. Raising the alpha-cut with the haze factor and jittering it on the
+	// fog's own noise genuinely punches the bottom rows out in a ragged pattern: hard PIXEL
+	// edges (correct for pixel art), soft SHAPE edge.
+	float fg0 = 1.0 - smoothstep(-fog_top * 0.35, fog_top * 1.45, wpos.y);
+	fg0 = fg0 * fg0 * (3.0 - 2.0 * fg0);
+	float cut = 0.5 + fg0 * 0.30 * sg_fbm(np * 1.3);
+	if (t.a < cut) {
+		discard;                     // keeps the hard pixel edge AND the cast shadow
+	}
+	vec3 c = t.rgb * tint.rgb;
+	// occlusion first: the pixels sitting on the deck go darker, not foggier
+	float contact = 1.0 - smoothstep(0.0, 0.30, wpos.y);
+	c *= 1.0 - contact * base_dark;
+	// Then the base sinks into the haze. The boundary is (a) eased twice for a long soft
+	// shoulder and (b) pushed up and down by the SAME value noise the floor fog is drawn
+	// with, so the prop dissolves along the fog's own fingers instead of along a clean line.
+	// Band-limited ON PURPOSE — features are ~15-20px wide, so it reads as blur and does not
+	// crawl when the camera glides. A per-pixel hash was tried here first: it was white-noise
+	// grain 380x above Nyquist that re-randomised on sub-pixel camera moves, and because it
+	// was scaled BY fg it peaked deep inside the haze and was zero at the shoulder — it could
+	// not soften the transition it was added to soften.
+	float wob = (sg_fbm(np) - 0.5) * fog_top * fog_wobble;
+	float fg = 1.0 - smoothstep(-fog_top * 0.35, fog_top * 1.45, wpos.y - wob);
+	fg = fg * fg * (3.0 - 2.0 * fg);
+	// CRITICAL: go DOWN, not toward fog_color. The prop art is dark (~0.08 after tint) and
+	// fog_color is a mid-bright blue, so mixing toward it TRIPLED the brightness of the feet
+	// — and then the additive fog sheet added fog_color over the same pixels again, counting
+	// the haze twice. The result was a glowing skirt exactly where the pedestal should be
+	// seated. The additive pass supplies the brightness; the prop only supplies the cool
+	// cast and gets out of the way.
+	c *= mix(1.0, 0.62, fg);
+	c = mix(c, fog_color * 0.55, fg * 0.40);
+	// NO distance haze here: the Environment's own fog (fog_light_color black, density 0.05)
+	// already applies to unshaded materials in GL Compatibility — verified. Mixing toward a
+	// light blue here while the engine mixed toward black pulled props two opposite ways and
+	// made them recede differently from the deck and cubes around them.
+	ALBEDO = c;
+}
+"""
 
 const FLOOR_FOG_SHADER := """
 shader_type spatial;
@@ -1077,6 +1209,9 @@ uniform float scroll_speed   = 0.06;
 uniform float coverage_bias  = 0.22;
 uniform float edge_softness  = 0.35;
 uniform sampler2D corridor_mask : source_color, filter_linear;
+uniform sampler2D depth_tex : hint_depth_texture, filter_nearest;
+uniform float clear_from = 0.04;   // world Y where the fog begins to give way
+uniform float clear_to   = 0.34;   // world Y where it is fully out of the way
 uniform vec2 mask_world_min;
 uniform vec2 mask_world_size;
 
@@ -1115,15 +1250,40 @@ void vertex(){
 
 void fragment(){
 	vec2 wxz = world_pos.xz;
+	// MASK FIRST. The two 5-octave FBMs used to run before this fetch, so every fragment
+	// outside the corridor — most of a full-screen quad — paid for noise that the mask then
+	// multiplied to zero. Gating them (and the depth fetch below) measured 31.25 ms -> 17.06
+	// ms per frame at 2560x1440 with 96 amplified layers. Free on a fast GPU, worth an
+	// estimated 2-4 ms on a Steam Deck or Iris Xe.
+	vec2 muv = (wxz - mask_world_min) / mask_world_size;
+	float mask = texture(corridor_mask, muv).r;
+	mask *= step(0.0, muv.x) * step(muv.x, 1.0) * step(0.0, muv.y) * step(muv.y, 1.0);
+	if (mask < 0.004) {
+		discard;
+	}
 	float n1 = fbm(wxz * noise_scale + vec2( TIME * scroll_speed,  TIME * scroll_speed * 0.6));
 	float n2 = fbm(wxz * noise_scale * 1.9 + vec2(-TIME * scroll_speed * 0.7, TIME * scroll_speed * 0.4));
 	float n  = mix(n1, n2, 0.5);
 	float mist = smoothstep(coverage_bias, coverage_bias + edge_softness, n);
-	vec2 muv = (wxz - mask_world_min) / mask_world_size;
-	float mask = texture(corridor_mask, muv).r;
-	mask *= step(0.0, muv.x) * step(muv.x, 1.0) * step(0.0, muv.y) * step(muv.y, 1.0);
+	// THE FOG PARTS AROUND WHATEVER IS STANDING ON THE DECK.
+	// This is what finally solved "the sigils look wrong in the fog", after three painted
+	// shadows failed: alpha-under-additive is mathematically invisible, a hard core reads as
+	// an oval decal, and a multiply quad reads as a rectangle. The problem was never the
+	// shadow — it was that this ADDITIVE sheet washes straight across the props' bases.
+	// So: reconstruct the WORLD Y of whatever the depth buffer holds at this pixel. Bare
+	// deck (y~0) keeps full fog; anything raised — a sigil, a wall block, the astronaut —
+	// pushes the haze aside, so it laps AROUND the base instead of over it. One fetch, and
+	// it fixes every object at once instead of per-prop.
+	// NOTE: `d * 2.0 - 1.0` is the GL/Compatibility depth convention. Forward+ uses
+	// reverse-Z and would need vec3(SCREEN_UV * 2.0 - 1.0, d) instead.
+	float dpt = texture(depth_tex, SCREEN_UV).r;
+	vec4 vpos = INV_PROJECTION_MATRIX * vec4(SCREEN_UV * 2.0 - 1.0, dpt * 2.0 - 1.0, 1.0);
+	vpos.xyz /= vpos.w;
+	float hit_y = (INV_VIEW_MATRIX * vec4(vpos.xyz, 1.0)).y;
+	// clear_from sits above the reconstruction jitter around y=0 so the deck never shimmers
+	float clear_amt = smoothstep(clear_from, clear_to, hit_y);
 	ALBEDO = fog_color;
-	ALPHA  = clamp(mist * mask * density, 0.0, 1.0);
+	ALPHA  = clamp(mist * mask * density * (1.0 - clear_amt), 0.0, 1.0);
 }
 """
 
@@ -1177,6 +1337,31 @@ func _build_floor_fog() -> void:
 				var y := py + dy
 				if x >= 0 and x < iw and y >= 0 and y < ih:
 					img.set_pixel(x, y, Color(1, 1, 1))
+	# CLEARING UNDER EACH PROP. This is what actually grounds the sigils. Painting a dark
+	# blob on the deck does nothing, because at a node the brightness on screen IS this
+	# additive fog and a black plane underneath cannot subtract from it. So instead the fog
+	# itself thins where a prop stands: the mist opens around the machine, the near-black
+	# deck shows through beneath it, and THAT reads as the shadow. It also gives the base
+	# dissolve in SIGIL_SHADER something true to dissolve into.
+	var crad := int(MASK_PX_PER_CELL * 0.62)
+	for nd in nodes:
+		var nw := _cell_world(int(nd["gx"]), int(nd["gz"]))
+		var npx := int((nw.x - xmin) / (xmax - xmin) * float(iw))
+		var npy := int((nw.z - zmin) / (zmax - zmin) * float(ih))
+		for dy in range(-crad, crad + 1):
+			for dx in range(-crad, crad + 1):
+				var dd: float = sqrt(float(dx * dx + dy * dy))
+				if dd > float(crad):
+					continue
+				var x := npx + dx
+				var y := npy + dy
+				if x < 0 or x >= iw or y < 0 or y >= ih:
+					continue
+				# deepest right under the prop, feathering back to full fog at the rim, so
+				# there is no disc edge — just a soft well in the mist
+				var k: float = 0.42 + 0.58 * smoothstep(0.35, 1.0, dd / float(crad))
+				var v: float = img.get_pixel(x, y).r * k
+				img.set_pixel(x, y, Color(v, v, v))
 	for _pass in MASK_BLUR:
 		var src := img.duplicate()
 		for y in ih:
@@ -1209,7 +1394,7 @@ func _build_floor_fog() -> void:
 	mat2.set_shader_parameter("density", 0.46)
 	mat2.set_shader_parameter("noise_scale", 0.22)
 	mat2.set_shader_parameter("scroll_speed", -0.04)
-	_spawn_fog_layer(mat2, Vector3((xmin + xmax) * 0.5, FOG_Y + 0.26, (zmin + zmax) * 0.5),
+	_spawn_fog_layer(mat2, Vector3((xmin + xmax) * 0.5, FOG_Y + 0.10, (zmin + zmax) * 0.5),
 		Vector2(xmax - xmin, zmax - zmin))
 
 
@@ -1281,10 +1466,96 @@ func _tick_sigils() -> void:
 		var fi: int = int((_t + float(nd.get("iphase", 0.0))) * ICON_FPS) % (seq as Array).size()
 		if fi != int(nd.get("ifi", -1)):
 			nd["ifi"] = fi
-			(icon as Sprite3D).texture = (seq as Array)[fi]
+			var frame: Texture2D = (seq as Array)[fi]
+			(icon as Sprite3D).texture = frame
+			# the prop draws through SIGIL_SHADER via material_override, which samples its
+			# OWN "tex" uniform — setting Sprite3D.texture alone froze every idle on frame 1
+			var im = nd.get("imat")
+			if im != null:
+				(im as ShaderMaterial).set_shader_parameter("tex", frame)
 
 
-func _light_marker() -> void:
+func _light_at(p: Vector3, floor_col: Color) -> Color:
+	## Light actually reaching a world point: the cool corridor wash plus every node's
+	## coloured pool, falling off with distance. Shared by the astronaut and the sigil props
+	## so a figure and the machine beside it are never lit by different rules.
+	## O(callers x nodes). Maps run 18-26 nodes; the whole pass measures ~0.21 ms/frame here,
+	## ~0.5-0.7 ms on a modest Steam CPU. The cost is GDScript overhead (dict lookups,
+	## is_instance_valid, pow), not the maths. If the node count ever grows past ~40, cache the
+	## lights into flat Packed*Array tables — that measured 7.9x faster — before doing anything
+	## else; at n=90 this shape costs 3.3 ms/frame on a FAST machine.
+	var lit := floor_col
+	for nd in nodes:
+		var lg = nd.get("light")
+		if lg == null or not is_instance_valid(lg):
+			continue
+		var ol := lg as OmniLight3D
+		var d := p.distance_to(ol.global_position)
+		var rng: float = maxf(ol.omni_range, 0.001)
+		if d >= rng:
+			continue            # out of range: skip the pow() entirely, most pairs most frames
+		var fall: float = pow(1.0 - d / rng, 1.7)
+		if fall <= 0.001:
+			continue
+		var c: Color = ol.light_color * (ol.light_energy * 0.34 * fall)
+		lit = Color(lit.r + c.r, lit.g + c.g, lit.b + c.b, 1.0)
+	return lit
+
+
+func _light_sigils(delta: float) -> void:
+	## Feed each prop's material the light at its own feet. Before this the props were flat
+	## full-brightness sprites — the single biggest reason they read as pasted on rather than
+	## standing in the corridor. A prop on a dead/unreachable branch is pushed cold and dim
+	## so the map's reachability is legible in the LIGHTING, not just the line colour.
+	if nodes.is_empty() or not _hidden.is_empty():
+		return                  # a duel is on screen: nothing here is visible to light
+	for i in nodes.size():
+		var nd = nodes[i]
+		var imat = nd.get("imat")
+		if imat == null:
+			continue
+		var icon = nd.get("icon")
+		if icon == null or not is_instance_valid(icon) or not (icon as Sprite3D).visible:
+			continue
+		# sample at the SHARED height, not at the sprite's centre. The icon's centre sits
+		# ~0.54 up and the astronaut was sampled at his feet (y=0), which put the props
+		# ~30% brighter than him purely from the falloff on the node light at y=1.5 — a
+		# figure and the machine one cell away must be lit by the same rule.
+		var sp: Vector3 = (icon as Sprite3D).global_position
+		sp.y = LIGHT_SAMPLE_Y
+		var lit := _light_at(sp, LIGHT_FLOOR)
+		# _update_reach writes done / reach / locked — reuse its words rather than recompute
+		var st := str(nd.get("state", "locked"))
+		if st == "locked" and str(nd.get("type", "")) != "core":
+			# unreachable: drain the warmth so a branch you cannot take recedes into the
+			# haze. Desaturate TOWARD grey, never TO it — collapsing to luminance first
+			# flipped a FIREWALL's orange to cold blue and erased the accent palette on the
+			# ~14 of 17 props that are locked at any moment. The CORE is exempt: it is
+			# locked for almost the whole run and it is the goal beacon.
+			var g: float = (lit.r + lit.g + lit.b) / 3.0
+			lit = lit.lerp(Color(g, g, g, 1.0), 0.7) * Color(0.66, 0.72, 0.84, 1.0)
+		elif st == "done" and i != cur:
+			# spent: matches the grey EDGE_DEAD corridor behind you, but it KEEPS its accent
+			# so you can still read what you already took
+			lit = Color(lit.r * 0.62, lit.g * 0.66, lit.b * 0.72, 1.0)
+		var tone := Color(minf(lit.r, LIGHT_CEIL.r), minf(lit.g, LIGHT_CEIL.g),
+			minf(lit.b, LIGHT_CEIL.b), 1.0)
+		var prev: Color = nd.get("itint", tone)
+		# frame-rate independent, matching this file's own convention elsewhere
+		var mixed: Color = prev.lerp(tone, 1.0 - exp(-9.0 * delta))
+		nd["itint"] = mixed
+		var sm := imat as ShaderMaterial
+		sm.set_shader_parameter("tint", mixed)
+		# The haze target has to TRACK THE LOCAL LIGHT, not sit at a constant. The floor fog
+		# is additive over near-black deck, so the brightness a prop must blend into varies
+		# roughly 30x across one screen — a fixed fog_color made every base either a glowing
+		# skirt (on a dark node) or a black cut-out (on a bright one), depending only on where
+		# the prop happened to stand.
+		sm.set_shader_parameter("fog_color", Color(FOG_TINT.r * mixed.r, FOG_TINT.g * mixed.g,
+			FOG_TINT.b * mixed.b, 1.0))
+
+
+func _light_marker(delta: float) -> void:
 	## The astronaut is an unshaded sprite, so nothing in the engine tints him and he
 	## reads as pasted onto the scene. Gather the light actually reaching his cell —
 	## the cool corridor wash plus each node's coloured pool, falling off with distance
@@ -1292,22 +1563,17 @@ func _light_marker() -> void:
 	## orange of a FIREWALL or the cyan of a cache as he steps into it.
 	if _marker_spr == null:
 		return
-	var p := _marker.position
-	var lit := Color(0.42, 0.48, 0.58)          # ambient + corridor fill floor
-	for nd in nodes:
-		var lg = nd.get("light")
-		if lg == null or not is_instance_valid(lg):
-			continue
-		var d := p.distance_to((lg as OmniLight3D).global_position)
-		var rng: float = maxf((lg as OmniLight3D).omni_range, 0.001)
-		var fall: float = pow(clampf(1.0 - d / rng, 0.0, 1.0), 1.7)
-		if fall <= 0.001:
-			continue
-		var c: Color = (lg as OmniLight3D).light_color * ((lg as OmniLight3D).light_energy * 0.34 * fall)
-		lit = Color(lit.r + c.r, lit.g + c.g, lit.b + c.b, 1.0)
+	# HIS OWN NUMBERS, deliberately not the shared LIGHT_* constants. Moving him onto the
+	# props' sample height and floor measured +12-15% brighter on R/G and warmer — a visible
+	# change to an asset that was tuned over many iterations and signed off. The shared
+	# helper below is the part worth sharing; the tuning is not. If props and marker ever
+	# need to agree, move the PROPS to these values, not him to theirs.
+	var lit := _light_at(_marker.position, Color(0.42, 0.48, 0.58))
 	# soft ceiling so a bright node never blows him out, and never let him go black
 	var tone := Color(minf(lit.r, 1.06), minf(lit.g, 1.06), minf(lit.b, 1.08), 1.0)
-	_marker_spr.modulate = _marker_spr.modulate.lerp(tone, 0.12)
+	# frame-rate independent; -8.2 is the closest match to the approved 0.12/frame @60fps
+	# (the old constant ran 2.4x faster on a 144Hz panel and smeared at 30)
+	_marker_spr.modulate = _marker_spr.modulate.lerp(tone, 1.0 - exp(-8.2 * delta))
 
 
 func _place_marker() -> void:
@@ -1400,7 +1666,8 @@ func _process(delta: float) -> void:
 			var bx := _cam.global_transform.basis
 			_look_at += (bx.x * over.x - bx.y * over.y) * wpp
 			_cam.look_at(_look_at)
-		_light_marker()
+		_light_marker(delta)
+		_light_sigils(delta)
 		# re-evaluate hover from the live cursor position, not only on mouse-motion events:
 		# after a walk or a duel the mouse often hasn't moved, so the flare used to stay
 		# stale (or never appear at all) until you wiggled it
@@ -1617,14 +1884,60 @@ func _spawn_shockwave(pos: Vector3, col: Color) -> void:
 func _arrive(i: int) -> void:
 	var t := str(nodes[i]["type"])
 	if t == "quarantine" and not has_tool:
-		# the gate stays shut and the node stays OPEN — come back with a vault tool
-		_pending = -1
-		_msg = "QUARANTINE GATE is sealed. Find a DATA VAULT's breach tool and return."
+		# The gate stays shut and the node stays OPEN — come back with a vault tool.
+		# BUT never when it is the ONLY way on: about half the rows generate a single link
+		# (randf() < 0.4 for a second one), so a toolless run whose one exit was this gate
+		# was hard-dead — no node advances, nothing rebuilds the reachable set, and
+		# _exit_to_flight banks nothing because banking only happens at the core. If it is
+		# the last door, it forces itself open and the ICE takes its toll in trace instead.
+		var only_way: bool = nodes[cur]["links"].size() <= 1
+		if not only_way:
+			_pending = -1
+			_msg = "QUARANTINE GATE is sealed. Find a DATA VAULT's breach tool and return."
+			return
+		_msg = "No tool and no way back — you tear the QUARANTINE GATE open. ICE-9 is awake."
+		_start_duel(7)          # boss 7 ICE-9 QUARANTINE: the price of forcing it
+		return
+	if t == "blackice":
+		# BLACK ICE is the run's OPT-IN apex fight, and the only home the expansion's top
+		# tiers can have. It used to be a coin flip (randi() % 2: +8-12 shards or -4) with no
+		# decision in it, while tier 4 COUNTERINTRUSION and boss 6 WARRANT SUITE sat
+		# unreachable — they cannot go on a node you are forced onto (measured: a mandatory
+		# tier-4 second fight cleared 14% and took whole-run clears to 3%). Choosing it is
+		# the point: refuse and nothing happens, accept and it is the hardest thing in the
+		# station. Deep ice is the WARRANT SUITE itself.
+		var deep: bool = int(nodes[i]["row"]) >= 8
+		var ice_diff: int = 6 if deep else 4
+		var ice_name: String = "WARRANT SUITE" if deep else "COUNTERINTRUSION"
+		_ice_fought = false
+		_ask("BLACK ICE — %s is awake behind it" % ice_name,
+			["Cut into it  ·  hardest fight on the station, and it pays like it",
+			"Leave it sealed  ·  walk on, nothing gained, nothing lost"],
+			func(k: int):
+				if k == 0:
+					_ice_fought = true
+					_pending = i
+					_start_duel(ice_diff)
+				else:
+					_msg = "You leave the BLACK ICE sealed. It watches you go."
+					_finish_node(i))
 		return
 	if int(TYPES[t][2]) > 0:
 		var diff: int = int(TYPES[t][2])
 		if t == "bounty":
-			diff = clampi(1 + streak / 2, 1, 3)   # the daemon grows with your win streak
+			# SCALE BY DEPTH, NOT STREAK. `streak` counts won duels, and ROW_PLAN gives a run
+			# exactly three fights (battle / battle / core) — so at the second battle row the
+			# streak is ALWAYS exactly 1, and the old `clampi(1 + streak / 2, 1, 4)` resolved
+			# to tier 1. A BOUNTY DAEMON was fighting with the TEACHING deck at the deepest
+			# battle row, i.e. the easiest fight in the game where it should be the hardest.
+			# `streak >= 6` was unreachable for the same reason. Depth is the real lever.
+			# Capped at 3: the bounty is ROLLED, not chosen, so it must not be able to hand
+			# you a fight you cannot refuse. Measured on the real 3-fight ladder, a tier-4
+			# second battle cleared only 14% and dropped whole-run clears to 3%; at tier 3 the
+			# same slot sits where the difficulty curve wants it. Tier 4 and the apex boss
+			# belong on an OPT-IN node — see the BLACK ICE note in DEVLOG v0.230.
+			var row := int(nodes[i]["row"])
+			diff = 3 if row >= 5 else 2
 		_start_duel(diff)
 	else:
 		_finish_node(i)
@@ -1898,14 +2211,39 @@ func _finish_node(i: int) -> void:
 			revealed = true
 			_msg = "UPLINK RELAY — the corridor ahead resolves. Threat tiers exposed."
 		"blackice":
-			if randi() % 2 == 0:
-				var g2 := 8 + randi() % 5
-				shards += g2
-				_msg = "BLACK ICE cracked clean — %d shards spill out." % g2
+			if not _ice_fought:
+				pass          # declined — the _ask already wrote the message
 			else:
-				var toll: int = mini(shards, 4)
-				shards -= toll
-				_msg = "BLACK ICE bites — %d shards burned." % toll
+				# beat the hardest fight on the station and it pays like it: a purse that
+				# actually reaches a 12-shard SPLICER, plus a pick from the top of the pool
+				var deep_ice: bool = int(nodes[i]["row"]) >= 8
+				var pay3: int = 26 if deep_ice else 18
+				shards += pay3
+				_msg = "BLACK ICE BROKEN — %d shards torn out of it." % pay3
+				var strong: Array = []
+				for id in _loot_pool(40):
+					if int(DUEL.CARDS[id][4]) >= 3:      # its drop is top-end only
+						strong.append(id)
+				strong.shuffle()
+				var offer: Array = strong.slice(0, 3)
+				if offer.is_empty():
+					offer = _loot_pool(3)
+				if not offer.is_empty():
+					# The salvage comes out WELDED: +1 power permanently, and unlike the
+					# OVERCLOCK RIG there is no `fragile` drawback — the rig charges 9 shards
+					# for a buff that can lose you the card, whereas this was paid for with
+					# the hardest fight in the run. Measured, taking the ice drops whole-run
+					# clears from 16% to 3%, so a single extra card was nowhere near worth it.
+					_ask_cards("BLACK ICE — salvage from the wreck", offer,
+						"top-end only, and it comes out WELDED: +1 POWER for the rest of the run, with none of the OVERCLOCK RIG's burn-out risk",
+						func(k: int):
+							var got: String = offer[k]
+							_deck().append(got)
+							DUEL.run_deck = _deck()
+							DUEL.atk_boost[got] = int(DUEL.atk_boost.get(got, 0)) + 1
+							_msg = "%s cut out of the ice and welded — +1 POWER." \
+								% str(DUEL.CARDS[got][0]))
+				_ice_fought = false
 		"bounty":
 			var pay2 := 10 + 4 * streak
 			shards += pay2
