@@ -20,8 +20,6 @@ var _t := 0.0
 var _font: Font = ThemeDB.fallback_font
 var _derelict_tex: Texture2D = null    # small faint ship marker for derelicts
 var _face_cache := {}                  # crew name -> small roster face texture
-var _glass_tex: GradientTexture2D = null   # radial gradient for the glass-dome body
-var _plate_tex: GradientTexture2D = null   # vertical gradient for the instrument plate
 
 
 func _get_minimum_size() -> Vector2:
@@ -32,29 +30,41 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if ResourceLoader.exists("res://assets/ui/derelict.svg"):
 		_derelict_tex = load("res://assets/ui/derelict.svg")
-	# glass-dome body: a soft radial gradient, lit teal at the core, fading out
-	var g := Gradient.new()
-	g.set_color(0, Color(0.30, 0.80, 1.0, 0.30))
-	g.set_color(1, Color(0.0, 0.07, 0.11, 0.0))
-	g.add_point(0.62, Color(0.08, 0.34, 0.46, 0.12))
-	_glass_tex = GradientTexture2D.new()
-	_glass_tex.gradient = g
-	_glass_tex.fill = GradientTexture2D.FILL_RADIAL
-	_glass_tex.fill_from = Vector2(0.5, 0.5)
-	_glass_tex.fill_to = Vector2(1.0, 0.5)
-	_glass_tex.width = 128
-	_glass_tex.height = 128
-	# instrument plate: hull navy at the top edge sinking to near-black at the
-	# base, so the scope reads as a mounted panel, not text floating on stars
-	var pg := Gradient.new()
-	pg.set_color(0, Color(0.047, 0.067, 0.102, 0.72))
-	pg.set_color(1, Color(0.024, 0.035, 0.059, 0.34))
-	_plate_tex = GradientTexture2D.new()
-	_plate_tex.gradient = pg
-	_plate_tex.fill_from = Vector2(0.0, 0.0)
-	_plate_tex.fill_to = Vector2(0.0, 1.0)
-	_plate_tex.width = 4
-	_plate_tex.height = 128
+
+
+func _draw_bezel(c: Vector2) -> void:
+	## A turned-metal ring around the dial. The whole trick is that metal only reads as metal
+	## when it is lit from ONE direction: each segment's brightness follows cos(angle - light),
+	## so the ring catches a highlight upper-left and falls into shadow lower-right. A flat
+	## grey annulus, however thick, reads as a drawn circle instead.
+	const LIGHT := -2.36                      # upper-left, in radians
+	const SEG := 96
+	var steel := Color(0.60, 0.63, 0.68)
+	# outer casing, widest and darkest, gives the ring something to sit proud of
+	draw_arc(c, R + 11.0, 0.0, TAU, SEG, Color(0.055, 0.065, 0.080, 0.92), 9.0)
+	for i in SEG:
+		var a0: float = float(i) / float(SEG) * TAU
+		var a1: float = float(i + 1) / float(SEG) * TAU
+		var lit: float = 0.5 + 0.5 * cos(a0 - LIGHT)
+		# two concentric bands, lit in opposition — the outer catches the light where the
+		# inner is dark, which is what makes a ring look ROUND rather than painted on
+		var o: float = 0.20 + 0.80 * pow(lit, 1.6)
+		draw_arc(c, R + 7.5, a0, a1, 2,
+			Color(steel.r * o, steel.g * o, steel.b * o * 1.03, 0.96), 5.0)
+		var inv: float = 0.16 + 0.62 * pow(1.0 - lit, 1.4)
+		draw_arc(c, R + 3.2, a0, a1, 2,
+			Color(steel.r * inv, steel.g * inv, steel.b * inv, 0.95), 3.6)
+	# machined edges: a bright wire on the outside, a dark one biting into the glass
+	draw_arc(c, R + 10.0, 0.0, TAU, SEG, Color(0.80, 0.84, 0.90, 0.30), 1.0)
+	draw_arc(c, R + 1.2, 0.0, TAU, SEG, Color(0.02, 0.03, 0.04, 0.85), 2.0)
+	# six rivets, lit from the same source so they belong to the ring
+	for i in 6:
+		var a: float = LIGHT + float(i) / 6.0 * TAU
+		var p := c + Vector2.from_angle(a) * (R + 7.5)
+		var lit2: float = 0.5 + 0.5 * cos(a - LIGHT)
+		draw_circle(p, 2.1, Color(0.10, 0.12, 0.14, 0.9))
+		draw_circle(p - Vector2.from_angle(LIGHT) * 0.6, 1.3,
+			Color(0.55 + 0.35 * lit2, 0.58 + 0.35 * lit2, 0.62 + 0.35 * lit2, 0.95))
 
 
 func _crew_face(nm: String) -> Texture2D:
@@ -107,30 +117,37 @@ func _draw() -> void:
 	if fmod(_t, 4.7) < 0.07:
 		flick *= 0.72
 
-	# instrument plate behind the scope: notched hull-navy gradient + hairline
-	# rim, in the same angular language as the other HUD panels
-	if _plate_tex != null:
-		var pr := Rect2(0.5, 1.0, PANEL.x - 1.0, PANEL.y - 1.5)
-		var pts := UITheme.panel_points(pr, 11.0, 6.0)
-		var uvs := PackedVector2Array()
-		for pt in pts:
-			uvs.append((pt - pr.position) / pr.size)
-		draw_colored_polygon(pts, Color(1, 1, 1, 1), uvs, _plate_tex)
-		var rim := pts.duplicate()
-		rim.append(pts[0])
-		draw_polyline(rim, Color(acc.r, acc.g, acc.b, 0.22 * flick), 1.0)
+	# NO instrument plate and NO corner brackets. The scope is just the circle now — the
+	# notched navy panel and the bracket frame were housing that added nothing the disc
+	# does not already say.
 
-	# projected disc — dark base, then a glass-dome gradient body
-	draw_circle(c, R + 5.0, Color(acc.r, acc.g, acc.b, 0.06 * flick))
-	draw_circle(c, R, Color(0.012, 0.05, 0.075, 0.92))
-	if _glass_tex != null:
-		draw_texture_rect(_glass_tex, Rect2(c - Vector2(R, R), Vector2(R * 2.0, R * 2.0)),
-			false, Color(1, 1, 1, flick))
+	_draw_bezel(c)
+	# THE FACE IS DRAWN WITH CIRCLES, NOT TEXTURES.
+	# A GradientTexture2D radial has to be blitted with draw_texture_rect, and its corners
+	# clamp to the gradient's last colour — which put a visible dark SQUARE around the dial.
+	# Concentric circles are round by construction and cannot do that.
+	draw_circle(c, R, Color(0.028, 0.030, 0.032, 0.97))
+	# Restrained on purpose: this is a warm cast on the glass, not a lamp. The first pass
+	# was twice this strong and read as a yellow disc rather than an aged instrument.
+	var warm_a: float = 0.13 * (0.65 + 0.35 * flick)
+	for i in 22:
+		var f: float = 1.0 - float(i) / 22.0          # 1 at the centre, 0 at the rim
+		var rr: float = R * (1.0 - float(i) / 22.0)
+		# hold strength across the middle, then fall away fast near the glass edge
+		var a: float = warm_a * pow(smoothstep(0.0, 0.55, f), 0.85) / 9.0
+		draw_circle(c, rr, Color(0.98, 0.84 - 0.06 * (1.0 - f), 0.52, a))
+	# inner shadow: a few tight rings hugging the rim so the face sits DOWN in the bezel
+	for i in 7:
+		var t: float = float(i) / 6.0
+		draw_arc(c, R - 1.0 - t * 7.0, 0.0, TAU, 72,
+			Color(0.0, 0.01, 0.02, 0.30 * (1.0 - t)), 2.6)
 	for ring in [0.4, 0.7, 1.0]:
 		draw_arc(c, R * ring, 0.0, TAU, 48,
 			Color(acc.r, acc.g, acc.b, (0.22 if ring == 1.0 else 0.08) * flick), 1.0)
-	# bright glass rim
-	draw_arc(c, R - 0.5, 0.0, TAU, 64, Color(acc.r, acc.g, acc.b, 0.55 * flick), 1.6)
+	# the bezel is the frame now; this is only the reflection where the dome meets metal
+	draw_arc(c, R - 1.5, 0.0, TAU, 72, Color(acc.r, acc.g, acc.b, 0.30 * flick), 1.2)
+	# glass seated INSIDE the ring — drawn last of the face layers so it darkens the
+	# outer few percent and the dial stops looking flush with the bezel
 	# short cardinal bearing ticks instead of a full crosshair (clears the middle)
 	for ca in [0.0, PI * 0.5, PI, PI * 1.5]:
 		draw_line(c + Vector2.from_angle(ca) * (R - 5.0), c + Vector2.from_angle(ca) * R,
@@ -169,9 +186,7 @@ func _draw() -> void:
 	draw_line(c - nose * 3.0, c - nose * 8.0,
 		Color(1, 1, 1, 0.3 * flick), 1.0)
 
-	# frame + captions
-	UITheme.draw_brackets(self, Rect2(c - Vector2(R + 6, R + 6),
-		Vector2((R + 6) * 2.0, (R + 6) * 2.0)), acc, 8.0, 1.5)
+	# captions
 	var where: String = str(GameState.region_at(
 		center_pos if mode == "flight" else GameState.sector)["name"]).to_upper()
 	if where.length() > 15:

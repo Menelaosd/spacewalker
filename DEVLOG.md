@@ -5,6 +5,206 @@ Core updates to the game, newest first. Every meaningful change lands here.
 
 ---
 
+## 31/07/2026 — v0.241: twenty-one more takes, and three more things the stills caught
+
+Third pass on the footage — **100 clips now**. The new ones are organised around a *habit*
+rather than a location: crossing the edge of a nebula from clear space, carrying a full bag
+back to the ship, opening a screen and closing it again, standing somewhere for a moment.
+
+Three new bits of machinery: `neb_enter` / `neb_leave` park the ship outside a cloud and
+point the bow at its heart (SW_NEBULA drops you already surrounded, so you never see the fog
+arrive); `haul` makes the gathering driver stop cutting partway through and carry the bag
+home, which is the half of the loop that actually has tension in it; `dpace` scales every
+beat of the duel autopilot so a clip can read as deliberation.
+
+**Three more real bugs, all found by the per-second stills and none by an error message:**
+
+- **Opening the star chart or the inventory pauses the tree — and paused the director with
+  it.** So the cue that closes the screen again never fired and every "open it, read it,
+  close it" clip froze on the open screen for the rest of its length. The overlays
+  themselves run `PROCESS_MODE_ALWAYS` for exactly this reason; the director does now too.
+- **A breach card picker ate a whole clip.** It is its own `CanvasLayer` with its own
+  `_input`, not the rig `_choice` dictionary the autopilot knew about, so walking onto a
+  RECYCLER parked the take on the picker until the recording ended. It now reads for a beat
+  and then takes a card — the picker is a good screen and deserves the dwell, but not the
+  whole clip.
+- The interior waypoints are written **relative to the walker's spawn**, so they survive the
+  hull growing.
+
+## 31/07/2026 — v0.240: the trailer footage learns to be human
+
+Second pass on `trailer/`: **79 clips, 132 title cards, 29 asset sheets**.
+
+### Analog control
+
+The first pass drove everything with on/off key cues and it showed — the ship snapped to
+full thrust, held it dead flat, snapped off. `Input.action_press` takes a 0..1 **strength**
+and `Input.get_axis` reads it, so the game can be flown with a stick it never knew it had.
+Cruising is now one long burn with two or three raised-cosine corrections laid over it
+(`_trap` / `_axis` / `_analog`). The mining cursor **travels** to its target with a speed cap
+instead of teleporting between frames, and the astronaut thrusts across rather than being
+repositioned. The walker leans into a leg and eases out of it at each waypoint.
+
+### Three real bugs the stills caught
+
+- **`SW_RICH` was doing nothing on every single clip.** `GameState` is an autoload and reads
+  that env var in its own `_ready`, which has already run by the time the director exists to
+  set it. So the whole first pass had an empty periodic table, no fabricator recipes and
+  zero banked ore. The tell was "BANKED ORE 0" under an "Expand the ship (20 ore)" prompt
+  the walker could never afford. The stock is now applied directly via
+  `GameState._apply_rich_cheat()`.
+- **`SW_NPCDBG` freezes the walker on purpose** — it is a whole-ship screenshot hook that
+  stops the player and pulls the camera back. Every "walking the ship" clip was a statue in
+  a wide shot. The crew now come from `GameState.rescued` and the walker is explicitly
+  re-enabled.
+- **The runner reported 36 correct files as MISSING.** `trailer/` sits in a OneDrive-synced
+  tree and the verification pass saw the directory before the freshly closed handles
+  surfaced. It now settles and re-stats. Confirmed independently by reading every AVI's
+  header: 79 clips, all `RIFF/AVI `, all 1280x720, 831 seconds of footage, every frame count
+  matching its clip's declared length.
+
+### "Wait before you start recording so no text appears"
+
+Movie Maker records from frame zero and cannot be started late. So those takes now run under
+a **black cover** for 2.5–4.5s while the HUD says its opening line and the toast expires, and
+the cover fades off onto a clean frame. Trim the head in the edit. Hiding the HUD label
+instead would have been a lie about what the game looks like.
+
+### New shots
+
+`fly_*` quiet cruising over seven nebulae (14s), `shadow_*` passes straight across a station
+hull at ~180 u/s — the only path that triggers the ship-shadow shader, since it only darkens
+within about one hull-width — `gather_*` slow gathering, `tour_*` walking the ship,
+`build_room_*` walking the hull edge and building out bare bays, `talk_*` conversations that
+actually turn the page (the typewriter finishes, the line sits, then it advances), and
+`crawl_*` breach corridors at 3.2s of dwell per hop.
+
+### The runner stopped keeping its own copy of the clip list
+
+`SW_CLIP=__list__` makes the director print every clip and its length; the runner reads that.
+The two copies drifted the first time a clip was added.
+
+### Cards
+
+132 now, grouped A–P. Cards marked in the README are **verbatim from the game** — the intro
+narration, HELIOS's radio intercepts, crew dialogue, the death screen, the ending — with a
+small dim attribution above the quote. A trailer should not paraphrase its own script. The
+rest are written, and every one states something the game contains. Deliberately absent: the
+500-soul Haven target and any station count, because both are unsettled in the source (the
+target is design-doc only; `stations.gd` says 12 in its docstring, holds 10, and the design
+doc describes 14). Four logo stills use the real logo art.
+
+Groups I–P are almost entirely quoted: the twenty duel card-flavour lines (HELIOS described
+from the inside — the best short writing in the game), the ghost-signal fragments, the drive
+build log, crew idle lines, the rest of the death screen, VESNA, and nine real element facts
+out of the game's own trivia database for the mining sequences.
+
+Cards also **shrink to fit** now. `draw_string` without a width argument does not clip and
+does not wrap — it runs off the side of the frame silently — and several of the quoted lines
+are long, so the size steps down until the widest line sits inside a 1140px measure.
+
+## 31/07/2026 — v0.239: trailer material, and the stations get scattered
+
+### The stations are destinations now
+
+`stations.gd` used to lay all ten out in a 4-wide inspection grid 3600 units north of
+home — a showroom shelf, built so the art could be eyeballed side by side. They are the
+SURVIVOR pickups, so that made the whole Haven track read as one single place you visit at
+the end. Each station is now moored just outside ONE nebula, chosen for fit (Helios Bloom's
+solar array off Ember Reach, the Glacier Still off Frostlight Reach, the Verdant Bloom off
+its own cloud) and spread by range: four inside 16k so the early game has reachable
+targets, the rest laddering out to 47k. `world_pos()` resolves against `GameState` the way
+`nebula_center()` does, so they follow if the map is ever rescaled. `CLUSTER`/`GAP`/
+`GRID_COLS` are gone; `centroid()` replaces them for the callers that wanted an anchor.
+
+On the star chart every station diamond always draws, but the NAME yields: labels are
+placed nearest-first and a station name is suppressed if its box overlaps one already
+placed. Ten station names plus eight nebula names is more type than a 1280-wide chart can
+hold, and a label you cannot read is worse than a label that isn't there.
+
+### `trailer/` — 43 clips, 13 title cards, 15 asset sheets
+
+New `tools/trailer.gd`, a director that records scripted gameplay. It sets a clip's debug
+env hooks, instantiates the scene itself, and drives it through `Input.action_press` /
+`parse_input_event` — the same path a keyboard takes. **No scene got a recording-only code
+path**, so what the camera sees is what the game does. `--fixed-fps 30` makes delta exactly
+1/30, so cue times are frame-exact and a clip records identically every run.
+
+Recorded with Godot's own Movie Maker (`--write-movie`): MJPEG AVI, 1280x720 @ 30fps, which
+every NLE imports directly. There is no ffmpeg on this machine and 720p is the game's native
+`canvas_items` base, so nothing is ever resampled.
+
+Four things the first takes got wrong, each worth remembering:
+
+- **The laser fired into empty space for a whole take.** `_stage_mining` wrote `player.aim_dir`
+  directly — and `player._update_aim()` recomputes it from `get_global_mouse_position()`
+  every physics tick, so the write never reached the beam. Warping the real pointer
+  (`viewport.warp_mouse` + a parsed motion event) is the only aim the game will keep.
+- **The mining shot dragged backwards.** The target was the nearest veined rock full stop,
+  which sat past the 600-unit tether — the lifeline hauled the astronaut off it all take.
+  The leash is a game rule; the shot has to respect it, so candidates are filtered by
+  distance to the tether anchor.
+- **The station flybys crossed the whole station in 1.6s.** Terminal speed is ~1150 u/s and
+  a station is 655px wide. Full thrust from 4200 units out is a blur; a 1450-unit run-up
+  with the burn cut at 1.1s lets it grow, fill the frame and sweep past.
+- **The runner reported all 43 clips as FAILED while all 43 were on disk at correct length.**
+  The counter lived next to the Godot call; it now verifies from disk after the fact. A
+  status line that contradicts the artefact is worse than no status line.
+
+Also new: `tools/trailer_cards.gd` (13 title cards, black ground / white type, every line
+stating something the game actually contains — five drive parts, five crew, eighty-three
+collectible elements) and `tools/sheet.gd` + `tools/build_sheets.ps1` (15 asset sheets,
+~1020 sprites, art fitted never stretched, counts generated from the folder so they can't
+go stale). `SW_TRAILER_PNG=<dir>` makes any clip also drop one still per second — that is
+how each clip was verified as SHOWING its subject rather than merely running clean.
+
+`trailer/` carries a `.gdignore` so Godot never imports it. `trailer/clips/` and
+`trailer/stills/` are gitignored (~650 MB, regenerable in one command); the cards, sheets
+and README are tracked.
+
+**Windows footnote that cost two runs:** this repo lives under a Greek folder name, and
+PowerShell 5.1 reads a BOM-less `.ps1` as ANSI — a hard-coded path in a script comes back
+mojibake and every run dies on "cannot find path". The tool scripts derive the repo from
+`$PSScriptRoot` or take it as a parameter. Never write this project's path as a literal in
+a `.ps1`.
+
+## 31/07/2026 — v0.237: the STAR CHART becomes an instrument
+
+`starchart.gd`, the M-key overlay, was a flat wash with dots on it. Rebuilt in the same frameless
+instrument language as the radar dial and the quest log.
+
+- **The radial WARP is the change that mattered.** The universe radius is set by the farthest
+  nebula (~60k) while HOME, the station cluster and all of THE REACH live inside 6.6k — so a
+  linear chart crushed everything you actually care about into a pea at the centre with a vast
+  empty ring around it. Distances now go through `pow(d / _max_r, 0.62)` (`_proj` / `_pr` / `_pw`),
+  which gives the near field most of the paper and still fits the far contacts on the same sheet.
+  Nebula radii go through the local derivative of that curve, clamped 4–64px so a close-in region
+  can't swell to fill the chart. Every plotted thing — nebulae, beacon, stations, ship — uses it,
+  so nothing drifts out of register.
+- **Depth**: a 3-layer starfield (260/120/44 stars, `sqrt` radius so density stays even instead of
+  clumping at the centre), derived from a stable index hash — `randf()` would make it sparkle like
+  static every frame.
+- **A polar face**: bearing spokes every 30°, a rim graduated every 5° (long every 15°), 000/090/
+  180/270 labels moved INSIDE the rim (outside, 090 sat on top of the M-close hint).
+- **The sweep is a triangle fan, not N radial lines.** Lines cannot work: at the rim the angular
+  step outruns the line width, so it came out as a fan of separate spokes with a hard trailing
+  edge — a pizza slice. 48 triangles with per-vertex alpha tile the wedge with no gaps and ramp in
+  AND out. Unsurveyed contacts **ping** as the beam crosses them and decay behind it, which is what
+  makes the sweep mean something instead of being a decoration laid over a static picture.
+- **Ring names are placed by search, not by rule.** THE REACH / DRIFT / BELT test 24 bearings on
+  their own ring and keep the one farthest from every contact — including two points along each
+  contact's NAME, because a tag runs ~90px right of its dot and testing the dot alone let a ring
+  name land squarely on "Cerulean Shallows 23k". Any fixed bearing eventually collides, because
+  where the contacts sit is data, not layout.
+- **A dashed, crawling COURSE LINE** now runs from the ship to the live distress beacon — the one
+  mark that makes this a navigation tool rather than a picture.
+- Nebulae are clouds (offset lobes + broken filament arcs) instead of flat discs; unsurveyed
+  contacts are hollow rings instead of dots that read as more dust; HOME gets a real glow; the
+  header lost its plate and hangs on a fading rule with the two live figures split either side.
+- No PixelLab art was used. The chart's language is a thin-line vector instrument matching the
+  radar and quest log; pixflux output is chunky outlined sprite art and would have fought it.
+  Kept procedural on purpose.
+
 ## 25/07/2026 — v0.210: the ship casts a real shadow on station hulls
 
 Fly over a rescue station and the hull dims under a genuine ship-shaped silhouette that slides

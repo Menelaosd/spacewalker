@@ -286,35 +286,11 @@ func _draw() -> void:
 	_draw_footer(vp)
 
 
-func _draw_frame(vp: Vector2) -> void:
-	## Sci-fi border: an inset cyan rule with bracketed corners and a few
-	## hazard ticks — the "corners above the image" from the concept.
-	var acc := UITheme.ACCENT
-	var pad := 16.0
-	var r := Rect2(pad, pad, vp.x - pad * 2.0, vp.y - pad * 2.0)
-	var flick := 0.75 + 0.15 * sin(_t * 2.3) + 0.1 * sin(_t * 0.9)
-	draw_rect(r, Color(acc.r, acc.g, acc.b, 0.10 * flick), false, 1.0)
-	# long bracket arms at each corner
-	var arm := 52.0
-	for corner in [
-			[r.position, Vector2(1, 0), Vector2(0, 1)],
-			[Vector2(r.end.x, r.position.y), Vector2(-1, 0), Vector2(0, 1)],
-			[Vector2(r.position.x, r.end.y), Vector2(1, 0), Vector2(0, -1)],
-			[r.end, Vector2(-1, 0), Vector2(0, -1)]]:
-		var o: Vector2 = corner[0]
-		var hx: Vector2 = corner[1]
-		var vy: Vector2 = corner[2]
-		draw_line(o, o + hx * arm, Color(acc.r, acc.g, acc.b, 0.85 * flick), 2.0)
-		draw_line(o, o + vy * arm, Color(acc.r, acc.g, acc.b, 0.85 * flick), 2.0)
-		# inner corner accent tick
-		draw_line(o + hx * 10.0 + vy * 10.0, o + hx * 26.0 + vy * 10.0,
-			Color(acc.r, acc.g, acc.b, 0.5 * flick), 1.0)
-	# hazard tick clusters top-centre and bottom-centre
-	for cx in [vp.x * 0.5]:
-		for s in [pad + 2.0, r.end.y - 6.0]:
-			for k in 5:
-				draw_rect(Rect2(cx - 26.0 + k * 11.0, s, 7, 3),
-					UITheme.ACCENT_WARM if k % 2 == 0 else Color(acc.r, acc.g, acc.b, 0.5))
+func _draw_frame(_vp: Vector2) -> void:
+	## Deliberately empty. The screen border, corner bracket arms and the hazard tick
+	## clusters used to live here; the captain asked for the title screen stripped back to
+	## the menu alone. Kept as a no-op so the call site and any future frame stay in one place.
+	pass
 
 
 func _draw_bloom(c: Vector2, hw: float, hh: float, col: Color) -> void:
@@ -371,15 +347,9 @@ func _draw_menu() -> void:
 	var panel := Rect2(top.position.x - 15, top.position.y - 26,
 		ITEM_W + 30, (bot.end.y - top.position.y) + 38)
 	UITheme.draw_sci_panel(self, panel)
-	UITheme.draw_brackets(self, panel, UITheme.ACCENT, 12.0, 3.0)
 	draw_string(_font, panel.position + Vector2(15, 18), "◈ " + _menu_title,
 		HORIZONTAL_ALIGNMENT_LEFT, ITEM_W, 10,
 		Color(UITheme.ACCENT.r, UITheme.ACCENT.g, UITheme.ACCENT.b, 0.8))
-	# hazard ticks top-right of the panel
-	for k in 5:
-		draw_rect(Rect2(panel.end.x - 58.0 + k * 10.0, panel.position.y + 16, 6, 3),
-			UITheme.ACCENT_WARM if k % 2 == 0 else Color(UITheme.ACCENT.r,
-				UITheme.ACCENT.g, UITheme.ACCENT.b, 0.5))
 	for i in _menu.size():
 		_draw_item(i)
 

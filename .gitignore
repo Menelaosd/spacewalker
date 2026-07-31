@@ -23,3 +23,9 @@ steam_appid.txt
 # OS junk
 .DS_Store
 Thumbs.db
+
+# Trailer footage — ~250 MB of MJPEG AVI, regenerable in one command
+# (tools/record_trailer.ps1). The cards, sheets and README under trailer/ ARE tracked;
+# only the raw video and the review stills are not.
+/trailer/clips/
+/trailer/stills/

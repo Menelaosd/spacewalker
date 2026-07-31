@@ -207,7 +207,7 @@ func _ready() -> void:
 		_flight_origin = ship_pos
 		cam.reset_smoothing()
 	if OS.get_environment("SW_STATIONS") != "":
-		ship_pos = Stations.CLUSTER
+		ship_pos = Stations.centroid()
 		cam.position = ship_pos
 		_flight_origin = ship_pos
 		cam.reset_smoothing()

@@ -2406,80 +2406,347 @@ func _hud_energy(s: float) -> void:
 		Color(ncol.r, ncol.g, ncol.b, 0.85))
 
 
-func _hud_scale(vp: Vector2, s: float) -> void:
-	## TRACE LOCK — a decryption dial; the needle swings toward whoever is winning and
-	## ticks lock in one per trace point, with an outer ring flaring near a lock (±5).
-	var C := Vector2(vp.x * 0.5, 100.0 * s)
-	var R := 52.0 * s
-	var up := -PI / 2.0
-	var span := deg_to_rad(78.0)
-	var norm := clampf(_tip_anim / float(WIN_TIP), -1.0, 1.0)
-	var a := up + norm * span
-	var ncol := CYAN if _tip_anim > 0.0 else (RED if _tip_anim < 0.0 else Color(0.62, 0.74, 0.88))
-	var w := 6.0 * s
-	# dead track, then each half graded from neutral at the centre to its faction at the lock
-	_hud.draw_arc(C, R, up - span, up + span, 64, Color(0.09, 0.13, 0.18, 0.92), w)
-	for sgn in [-1, 1]:
-		var fc: Color = CYAN if sgn > 0 else RED
-		for i in 16:
-			var f0: float = float(i) / 16.0
-			var f1: float = float(i + 1) / 16.0
-			_hud.draw_arc(C, R, up + sgn * f0 * span, up + sgn * f1 * span, 4,
-				Color(fc.r, fc.g, fc.b, lerpf(0.06, 0.34, f1)), w)
-	# live fill: centre -> needle, brightening toward the lock so the lead is unmistakable
-	var nseg: int = maxi(1, int(absf(norm) * 22.0))
-	for i in nseg:
-		var g0: float = float(i) / float(nseg)
-		var g1: float = float(i + 1) / float(nseg)
-		var ga: float = lerpf(0.4, 1.0, g1)
-		_hud.draw_arc(C, R, up + (a - up) * g0, up + (a - up) * g1, 4,
-			Color(ncol.r, ncol.g, ncol.b, ga * 0.16), w * 2.1)
-		_hud.draw_arc(C, R, up + (a - up) * g0, up + (a - up) * g1, 4,
-			Color(ncol.r, ncol.g, ncol.b, ga), w)
-	# 5 ticks per side, lit as the trace advances
-	for k in range(1, 6):
-		for sgn2 in [-1, 1]:
-			var sf: float = float(sgn2)
-			var ta: float = up + sf * (float(k) / 5.0) * span
-			var tcol: Color = CYAN if sgn2 > 0 else RED
-			var lit: bool = (sgn2 > 0 and tip >= k) or (sgn2 < 0 and tip <= -k)
-			var dir := Vector2(cos(ta), sin(ta))
-			var t0: float = R - (8.0 if lit else 6.0) * s
-			var t1: float = R + (8.0 if k == 5 else 6.0) * s
-			_hud.draw_line(C + dir * t0, C + dir * t1,
-				Color(tcol.r, tcol.g, tcol.b, 1.0 if lit else 0.22), 3.0 * s if lit else 1.5 * s)
-	# needle + hub
-	var tipp := C + Vector2(cos(a), sin(a)) * (R - 3.0 * s)
-	var perp := Vector2(cos(a + PI / 2.0), sin(a + PI / 2.0)) * (4.0 * s)
-	_hud.draw_colored_polygon(PackedVector2Array([C + perp, tipp, C - perp]),
-		Color(0.02, 0.03, 0.05, 0.85))
-	_hud.draw_line(C, tipp, ncol, 2.5 * s)
-	_hud.draw_circle(C, 7.0 * s, Color(0.04, 0.06, 0.09))
-	_hud.draw_arc(C, 7.0 * s, 0.0, TAU, 24, ncol, 1.5 * s)
-	# numeric core on a dark pill, then the lock threshold under it
-	_hud.draw_rect(Rect2(C + Vector2(-30.0 * s, 11.0 * s), Vector2(60.0 * s, 27.0 * s)),
-		Color(0.015, 0.025, 0.04, 0.75))
-	_hud.draw_line(C + Vector2(-30.0 * s, 38.0 * s), C + Vector2(30.0 * s, 38.0 * s),
-		Color(ncol.r, ncol.g, ncol.b, 0.45), 1.0)
-	_hud.draw_string(_font, C + Vector2(-40.0 * s, 32.0 * s), "%+d" % tip,
-		HORIZONTAL_ALIGNMENT_CENTER, 80.0 * s, _fs(UITheme.FS_DISPLAY), ncol)
-	_hud.draw_string(_font, C + Vector2(-70.0 * s, 50.0 * s), "TRACE LOCK AT 5",
-		HORIZONTAL_ALIGNMENT_CENTER, 140.0 * s, _fs(UITheme.FS_MICRO),
-		Color(0.58, 0.72, 0.88, 0.55))
-	# side labels — the leading side stays lit, the trailing one recedes
-	var la: float = 1.0 if _tip_anim < 0.0 else 0.3
-	var lb: float = 1.0 if _tip_anim > 0.0 else 0.3
-	_hud.draw_string(_font, C + Vector2(-R - 76.0 * s, -R * 0.3), "HELIOS",
-		HORIZONTAL_ALIGNMENT_RIGHT, 66.0 * s, _fs(UITheme.FS_LABEL),
-		Color(RED.r, RED.g, RED.b, la))
-	_hud.draw_string(_font, C + Vector2(R + 10.0 * s, -R * 0.3), "YOU",
-		HORIZONTAL_ALIGNMENT_LEFT, 66.0 * s, _fs(UITheme.FS_LABEL),
-		Color(CYAN.r, CYAN.g, CYAN.b, lb))
-	if absf(_tip_anim) >= 4.0:
-		var fl := 0.3 + 0.35 * sin(_t * 10.0)
-		_hud.draw_arc(C, R + 7.0 * s, up - span, up + span, 64,
-			Color(ncol.r, ncol.g, ncol.b, fl), 2.0 * s)
+func _g4_hash(i: int, seed: int) -> float:
+	## Cheap deterministic -1..1 noise. Re-seeded ~14x a second so the breakup
+	## reads as a live signal rather than a frozen squiggle.
+	var v: float = sin(float(i) * 12.9898 + float(seed) * 78.233) * 43758.5453
+	return (v - floor(v)) * 2.0 - 1.0
 
+
+func _g4_dash(a: Vector2, b: Vector2, col: Color, w: float, dash: float, gap: float) -> void:
+	var d := b - a
+	var l := d.length()
+	if l <= 0.001:
+		return
+	var u := d / l
+	var x := 0.0
+	while x < l:
+		var e: float = minf(x + dash, l)
+		_hud.draw_line(a + u * x, a + u * e, col, w)
+		x = e + gap
+
+
+func _g4_bez(r: Rect2, c: float) -> PackedVector2Array:
+	## Cut-corner instrument bezel — the ship's panel language, not a rounded box.
+	var p := r.position
+	var e := r.end
+	return PackedVector2Array([
+		Vector2(p.x + c, p.y), Vector2(e.x - c, p.y), Vector2(e.x, p.y + c),
+		Vector2(e.x, e.y - c), Vector2(e.x - c, e.y), Vector2(p.x + c, e.y),
+		Vector2(p.x, e.y - c), Vector2(p.x, p.y + c)])
+
+
+func _g4_close(p: PackedVector2Array) -> PackedVector2Array:
+	var q := p.duplicate()
+	q.append(p[0])
+	return q
+
+
+func _g4_wave(x0: float, x1: float, base_y: float, amp: float, freq: float,
+		ph: float, jit: float, seed: int, ytop: float, ybot: float) -> PackedVector2Array:
+	## The trace. Three stacked harmonics so it never looks like a plain sine, plus
+	## hash noise and rare spike dropouts that only appear once a lock is close.
+	var n := 76
+	var pts := PackedVector2Array()
+	for i in range(n + 1):
+		var u := float(i) / float(n)
+		var y := base_y
+		y -= amp * sin(u * TAU * freq + ph)
+		y -= amp * 0.34 * sin(u * TAU * freq * 2.7 - ph * 1.63)
+		y -= amp * 0.16 * sin(u * TAU * freq * 5.1 + ph * 2.4)
+		if jit > 0.0:
+			y += _g4_hash(i, seed) * jit
+			if _g4_hash(i * 7 + 3, seed + 11) > 0.88:
+				y += _g4_hash(i * 13 + 1, seed + 5) * jit * 1.9
+		pts.append(Vector2(lerpf(x0, x1, u), clampf(y, ytop, ybot)))
+	return pts
+
+
+func _hud_scale(vp: Vector2, s: float) -> void:
+	## TRACE — HELIOS is tracing your signal, so the readout IS the signal.
+	## An oscilloscope: vertical position = trace value, ONE DIVISION PER POINT.
+	## Cyan rail across the top (+5, the node cracks). Coral rail across the bottom
+	## (-5, you are traced and the run is gone). As either side gains, the line rides
+	## toward that rail and its amplitude, frequency and breakup climb with it — the
+	## picture degrades exactly as the situation does.
+	## The exact value is stated FOUR ways so the wobble can never be the reading:
+	## the cursor rides a labelled division, a solid marker points at it from the
+	## left lane, the tab on the right prints the integer, and the footer counts the
+	## points remaining to each ending.
+	var cx := vp.x * 0.5
+	var ex := 246.0 * s                     # widening: all of it goes into the screen
+	var bw := 196.0 * s + ex
+	var x0 := cx - bw * 0.5
+	var y0 := 26.0 * s
+	var hdr := 14.0 * s
+	var plot_h := 62.0 * s
+	var ftr := 12.0 * s
+	var bh := hdr + plot_h + ftr
+
+	var py0 := y0 + hdr
+	var py1 := py0 + plot_h
+	var pcy := py0 + plot_h * 0.5
+	var unit := plot_h * 0.088              # px per trace point (5 up, 5 down), derived
+	var gut := x0 + 15.0 * s                # gutter numbers right-align here
+	var sx0 := x0 + 16.0 * s                # sunken screen
+	var sx1 := x0 + 147.0 * s + ex
+	var lx := x0 + 18.0 * s                 # integer ladder lane
+	var gx := x0 + 36.0 * s                 # trace area
+	var gx1 := x0 + 144.0 * s + ex
+	var colx := x0 + 150.0 * s + ex              # readout column
+	var colw := 44.0 * s
+
+	var lvl := clampf(_tip_anim / float(WIN_TIP), -1.0, 1.0)
+	var mag := absf(lvl)
+	var base_y := pcy - lvl * 5.0 * unit
+	var ncol: Color = Color(0.60, 0.72, 0.86)
+	if _tip_anim > 0.05:
+		ncol = CYAN
+	elif _tip_anim < -0.05:
+		ncol = RED
+	var crit := absf(_tip_anim) >= 4.0
+	var pulse := 0.5 + 0.5 * sin(_t * 5.2)
+
+	# ---------------------------------------------------------------- housing
+	var brect := Rect2(x0, y0, bw, bh)
+	var cut := 8.0 * s
+	if crit:
+		# one strike from an ending, the whole instrument bleeds light
+		for i in 3:
+			var g := float(i + 1)
+			_hud.draw_polyline(
+				_g4_close(_g4_bez(brect.grow(g * 2.0 * s), cut + g * 1.5 * s)),
+				Color(ncol.r, ncol.g, ncol.b, (0.17 - 0.048 * g) * (0.4 + 0.6 * pulse)), 1.0)
+	var bez := _g4_bez(brect, cut)
+	UITheme.vgrad_poly(_hud, bez, Color(UITheme.HULL_HI, 0.95), Color(UITheme.HULL, 0.97))
+
+	# sunken screen: darker than the housing, so the glass reads as recessed
+	var prect := Rect2(sx0, py0, sx1 - sx0, plot_h)
+	_hud.draw_rect(prect, Color(0.008, 0.013, 0.021, 0.98))
+	# the faintest possible faction wash — up/down ownership learned in one glance
+	UITheme.vgrad(_hud, Rect2(prect.position, Vector2(prect.size.x, 24.0 * s)),
+		Color(CYAN.r, CYAN.g, CYAN.b, 0.055), Color(CYAN.r, CYAN.g, CYAN.b, 0.0))
+	UITheme.vgrad(_hud, Rect2(prect.position.x, py1 - 24.0 * s, prect.size.x, 24.0 * s),
+		Color(RED.r, RED.g, RED.b, 0.0), Color(RED.r, RED.g, RED.b, 0.06))
+
+	# ---------------------------------------------------------------- graticule
+	var vgap := (gx1 - gx) / 8.0
+	for i in range(9):
+		var vx := gx + float(i) * vgap
+		_hud.draw_line(Vector2(vx, py0 + 2.0 * s), Vector2(vx, py1 - 2.0 * s),
+			Color(0.35, 0.62, 0.78, 0.07), 1.0)
+	for k in range(-5, 6):
+		if k == 0:
+			continue
+		var gy := pcy - float(k) * unit
+		var gc: Color = CYAN if k > 0 else RED
+		_hud.draw_line(Vector2(gx, gy), Vector2(gx1, gy),
+			Color(gc.r, gc.g, gc.b, 0.05 + 0.018 * absf(float(k))), 1.0)
+		var tk: float = 4.5 * s if absi(k) == 5 else 2.5 * s
+		_hud.draw_line(Vector2(gx1 - tk, gy), Vector2(gx1, gy), Color(gc.r, gc.g, gc.b, 0.45), 1.0)
+	_g4_dash(Vector2(gx, pcy), Vector2(gx1, pcy), Color(0.62, 0.75, 0.88, 0.34),
+		1.0, 3.0 * s, 3.0 * s)
+
+	# lead mass: a soft column from zero out to the cursor, so "who is ahead and by
+	# how much" is answered by area before you read a single glyph
+	if mag > 0.02:
+		var fa := Color(ncol.r, ncol.g, ncol.b, 0.13 * (0.45 + 0.55 * mag))
+		var fz := Color(ncol.r, ncol.g, ncol.b, 0.0)
+		if lvl > 0.0:
+			UITheme.vgrad(_hud, Rect2(gx, base_y, gx1 - gx, pcy - base_y), fa, fz)
+		else:
+			UITheme.vgrad(_hud, Rect2(gx, pcy, gx1 - gx, base_y - pcy), fz, fa)
+
+	# ---------------------------------------------------------------- lock rails
+	for sgn in [1, -1]:
+		var rc: Color = CYAN if sgn > 0 else RED
+		var ry := pcy - float(sgn) * 5.0 * unit
+		var near: bool = (sgn > 0 and _tip_anim >= 4.0) or (sgn < 0 and _tip_anim <= -4.0)
+		var ra: float = 0.32 + (0.55 * pulse if near else 0.0)
+		_g4_dash(Vector2(gx, ry), Vector2(gx1, ry), Color(rc.r, rc.g, rc.b, ra),
+			1.0, 6.0 * s, 3.0 * s)
+		if near:
+			# the threatened rail bleeds into the tube — this is the dread cue
+			var gh := 15.0 * s
+			var a0 := Color(rc.r, rc.g, rc.b, 0.20 * (0.4 + 0.6 * pulse))
+			var a1 := Color(rc.r, rc.g, rc.b, 0.0)
+			if sgn > 0:
+				UITheme.vgrad(_hud, Rect2(gx, ry, gx1 - gx, gh), a0, a1)
+			else:
+				UITheme.vgrad(_hud, Rect2(gx, ry - gh, gx1 - gx, gh), a1, a0)
+
+	# ---------------------------------------------------------------- the trace
+	var amp := (1.4 + 4.8 * pow(mag, 1.8)) * s
+	var freq := 2.2 + 5.2 * mag
+	var phase := _t * (1.05 + 4.4 * mag)
+	var jit := maxf(0.0, mag - 0.42) / 0.58 * 2.5 * s
+	var pts := _g4_wave(gx, gx1, base_y, amp, freq, phase, jit,
+		int(_t * 14.0), py0 + 3.0 * s, py1 - 3.0 * s)
+
+	_hud.draw_polyline(pts, Color(ncol.r, ncol.g, ncol.b, 0.07), 6.0 * s)
+	_hud.draw_polyline(pts, Color(ncol.r, ncol.g, ncol.b, 0.17), 3.0 * s)
+	# phosphor decay: brightest at the sweep head, fading round the tube behind it
+	var ub := fmod(_t * 0.34, 1.0)
+	var cols := PackedColorArray()
+	for i in pts.size():
+		var u := float(i) / float(pts.size() - 1)
+		var age := fmod(ub - u + 1.0, 1.0)
+		var head := pow(maxf(0.0, 1.0 - age * 7.0), 2.0)
+		var c := ncol.lerp(Color(0.90, 0.98, 1.0), 0.6 * head)
+		cols.append(Color(c.r, c.g, c.b, 0.36 + 0.64 * pow(1.0 - age, 1.3)))
+	_hud.draw_polyline_colors(pts, cols, 1.7 * s)
+	# sweep beam — one slow pass every ~3s; the only quick motion on the instrument
+	var bx := lerpf(gx, gx1, ub)
+	_hud.draw_line(Vector2(bx, py0 + 2.0 * s), Vector2(bx, py1 - 2.0 * s),
+		Color(ncol.r, ncol.g, ncol.b, 0.07), 1.0)
+	var bi: int = clampi(int(round(ub * float(pts.size() - 1))), 0, pts.size() - 1)
+	_hud.draw_circle(pts[bi], 3.4 * s, Color(ncol.r, ncol.g, ncol.b, 0.22))
+	_hud.draw_circle(pts[bi], 1.5 * s, Color(0.92, 0.99, 1.0, 0.95))
+	if crit:
+		# horizontal tear: a band of the tube slips sideways, the way a CRT does when
+		# something is very wrong. Only ever appears one point from an ending.
+		var b0 := base_y + (fmod(_t * 0.63, 1.0) * 2.0 - 1.0) * (amp + 2.0 * s) - 3.0 * s
+		var b1 := b0 + 7.0 * s
+		var off := _g4_hash(int(_t * 9.0), 3) * 5.0 * s
+		for i in range(pts.size() - 1):
+			if pts[i].y >= b0 and pts[i].y <= b1 and pts[i + 1].y >= b0 and pts[i + 1].y <= b1:
+				_hud.draw_line(pts[i] + Vector2(off, 0.0), pts[i + 1] + Vector2(off, 0.0),
+					Color(ncol.r, ncol.g, ncol.b, 0.5), 1.5 * s)
+
+	# ------------------------------------------------------- cursor + integer ladder
+	_g4_dash(Vector2(gx, base_y), Vector2(gx1, base_y),
+		Color(ncol.r, ncol.g, ncol.b, 0.6), 1.0, 2.0 * s, 4.0 * s)
+	_hud.draw_line(Vector2(gx1 - 3.5 * s, base_y), Vector2(gx1, base_y),
+		Color(ncol.r, ncol.g, ncol.b, 0.9), 3.0 * s)
+	# a discrete rung per point, lit from zero out to the current value: the wobble
+	# is the mood, this is the number — you can literally count it
+	for k in range(-5, 6):
+		if k == 0:
+			continue
+		var ry2 := pcy - float(k) * unit
+		var kc: Color = CYAN if k > 0 else RED
+		var lit: bool = (tip > 0 and k > 0 and k <= tip) or (tip < 0 and k < 0 and k >= tip)
+		if lit:
+			_hud.draw_line(Vector2(lx, ry2), Vector2(lx + 7.0 * s, ry2),
+				Color(kc.r, kc.g, kc.b, 0.9), 2.0 * s)
+			_hud.draw_line(Vector2(lx, ry2), Vector2(lx + 7.0 * s, ry2),
+				Color(kc.r, kc.g, kc.b, 0.22), 5.0 * s)
+		else:
+			_hud.draw_line(Vector2(lx + 1.5 * s, ry2), Vector2(lx + 5.5 * s, ry2),
+				Color(kc.r, kc.g, kc.b, 0.6 if absi(k) == 5 else 0.34), 1.0)
+	# the hard marker: a solid head on the analog cursor, so exact value and live
+	# signal are the same object
+	var mk := 4.5 * s
+	_hud.draw_colored_polygon(PackedVector2Array([
+		Vector2(lx + 9.0 * s, base_y - mk), Vector2(lx + 9.0 * s + 6.5 * s, base_y),
+		Vector2(lx + 9.0 * s, base_y + mk)]), ncol)
+
+	# ---------------------------------------------------------------- CRT glass
+	var sy := py0 + 1.0
+	while sy < py1 - 1.0:
+		_hud.draw_line(Vector2(prect.position.x, sy), Vector2(prect.end.x, sy),
+			Color(0, 0, 0, 0.20), 1.0)
+		sy += 3.0 * s
+	# slow hum bar rolling down the tube — low frequency, easy to ignore
+	var hb := py0 + fmod(_t * 0.11, 1.0) * plot_h
+	UITheme.vgrad(_hud, Rect2(prect.position.x, hb - 7.0 * s, prect.size.x, 7.0 * s),
+		Color(0.6, 0.85, 1.0, 0.0), Color(0.6, 0.85, 1.0, 0.035))
+	UITheme.vgrad(_hud, Rect2(prect.position.x, hb, prect.size.x, 9.0 * s),
+		Color(0.6, 0.85, 1.0, 0.035), Color(0.6, 0.85, 1.0, 0.0))
+	_hud.draw_rect(prect, Color(0.35, 0.6, 0.78, 0.17), false, 1.0)
+
+	# ---------------------------------------------------------------- chrome
+	_hud.draw_polyline(_g4_close(bez), Color(0.42, 0.66, 0.82, 0.30), 1.0)
+	_hud.draw_line(Vector2(x0, y0 + cut), Vector2(x0, y0 + cut + 10.0 * s),
+		Color(CYAN.r, CYAN.g, CYAN.b, 0.5), 1.0)
+	_hud.draw_line(Vector2(x0 + cut, y0), Vector2(x0 + cut + 12.0 * s, y0),
+		Color(CYAN.r, CYAN.g, CYAN.b, 0.5), 1.0)
+	_hud.draw_line(Vector2(x0 + bw, y0 + cut), Vector2(x0 + bw, y0 + cut + 10.0 * s),
+		Color(CYAN.r, CYAN.g, CYAN.b, 0.5), 1.0)
+	_hud.draw_line(Vector2(x0 + bw - cut, y0), Vector2(x0 + bw - cut - 12.0 * s, y0),
+		Color(CYAN.r, CYAN.g, CYAN.b, 0.5), 1.0)
+
+	var fsm := _fs(UITheme.FS_MICRO)
+	_hud.draw_string(_font, Vector2(x0 + 7.0 * s, y0 + 10.0 * s), "SIGNAL TRACE",
+		HORIZONTAL_ALIGNMENT_LEFT, 84.0 * s, fsm, Color(0.55, 0.72, 0.88, 0.72))
+	# machine state — HELIOS narrating what it is doing to you
+	var st := "SCANNING"
+	var stc := Color(0.5, 0.62, 0.75, 0.7)
+	if tip >= WIN_TIP:
+		st = "NODE CRACKED"
+		stc = CYAN
+	elif tip <= -WIN_TIP:
+		st = "SIGNAL LOCKED"
+		stc = RED
+	elif tip <= -4:
+		st = "LOCK IMMINENT"
+		stc = Color(RED.r, RED.g, RED.b, 0.5 + 0.5 * pulse)
+	elif tip >= 4:
+		st = "CRACK IMMINENT"
+		stc = Color(CYAN.r, CYAN.g, CYAN.b, 0.5 + 0.5 * pulse)
+	elif tip <= -2:
+		st = "TRACKING"
+		stc = Color(RED.r, RED.g, RED.b, 0.85)
+	elif tip >= 2:
+		st = "BREACHING"
+		stc = Color(CYAN.r, CYAN.g, CYAN.b, 0.85)
+	var stw := 96.0 * s
+	_hud.draw_string(_font, Vector2(x0 + bw - 7.0 * s - stw, y0 + 10.0 * s), st,
+		HORIZONTAL_ALIGNMENT_RIGHT, stw,
+		UITheme.fit_size(_font, st, stw, fsm, UITheme.FS_FLOOR), stc)
+
+	# gutter: the axis is labelled, so a division is a number and not a vibe
+	for k in [5, 0, -5]:
+		var lc := Color(0.6, 0.72, 0.86, 0.55)
+		if k > 0:
+			lc = Color(CYAN.r, CYAN.g, CYAN.b, 0.8)
+		elif k < 0:
+			lc = Color(RED.r, RED.g, RED.b, 0.8)
+		_hud.draw_string(_font, Vector2(gut - 15.0 * s, pcy - float(k) * unit + 3.0 * s),
+			("%+d" % k) if k != 0 else "0", HORIZONTAL_ALIGNMENT_RIGHT, 15.0 * s, fsm, lc)
+
+	# readout column: whose end of the tube is whose, with the value tab between
+	_hud.draw_string(_font, Vector2(colx, py0 + 8.0 * s), "YOU", HORIZONTAL_ALIGNMENT_CENTER,
+		colw, fsm, Color(CYAN.r, CYAN.g, CYAN.b, 0.8))
+	_hud.draw_string(_font, Vector2(colx, py1 - 2.0 * s), "HELIOS", HORIZONTAL_ALIGNMENT_CENTER,
+		colw, fsm, Color(RED.r, RED.g, RED.b, 0.8))
+	_g4_dash(Vector2(colx + colw * 0.5, py0 + 12.0 * s),
+		Vector2(colx + colw * 0.5, py1 - 12.0 * s), Color(0.45, 0.62, 0.78, 0.18),
+		1.0, 2.0 * s, 3.0 * s)
+
+	var tw := 42.0 * s
+	var th := 24.0 * s
+	var tx := colx + (colw - tw) * 0.5
+	var ty := clampf(base_y - th * 0.5, py0 + 12.0 * s, py1 - th - 12.0 * s)
+	var trec := Rect2(tx, ty, tw, th)
+	_hud.draw_line(Vector2(sx1 - 1.0 * s, base_y),
+		Vector2(tx, clampf(base_y, ty + 4.0 * s, ty + th - 4.0 * s)),
+		Color(ncol.r, ncol.g, ncol.b, 0.55), 1.0)
+	var tp := _g4_bez(trec, 5.0 * s)
+	UITheme.vgrad_poly(_hud, tp, Color(UITheme.HULL_HI, 0.98), Color(UITheme.HULL, 0.99))
+	_hud.draw_polyline(_g4_close(tp), Color(ncol.r, ncol.g, ncol.b, 0.55), 1.0)
+	_hud.draw_line(Vector2(tx + 1.5 * s, ty + 5.0 * s), Vector2(tx + 1.5 * s, ty + th - 5.0 * s),
+		Color(ncol.r, ncol.g, ncol.b, 0.9), 2.0 * s)
+	var big := _fs(UITheme.FS_DISPLAY)
+	_hud.draw_string(_font, Vector2(tx + 3.0 * s, ty + th * 0.5 + big * 0.37), "%+d" % tip,
+		HORIZONTAL_ALIGNMENT_CENTER, tw - 6.0 * s, big, ncol)
+
+	# footer: the two numbers the player actually plans with
+	var fy := py1 + 9.0 * s
+	if absi(tip) >= WIN_TIP:
+		var fw := "NODE CRACKED" if tip > 0 else "TRACE COMPLETE - RUN LOST"
+		_hud.draw_string(_font, Vector2(x0, fy), fw, HORIZONTAL_ALIGNMENT_CENTER, bw,
+			UITheme.fit_size(_font, fw, bw - 12.0 * s, fsm, UITheme.FS_FLOOR),
+			Color(ncol.r, ncol.g, ncol.b, 0.6 + 0.4 * pulse))
+	else:
+		var dl := tip + WIN_TIP
+		var dc := WIN_TIP - tip
+		_hud.draw_string(_font, Vector2(x0 + 7.0 * s, fy), "LOCK IN %d" % dl,
+			HORIZONTAL_ALIGNMENT_LEFT, 80.0 * s, fsm,
+			Color(RED.r, RED.g, RED.b, 0.95 if dl <= 2 else 0.55))
+		_hud.draw_string(_font, Vector2(x0 + bw - 87.0 * s, fy), "CRACK IN %d" % dc,
+			HORIZONTAL_ALIGNMENT_RIGHT, 80.0 * s, fsm,
+			Color(CYAN.r, CYAN.g, CYAN.b, 0.95 if dc <= 2 else 0.55))
 
 func _hud_text(vp: Vector2, s: float) -> void:
 	# top chrome: a graded strip that fades into the room instead of a flat black slab,
